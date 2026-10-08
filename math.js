@@ -332,13 +332,8 @@ export class MathSystem {
   }
 
   computeTransforms() {
-    // 1. Primary Mobius M
+    // 1. Primary Mobius M (preserves exact base coefficients without normalized scaling)
     const m = new MobiusTransform(this.a.clone(), this.b.clone(), this.c.clone(), this.d.clone());
-    m.normalize();
-    this.a = m.a;
-    this.b = m.b;
-    this.c = m.c;
-    this.d = m.d;
 
     // 2. Inverse Mobius M_inv = [d, -b; -c, a]
     this.invA = this.d.clone();
@@ -348,7 +343,6 @@ export class MathSystem {
 
     // 3. Second iterate M^2 = M o M
     const m2 = m.compose(m);
-    m2.normalize();
     this.a2 = m2.a;
     this.b2 = m2.b;
     this.c2 = m2.c;

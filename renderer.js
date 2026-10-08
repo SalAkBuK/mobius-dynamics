@@ -384,41 +384,41 @@ export class MobiusRenderer {
 
         // Extended dynamic range photographic logarithmic tonemapper
         // Retains filament striations even at massive density, prevents clipping to solid white bands
-        float alpha = 0.85;
+        float alpha = 1.35;
         float logD = log(1.0 + density * alpha);
-        float norm = logD / (1.0 + logD * 0.22);
-        norm = clamp(norm * 0.46, 0.0, 1.25);
+        float norm = logD / (1.0 + logD * 0.20);
+        norm = clamp(norm * 0.50, 0.0, 1.30);
         // Elevate faint outer filaments with toe power curve (retains pitch-black at 0, lifts faint outer loops)
-        norm = pow(norm, 0.82);
+        norm = pow(norm, 0.76);
 
         // Required Color Hierarchy from reference:
         // Background: pitch black with subtle blue-black bias (#010307)
         vec3 col_bg = vec3(0.004, 0.010, 0.022);
         // Deep midnight cobalt for outer atmosphere (#05112a)
-        vec3 col_midnight = vec3(0.025, 0.075, 0.200);
+        vec3 col_midnight = vec3(0.025, 0.080, 0.240);
         // Cerulean / electric blue for mid filaments (#1468d6)
-        vec3 col_electric = vec3(0.080, 0.420, 0.920);
+        vec3 col_electric = vec3(0.080, 0.440, 0.940);
         // Delicate icy blue (#92d8ff)
-        vec3 col_icy = vec3(0.620, 0.880, 1.000);
+        vec3 col_icy = vec3(0.650, 0.900, 1.000);
         // Brilliant caustic white (#ffffff)
         vec3 col_white = vec3(1.0, 1.0, 1.0);
 
         vec3 c = col_bg;
-        if (norm < 0.04) {
-          float t = norm / 0.04;
+        if (norm < 0.03) {
+          float t = norm / 0.03;
           // Smooth fade into midnight cobalt reveals the faint outer atmosphere
           c = mix(col_bg, col_midnight, t);
-        } else if (norm < 0.38) {
-          float t = (norm - 0.04) / 0.34;
-          c = mix(col_midnight, col_electric, smoothstep(0.0, 1.0, t));
-        } else if (norm < 0.78) {
-          float t = (norm - 0.38) / 0.40;
+        } else if (norm < 0.32) {
+          float t = (norm - 0.03) / 0.29;
+          c = mix(col_midnight, col_electric, pow(t, 0.85));
+        } else if (norm < 0.74) {
+          float t = (norm - 0.32) / 0.42;
           c = mix(col_electric, col_icy, smoothstep(0.0, 1.0, t));
         } else {
           // Soft asymptotic shoulder: dense regions remain intricate instead of clipping into solid white
-          float t = clamp((norm - 0.78) / 0.22, 0.0, 1.0);
+          float t = clamp((norm - 0.74) / 0.24, 0.0, 1.0);
           t = t * t * (3.0 - 2.0 * t);
-          c = mix(col_icy, col_white, t * 0.88); // Retain icy filament linework at peak
+          c = mix(col_icy, col_white, t * 0.92); // Retain icy filament linework at peak
         }
 
         // Secondary Ethereal Bloom (Mode 0 only)
@@ -853,8 +853,8 @@ export class MobiusRenderer {
       // 2. Stationary paused (drift stopped): pristine photographic integration
       targetPersistence = 1.0;
     } else {
-      // 3. Autonomous coefficient drift active:
-      targetPersistence = 0.9998;
+      // 3. Autonomous coefficient drift active (p=0.9985 prevents chaotic motion haze):
+      targetPersistence = 0.9985;
     }
     this.currentPersistence += (targetPersistence - this.currentPersistence) * Math.min(1.0, dt * 4.0);
 

@@ -356,6 +356,9 @@ class App {
     const btn = document.getElementById('btn-pause');
     btn.innerText = this.math.evolving ? 'Pause' : 'Resume';
     btn.classList.toggle('active', !this.math.evolving);
+    if (!this.math.evolving) {
+      this.renderer.clearAccumulation();
+    }
   }
 
   resetView() {
