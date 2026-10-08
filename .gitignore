@@ -23,3 +23,5 @@ visual_detail_audit/
 test_out.txt
 *.json
 !vercel.json
+
+.vercel

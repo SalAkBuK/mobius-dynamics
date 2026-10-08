@@ -259,6 +259,109 @@
         statePreservedOnResume: true
       };
 
+      log("9. Testing High-End Tiers: HIGH (250k x 8), ULTRA (400k x 10), EXTREME (589k x 12)...");
+      // HIGH tier
+      renderer.adaptive.setMode('high');
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      const highW = renderer.adaptive.getWorkload(1.65);
+
+      // ULTRA tier
+      renderer.adaptive.setMode('ultra');
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      const ultraW = renderer.adaptive.getWorkload(1.65);
+
+      // EXTREME tier
+      renderer.adaptive.setMode('extreme');
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      const extremeW = renderer.adaptive.getWorkload(1.65);
+
+      results.highEndTiers = {
+        high: {
+          particles: highW.particles,
+          steps: highW.steps,
+          deposits: highW.deposits,
+          correct: highW.particles === 250000 && highW.steps === 8 && highW.deposits === 2000000
+        },
+        ultra: {
+          particles: ultraW.particles,
+          steps: ultraW.steps,
+          deposits: ultraW.deposits,
+          correct: ultraW.particles === 400000 && ultraW.steps === 10 && ultraW.deposits === 4000000
+        },
+        extreme: {
+          particles: extremeW.particles,
+          steps: extremeW.steps,
+          deposits: extremeW.deposits,
+          correct: extremeW.particles === 589824 && extremeW.steps === 12 && extremeW.deposits === 7077888
+        },
+        noVboRealloc: renderer.numParticles <= renderer.maxParticleCapacity
+      };
+
+      log("10. Testing Manual BRUTE FORCE Mode (589,824 x 16 = 9,437,184 deposits)...");
+      renderer.adaptive.setMode('bruteforce');
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      const bfWorkload = renderer.adaptive.getWorkload(1.65);
+
+      // Verify BRUTE FORCE bypasses interaction and deep zoom reductions
+      renderer.adaptive.markInteraction();
+      const bfInteractWorkload = renderer.adaptive.getWorkload(1.65);
+      const bfDeepZoomWorkload = renderer.adaptive.getWorkload(200.0);
+
+      results.bruteForceMode = {
+        tierKey: renderer.adaptive.currentTierKey,
+        particles: bfWorkload.particles,
+        steps: bfWorkload.steps,
+        deposits: bfWorkload.deposits,
+        exactDepositTarget: bfWorkload.deposits === 9437184,
+        bypassesInteractionReduction: bfInteractWorkload.particles === 589824 && bfInteractWorkload.steps === 16,
+        bypassesDeepZoomReduction: bfDeepZoomWorkload.particles === 589824 && bfDeepZoomWorkload.steps === 16,
+        reusedPreallocatedVbo: renderer.numParticles <= renderer.maxParticleCapacity
+      };
+
+      log("11. Testing Empirical Promotion & Validation Rollback Logic...");
+      // Simulate empirical promotion from STANDARD to HIGH
+      renderer.adaptive.setMode('auto');
+      renderer.adaptive.currentTierKey = 'STANDARD';
+      renderer.adaptive.currentTier = QUALITY_TIERS.STANDARD;
+      renderer.adaptive.hasMeasuredGpu = true;
+      renderer.adaptive.gpuEma = 4.5; // Sustained headroom below 7.0ms
+      renderer.adaptive.cooldownFrames = 0;
+      renderer.adaptive.isInteracting = false;
+
+      for (let f = 0; f < 100; f++) {
+        renderer.adaptive.evaluateAdaptation();
+      }
+      const promotedTier = renderer.adaptive.currentTierKey;
+      const isValidating = renderer.adaptive.validationState.active;
+
+      // Simulate over-budget validation failure at HIGH tier
+      renderer.adaptive.gpuEma = 15.5; // Exceeds 13.8ms safe budget
+      for (let f = 0; f < 25; f++) {
+        renderer.adaptive.evaluateAdaptation();
+      }
+      const rolledBackTier = renderer.adaptive.currentTierKey;
+      const isTierBlocked = renderer.adaptive.blockedTiers['HIGH'] === true;
+
+      // Simulate anti-oscillation: headroom returns, but HIGH is blocked
+      renderer.adaptive.gpuEma = 4.5;
+      renderer.adaptive.cooldownFrames = 0;
+      for (let f = 0; f < 110; f++) {
+        renderer.adaptive.evaluateAdaptation();
+      }
+      const antiOscillationTier = renderer.adaptive.currentTierKey;
+
+      results.promotionValidation = {
+        promotedToHigh: promotedTier === 'HIGH',
+        validationActiveOnPromotion: isValidating,
+        rolledBackToStandard: rolledBackTier === 'STANDARD',
+        hysteresisTierBlocked: isTierBlocked,
+        antiOscillationPreserved: antiOscillationTier === 'STANDARD'
+      };
+
       log("Verification complete! Transmitting report...");
       await fetch('/test_report', {
         method: 'POST',

@@ -25,6 +25,8 @@ class App {
     this.coeffDrawer = document.getElementById('coeff-drawer');
 
     // Debug fields
+    this.dbgMode = document.getElementById('dbg-mode');
+    this.dbgBruteBanner = document.getElementById('dbg-brute-banner');
     this.dbgTier = document.getElementById('dbg-tier');
     this.dbgBudget = document.getElementById('dbg-budget');
     this.dbgHeadroom = document.getElementById('dbg-headroom');
@@ -235,6 +237,12 @@ class App {
         this.toggleReadout();
       } else if (key === 'p') {
         this.toggleCoeffDrawer();
+      } else if (key === 'x') {
+        const next = this.renderer.adaptive.mode === 'bruteforce' ? 'auto' : 'bruteforce';
+        this.renderer.adaptive.setMode(next);
+        const qualityBtns = document.querySelectorAll('.quality-btn');
+        qualityBtns.forEach((b) => b.classList.toggle('active', b.dataset.tier === next));
+        this.onResize();
       }
     });
   }
@@ -486,16 +494,48 @@ class App {
     if (this.debugMode) {
       const m = this.renderer.profiler.metrics;
       const status = this.renderer.adaptive.getStatus();
+      const isBrute = status.mode === 'bruteforce' || status.tierKey === 'BRUTEFORCE';
 
-      if (this.dbgTier) this.dbgTier.innerText = status.tierDisplay;
-      if (this.dbgParticles) this.dbgParticles.innerText = `${this.renderer.numParticles.toLocaleString()} trajectories`;
-      if (this.dbgSteps) this.dbgSteps.innerText = `${this.renderer.stepsPerFrame}`;
-      if (this.dbgIters) this.dbgIters.innerText = `${(this.renderer.numParticles * this.renderer.stepsPerFrame).toLocaleString()}`;
-      if (this.dbgBudget) this.dbgBudget.innerText = `${status.targetBudgetMs.toFixed(1)} ms`;
-      if (this.dbgHeadroom) this.dbgHeadroom.innerText = status.headroomPercent !== null ? `${status.headroomPercent}%` : '--%';
-      if (this.dbgFps) this.dbgFps.innerText = `${m.fps} FPS (${m.fps1Low} 1% low) [${this.refreshRate}Hz display]`;
-      if (this.dbgFrameTime) this.dbgFrameTime.innerText = `${m.frameMs.toFixed(1)} ms`;
-      if (this.dbgCpu) this.dbgCpu.innerText = `${m.cpuMs.toFixed(2)} ms (JS: ${m.jsUpdateMs.toFixed(2)}ms)`;
+      if (this.dbgBruteBanner) {
+        this.dbgBruteBanner.style.display = isBrute ? 'block' : 'none';
+      }
+      if (this.dbgMode) this.dbgMode.innerText = status.modeDisplay;
+      if (this.dbgTier) {
+        if (isBrute) {
+          this.dbgTier.innerHTML = '<span style="color:#ff5577;font-weight:bold;">BRUTE FORCE</span>';
+        } else {
+          this.dbgTier.innerText = status.tierDisplay;
+        }
+      }
+      if (this.dbgParticles) {
+        this.dbgParticles.innerText = isBrute
+          ? '589,824'
+          : `${this.renderer.numParticles.toLocaleString()}`;
+      }
+      if (this.dbgSteps) {
+        this.dbgSteps.innerText = `${this.renderer.stepsPerFrame}`;
+      }
+      if (this.dbgIters) {
+        const deposits = this.renderer.numParticles * this.renderer.stepsPerFrame;
+        this.dbgIters.innerText = isBrute
+          ? '9,437,184 deposits/frame'
+          : `${deposits.toLocaleString()} deposits/frame`;
+      }
+      if (this.dbgBudget) {
+        this.dbgBudget.innerText = isBrute ? 'Enthusiast (Unbounded)' : `${status.targetBudgetMs.toFixed(1)} ms`;
+      }
+      if (this.dbgHeadroom) {
+        this.dbgHeadroom.innerText = status.headroomPercent !== null ? `${status.headroomPercent}%` : '--%';
+      }
+      if (this.dbgFps) {
+        this.dbgFps.innerText = `${m.fps} FPS (${m.fps1Low} 1% low) [${this.refreshRate}Hz display]`;
+      }
+      if (this.dbgFrameTime) {
+        this.dbgFrameTime.innerText = `${m.frameMs.toFixed(1)} ms`;
+      }
+      if (this.dbgCpu) {
+        this.dbgCpu.innerText = `${m.cpuMs.toFixed(2)} ms (JS: ${m.jsUpdateMs.toFixed(2)}ms)`;
+      }
 
       if (status.gpuEma !== null) {
         if (this.dbgGpu) this.dbgGpu.innerText = `${status.gpuEma.toFixed(2)} ms (EMA)`;
