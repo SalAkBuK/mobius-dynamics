@@ -128,13 +128,13 @@ export class MobiusTransform {
 export const MORPHOLOGIES = {
   lace: {
     key: 'lace',
-    name: 'Orbital Lace',
-    description: 'Thin loops, strong void, delicate nested filaments',
+    name: 'Simone Conradi (Orbital Lace)',
+    description: 'Exact Simone Conradi 2026 Mobius attractor with pristine 16-fold rosette',
     n: 16,
-    a: new Complex(-0.720, 0.380),
-    b: new Complex(-0.390, 0.015),
-    c: new Complex(7.150, 0.950),
-    d: new Complex(1.680, 0.760)
+    a: new Complex(-0.755, 0.330),
+    b: new Complex(-0.376, 0.026),
+    c: new Complex(6.401, 0.803),
+    d: new Complex(1.520, 0.840)
   },
   knot: {
     key: 'knot',
@@ -185,10 +185,10 @@ export const MORPHOLOGIES = {
  */
 export class MathSystem {
   constructor() {
-    this.n = 12;
-    this.activeMorphology = 'specimen';
+    this.n = 16;
+    this.activeMorphology = 'lace';
 
-    // Mathematical base coefficients generating authentic Mobius IFS attractor:
+    // Mathematical base coefficients generating authentic Mobius IFS attractor (Simone Conradi, 2026):
     this.baseA = new Complex(-0.755, 0.330);
     this.baseB = new Complex(-0.376, 0.026);
     this.baseC = new Complex(6.401, 0.803);
@@ -249,42 +249,6 @@ export class MathSystem {
 
   setSymmetry(n) {
     this.n = n;
-    // Map order n to the mathematically richest morphology discovered
-    if (n === 8) {
-      this.activeMorphology = 'knot';
-      const m = MORPHOLOGIES.knot;
-      this.baseA = m.a.clone();
-      this.baseB = m.b.clone();
-      this.baseC = m.c.clone();
-      this.baseD = m.d.clone();
-    } else if (n === 24 || n === 32) {
-      this.activeMorphology = 'storm';
-      const m = MORPHOLOGIES.storm;
-      this.baseA = m.a.clone();
-      this.baseB = m.b.clone();
-      this.baseC = m.c.clone();
-      this.baseD = m.d.clone();
-    } else if (n === 16) {
-      this.activeMorphology = 'lace';
-      const m = MORPHOLOGIES.lace;
-      this.baseA = m.a.clone();
-      this.baseB = m.b.clone();
-      this.baseC = m.c.clone();
-      this.baseD = m.d.clone();
-    } else if (n === 12) {
-      this.activeMorphology = 'specimen';
-      const m = MORPHOLOGIES.specimen;
-      this.baseA = m.a.clone();
-      this.baseB = m.b.clone();
-      this.baseC = m.c.clone();
-      this.baseD = m.d.clone();
-    } else {
-      this.activeMorphology = 'custom';
-      this.baseA = new Complex(-0.755, 0.330);
-      this.baseB = new Complex(-0.376, 0.026);
-      this.baseC = new Complex(6.401, 0.803);
-      this.baseD = new Complex(1.520, 0.840);
-    }
     this.updateRootsOfUnity();
     this.computeTransforms();
   }
@@ -329,18 +293,20 @@ export class MathSystem {
 
     // Autonomous multi-frequency drift (subtle topological evolution)
     // At deep zoom, damp drift so microscopic trajectory caustics remain crisp rather than motion-blurred
+    // When paused (evolving == false), drift scale is strictly 0.0 so autonomous motion blur is eliminated
     const zoomDamp = 1.0 / (1.0 + 0.40 * Math.log2(Math.max(1.0, zoom / 1.65)));
+    const driftScale = this.evolving ? zoomDamp : 0.0;
     const t = this.time;
     const f = this.driftFreqs;
 
-    const driftAr = 0.015 * Math.sin(t * f[0]) * zoomDamp;
-    const driftAi = 0.015 * Math.cos(t * f[1]) * zoomDamp;
-    const driftBr = 0.010 * Math.cos(t * f[2]) * zoomDamp;
-    const driftBi = 0.010 * Math.sin(t * f[0] * 1.3) * zoomDamp;
-    const driftCr = 0.065 * Math.sin(t * f[3]) * zoomDamp;
-    const driftCi = 0.065 * Math.cos(t * f[2] * 0.9) * zoomDamp;
-    const driftDr = 0.022 * Math.cos(t * f[1] * 1.1) * zoomDamp;
-    const driftDi = 0.022 * Math.sin(t * f[3]) * zoomDamp;
+    const driftAr = 0.015 * Math.sin(t * f[0]) * driftScale;
+    const driftAi = 0.015 * Math.sin(t * f[1]) * driftScale;
+    const driftBr = 0.010 * Math.sin(t * f[2]) * driftScale;
+    const driftBi = 0.010 * Math.sin(t * f[0] * 1.3) * driftScale;
+    const driftCr = 0.065 * Math.sin(t * f[3]) * driftScale;
+    const driftCi = 0.065 * Math.sin(t * f[2] * 0.9) * driftScale;
+    const driftDr = 0.022 * Math.sin(t * f[1] * 1.1) * driftScale;
+    const driftDi = 0.022 * Math.sin(t * f[3]) * driftScale;
 
     // Shock disturbance vector
     const shockR = Math.cos(this.shockPhase) * this.shockMag * 0.16;
