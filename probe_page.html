@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="c"></canvas>
+<div id="info"></div>
+<script>
+window.onload = function() {
+    const gl = document.getElementById("c").getContext("webgl2");
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "unknown";
+    const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : "unknown";
+    const timerExt = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+    const exts = gl.getSupportedExtensions();
+    document.getElementById("info").innerText = JSON.stringify({
+        renderer: renderer,
+        vendor: vendor,
+        timerExt: !!timerExt,
+        extensions: exts
+    });
+};
+</script>
+</body>
+</html>

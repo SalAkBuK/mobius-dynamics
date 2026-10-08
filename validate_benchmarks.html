@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body { margin: 0; background: #010307; color: #8da4c4; font-family: monospace; }
+canvas { width: 1200px; height: 800px; display: block; }
+#status { position: absolute; top: 10px; left: 10px; font-size: 14px; background: rgba(0,0,0,0.85); padding: 8px; border: 1px solid #224477; }
+</style>
+</head>
+<body>
+<div id="status">Initializing benchmark validation pass...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+  
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.evolving = false; // Frozen drift for controlled deterministic integration comparison
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0;
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+  renderer.currentPersistence = 1.0; // Perfect pure photon accumulation
+
+  const modes = [
+    { name: 'ULTRA', particles: 589824, steps: 16 },
+    { name: 'HIGH', particles: 300000, steps: 12 },
+    { name: 'MEDIUM', particles: 150000, steps: 8 },
+    { name: 'LOW', particles: 75000, steps: 8 },
+    { name: 'POTATO', particles: 40000, steps: 4 }
+  ];
+
+  const targetTimesSec = [0.5, 1.0, 3.0, 5.0, 10.0];
+  const results = {};
+
+  for (const mode of modes) {
+    statusEl.innerText = `Preparing mode ${mode.name} (${mode.particles.toLocaleString()} pts, ${mode.steps} steps)...`;
+    renderer.setParticleCount(mode.particles);
+    renderer.setStepsOverride(mode.steps);
+    renderer.clearAccumulation();
+
+    // Warmup 5 initial trajectory seed steps so attractor is populated
+    for (let w = 0; w < 5; w++) {
+      renderer.render(math, 0.016);
+    }
+    renderer.clearAccumulation();
+    renderer.gl.finish();
+
+    results[mode.name] = [];
+
+    // Run progressive accumulation driven by real wall-clock elapsed time via requestAnimationFrame
+    await new Promise(resolve => {
+      let frameCount = 0;
+      let nextTargetIdx = 0;
+      const startTime = performance.now();
+
+      function onFrame(now) {
+        // Render one full frame
+        renderer.render(math, 0.016);
+        frameCount++;
+
+        const elapsedMs = performance.now() - startTime;
+        const currentTargetSec = targetTimesSec[nextTargetIdx];
+
+        if (elapsedMs >= currentTargetSec * 1000) {
+          renderer.gl.finish();
+          const dataUrl = canvas.toDataURL('image/png');
+          const theoreticalFrames = Math.round(currentTargetSec * 60);
+
+          results[mode.name].push({
+            targetSec: currentTargetSec,
+            actualElapsedMs: elapsedMs,
+            completedFrames: frameCount,
+            actualPhotons: mode.particles * mode.steps * frameCount,
+            theoretical60FpsFrames: theoreticalFrames,
+            theoretical60FpsPhotons: mode.particles * mode.steps * theoreticalFrames,
+            effectiveFps: (frameCount * 1000) / elapsedMs,
+            dataUrl: dataUrl
+          });
+
+          statusEl.innerText = `Mode ${mode.name}: checkpoint ${currentTargetSec}s completed (${frameCount} frames in ${(elapsedMs/1000).toFixed(2)}s)`;
+          nextTargetIdx++;
+
+          if (nextTargetIdx >= targetTimesSec.length) {
+            resolve();
+            return;
+          }
+        }
+
+        requestAnimationFrame(onFrame);
+      }
+
+      requestAnimationFrame(onFrame);
+    });
+  }
+
+  statusEl.innerText = "Reporting validation results...";
+  await fetch('/validation_report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(results)
+  });
+  statusEl.innerText = "Validation pass complete!";
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Drift-Aware Persistence Experiment Harness</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 1200px; height: 800px; overflow: hidden; background: #010307; font-family: monospace; }
+  canvas { width: 1200px; height: 800px; display: block; }
+  #status { position: absolute; top: 10px; left: 10px; font-size: 13px; background: rgba(0,0,0,0.85); color: #8da4c4; padding: 8px 12px; border: 1px solid #224477; border-radius: 4px; z-index: 100; }
+</style>
+</head>
+<body>
+<div id="status">Initializing Drift-Aware Persistence Experiment Suite...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(r));
+}
+
+let activePersistence = 0.9990;
+
+async function uploadCheckpoint(renderer, canvas, math, name, meta = {}) {
+  // Synchronously draw current accumulation state to canvas default FBO
+  renderer.render(math, 0.0);
+  renderer.gl.finish();
+  const dataUrl = canvas.toDataURL('image/png');
+  await fetch('/save_checkpoint', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, dataUrl, meta })
+  });
+}
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+
+  // CRITICAL: Request WebGL2 context with preserveDrawingBuffer: true BEFORE MobiusRenderer initialization
+  const rawGl = canvas.getContext('webgl2', {
+    preserveDrawingBuffer: true,
+    alpha: false,
+    antialias: false,
+    depth: false,
+    stencil: false,
+    powerPreference: 'high-performance'
+  });
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.adaptive.getDpr = () => 1.0;
+  renderer.resize(1200, 800);
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0;
+  renderer.setParticleCount(150000);
+  renderer.setStepsOverride(8);
+
+  const gl = renderer.gl;
+  const extTimer = renderer.profiler.ext;
+
+  // STRICT PERSISTENCE ENFORCEMENT HOOK:
+  const origUniform1f = gl.uniform1f.bind(gl);
+  gl.uniform1f = function(loc, val) {
+    if (loc === renderer.decayUniforms.persistence) {
+      return origUniform1f(loc, activePersistence);
+    }
+    return origUniform1f(loc, val);
+  };
+
+  const origRender = renderer.render.bind(renderer);
+  renderer.render = function(m, dt, jsTime) {
+    if (m) m.evolving = true; // Prevent renderer.js line 842 from forcing targetPersistence = 1.0
+    this.currentPersistence = activePersistence;
+    const res = origRender(m, dt, jsTime);
+    this.currentPersistence = activePersistence;
+    return res;
+  };
+
+  // Measure GPU frame time via WebGL2 disjoint timer queries
+  async function measureGpuFrameTime(math) {
+    let measuredGpuMs = null;
+    if (extTimer) {
+      const qTimes = [];
+      for (let qf = 0; qf < 6; qf++) {
+        const q = gl.createQuery();
+        gl.beginQuery(extTimer.TIME_ELAPSED_EXT, q);
+        renderer.render(math, 0.016);
+        gl.endQuery(extTimer.TIME_ELAPSED_EXT);
+        gl.flush();
+
+        for (let poll = 0; poll < 100; poll++) {
+          await new Promise(r => setTimeout(r, 4));
+          if (gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) {
+            qTimes.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6);
+            break;
+          }
+        }
+        gl.deleteQuery(q);
+      }
+      if (qTimes.length > 0) {
+        measuredGpuMs = qTimes.reduce((a, b) => a + b, 0) / qTimes.length;
+      }
+    }
+    return measuredGpuMs;
+  }
+
+  const experimentResults = {
+    stationary: {},
+    drift: {},
+    interaction: {}
+  };
+
+  // =========================================================================
+  // SUITE 1: TRULY STATIONARY STATE (Temporal Drift Frozen, t = 0)
+  // Candidate B (p = 0.9990) vs Candidate C (p = 0.99925)
+  // Checkpoints: 10s (600f), 20s (1200f), 30s (1800f)
+  // =========================================================================
+  const statRuns = [
+    { id: 'stat_cand_B', label: 'Candidate B (p=0.9990 Stationary)', p: 0.9990 },
+    { id: 'stat_cand_C', label: 'Candidate C (p=0.99925 Stationary)', p: 0.99925 }
+  ];
+
+  for (const run of statRuns) {
+    statusEl.innerText = `[SUITE 1] Preparing Stationary Workload: ${run.label}...`;
+    activePersistence = run.p;
+
+    const math = new MathSystem();
+    math.setMorphology('lace');
+    math.setSymmetry(16);
+    math.update(0.0, 1.65);
+    math.evolving = false;
+    math.update = function() {}; // Freeze temporal drift completely
+
+    renderer.clearAccumulation();
+
+    // Warmup 20 frames
+    for (let w = 0; w < 20; w++) {
+      renderer.render(math, 0.016);
+      await nextFrame();
+    }
+    renderer.clearAccumulation();
+    gl.finish();
+
+    const measuredGpuMs = await measureGpuFrameTime(math);
+    renderer.clearAccumulation();
+    gl.finish();
+
+    experimentResults.stationary[run.id] = {
+      label: run.label,
+      targetPersistence: run.p,
+      measuredGpuMs: measuredGpuMs,
+      checkpoints: {}
+    };
+
+    const checkpoints = [10, 20, 30];
+    let frame = 0;
+
+    for (const sec of checkpoints) {
+      const targetFrames = sec * 60;
+      while (frame < targetFrames) {
+        const batch = Math.min(15, targetFrames - frame);
+        for (let b = 0; b < batch; b++) {
+          renderer.render(math, 0.016);
+        }
+        frame += batch;
+        statusEl.innerText = `[SUITE 1: ${run.label}] Accumulating frame ${frame}/${targetFrames}...`;
+        await nextFrame();
+      }
+      gl.finish();
+
+      const meta = {
+        suite: 'stationary',
+        runId: run.id,
+        label: run.label,
+        targetSec: sec,
+        frames: frame,
+        persistence: run.p,
+        measuredGpuMs: measuredGpuMs,
+        presentationFps: 60.0
+      };
+      experimentResults.stationary[run.id].checkpoints[sec] = meta;
+      await uploadCheckpoint(renderer, canvas, math, `${run.id}_${sec}s_full`, meta);
+    }
+  }
+
+  // =========================================================================
+  // SUITE 2: AUTONOMOUS DRIFT ACTIVE (math.evolving = true)
+  // Comparing:
+  // - Candidate B (p = 0.9990)
+  // - Candidate C1 (Drift-Aware, Drift = 0.9985)
+  // - Candidate C2 (Drift-Aware, Drift = 0.9990)
+  // - Unmitigated Candidate C (p = 0.99925)
+  // Checkpoints: 10s (600f), 20s (1200f), 30s (1800f)
+  // =========================================================================
+  const driftRuns = [
+    { id: 'drift_cand_B', label: 'Candidate B (Drift p=0.9990)', p: 0.9990 },
+    { id: 'drift_cand_C1', label: 'Candidate C1 (Drift-Aware p=0.9985)', p: 0.9985 },
+    { id: 'drift_cand_C2', label: 'Candidate C2 (Drift-Aware p=0.9990)', p: 0.9990 },
+    { id: 'drift_unmitigated_C', label: 'Unmitigated C (Drift p=0.99925)', p: 0.99925 }
+  ];
+
+  for (const run of driftRuns) {
+    statusEl.innerText = `[SUITE 2] Preparing Autonomous Drift Workload: ${run.label}...`;
+    activePersistence = run.p;
+
+    const math = new MathSystem();
+    math.setMorphology('lace');
+    math.setSymmetry(16);
+    math.evolving = true;
+    math.time = 0.0;
+    math.update(0.0, 1.65);
+
+    renderer.clearAccumulation();
+
+    // Warmup 20 frames at t=0
+    for (let w = 0; w < 20; w++) {
+      renderer.render(math, 0.016);
+      await nextFrame();
+    }
+    renderer.clearAccumulation();
+    math.time = 0.0;
+    gl.finish();
+
+    const measuredGpuMs = await measureGpuFrameTime(math);
+    renderer.clearAccumulation();
+    math.time = 0.0;
+    gl.finish();
+
+    experimentResults.drift[run.id] = {
+      label: run.label,
+      driftPersistence: run.p,
+      measuredGpuMs: measuredGpuMs,
+      checkpoints: {}
+    };
+
+    const checkpoints = [10, 20, 30];
+    let frame = 0;
+
+    for (const sec of checkpoints) {
+      const targetFrames = sec * 60;
+      while (frame < targetFrames) {
+        const batch = Math.min(15, targetFrames - frame);
+        for (let b = 0; b < batch; b++) {
+          math.update(0.016, 1.65);
+          renderer.render(math, 0.016);
+        }
+        frame += batch;
+        statusEl.innerText = `[SUITE 2: ${run.label}] Drifting frame ${frame}/${targetFrames} (t=${(math.time).toFixed(1)}s)...`;
+        await nextFrame();
+      }
+      gl.finish();
+
+      const meta = {
+        suite: 'drift',
+        runId: run.id,
+        label: run.label,
+        targetSec: sec,
+        frames: frame,
+        simulatedSec: math.time,
+        persistence: run.p,
+        measuredGpuMs: measuredGpuMs,
+        presentationFps: 60.0
+      };
+      experimentResults.drift[run.id].checkpoints[sec] = meta;
+      await uploadCheckpoint(renderer, canvas, math, `${run.id}_${sec}s_full`, meta);
+    }
+  }
+
+  // =========================================================================
+  // SUITE 3: USER INTERACTION ACTIVE, DIMMING & POST-RELEASE RECOVERY
+  // Paths:
+  // 1. Candidate B: p_active = 0.93 -> ramp to 0.9990
+  // 2. Candidate B (alt): p_active = 0.95 -> ramp to 0.9990
+  // 3. Candidate C (C1/C2): p_active = 0.93 -> ramp to 0.99925
+  // 4. Candidate C (alt): p_active = 0.95 -> ramp to 0.99925
+  // =========================================================================
+  const interactRuns = [
+    { id: 'interact_cand_B_p93', label: 'Candidate B (Active p=0.93 -> Idle 0.9990)', pActive: 0.93, pIdle: 0.9990 },
+    { id: 'interact_cand_B_p95', label: 'Candidate B (Active p=0.95 -> Idle 0.9990)', pActive: 0.95, pIdle: 0.9990 },
+    { id: 'interact_cand_C_p93', label: 'Candidate C (Active p=0.93 -> Idle 0.99925)', pActive: 0.93, pIdle: 0.99925 },
+    { id: 'interact_cand_C_p95', label: 'Candidate C (Active p=0.95 -> Idle 0.99925)', pActive: 0.95, pIdle: 0.99925 }
+  ];
+
+  for (const run of interactRuns) {
+    statusEl.innerText = `[SUITE 3] Preparing Interaction Workload: ${run.label}...`;
+
+    const math = new MathSystem();
+    math.setMorphology('lace');
+    math.setSymmetry(16);
+    math.setPointer(0.0, 0.0);
+    math.update(0.0, 1.65);
+    math.evolving = false;
+    math.update = function() {}; // static pre-accumulation
+
+    activePersistence = run.pIdle;
+    renderer.clearAccumulation();
+
+    // 1. Pre-accumulate 15 seconds stationary (900 frames) at idle persistence
+    const baseFrames = 900;
+    for (let f = 0; f < baseFrames; f += 20) {
+      for (let b = 0; b < 20; b++) {
+        renderer.render(math, 0.016);
+      }
+      statusEl.innerText = `[SUITE 3: ${run.label}] Pre-accumulating baseline 15s (${f}/900 frames)...`;
+      await nextFrame();
+    }
+    gl.finish();
+
+    // Checkpoint 0: Pre-interaction baseline
+    const metaBase = {
+      suite: 'interaction',
+      runId: run.id,
+      label: run.label,
+      phase: 'baseline_15s',
+      elapsedSec: 15.0,
+      frames: 900,
+      persistence: run.pIdle
+    };
+    await uploadCheckpoint(renderer, canvas, math, `${run.id}_00_baseline`, metaBase);
+
+    // 2. Active Interaction Phase: 1.0s (60 frames) perturbation with pActive
+    statusEl.innerText = `[SUITE 3: ${run.label}] Simulating user interaction disturbance (p=${run.pActive})...`;
+    activePersistence = run.pActive;
+    
+    // Disturbance: pointer drag to (0.75, 0.50)
+    math.pointerCurrent.r = 0.75 * 0.22;
+    math.pointerCurrent.i = 0.50 * 0.22;
+    math.pointerTarget.r = 0.75 * 0.22;
+    math.pointerTarget.i = 0.50 * 0.22;
+    math.computeTransforms();
+
+    for (let pf = 0; pf < 60; pf += 15) {
+      for (let b = 0; b < 15; b++) {
+        renderer.render(math, 0.016);
+      }
+      await nextFrame();
+    }
+    gl.finish();
+
+    // Checkpoint 1: Active interaction peak dimming (immediately before release)
+    const metaActive = {
+      suite: 'interaction',
+      runId: run.id,
+      label: run.label,
+      phase: 'interaction_active',
+      elapsedSec: 1.0,
+      frames: 60,
+      persistence: run.pActive
+    };
+    await uploadCheckpoint(renderer, canvas, math, `${run.id}_01_active`, metaActive);
+
+    // 3. User Release: pointer returns to (0,0), smooth exponential ramp to pIdle
+    // Formula from renderer.js L847:
+    // currentPersistence += (targetPersistence - currentPersistence) * Math.min(1.0, dt * 4.0)
+    statusEl.innerText = `[SUITE 3: ${run.label}] Pointer released. Measuring recovery over 15s...`;
+    math.pointerCurrent.r = 0.0;
+    math.pointerCurrent.i = 0.0;
+    math.pointerTarget.r = 0.0;
+    math.pointerTarget.i = 0.0;
+    math.computeTransforms();
+
+    const postCheckpoints = [
+      { sec: 1.0, targetFrame: 60, id: 'rec_1s' },
+      { sec: 5.0, targetFrame: 300, id: 'rec_5s' },
+      { sec: 15.0, targetFrame: 900, id: 'rec_15s' }
+    ];
+
+    let recFrame = 0;
+    for (const cp of postCheckpoints) {
+      while (recFrame < cp.targetFrame) {
+        const batch = Math.min(15, cp.targetFrame - recFrame);
+        for (let b = 0; b < batch; b++) {
+          activePersistence += (run.pIdle - activePersistence) * Math.min(1.0, 0.016 * 4.0);
+          renderer.render(math, 0.016);
+        }
+        recFrame += batch;
+        statusEl.innerText = `[SUITE 3: ${run.label}] Recovery frame ${recFrame}/${cp.targetFrame} (p=${activePersistence.toFixed(5)})...`;
+        await nextFrame();
+      }
+      gl.finish();
+
+      const metaRec = {
+        suite: 'interaction',
+        runId: run.id,
+        label: run.label,
+        phase: cp.id,
+        elapsedSec: cp.sec,
+        frames: recFrame,
+        currentPersistence: activePersistence,
+        targetPersistence: run.pIdle
+      };
+      await uploadCheckpoint(renderer, canvas, math, `${run.id}_${cp.id}`, metaRec);
+    }
+  }
+
+  statusEl.innerText = "All experiment workloads captured! Reporting completion to Python...";
+  await fetch('/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(experimentResults)
+  });
+  statusEl.innerText = "Drift-Aware Persistence Experiment Complete!";
+};
+</script>
+</body>
+</html>

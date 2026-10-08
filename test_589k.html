@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="c" width="1200" height="800"></canvas>
+<div id="res">running...</div>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onerror = (e) => { document.getElementById('res').innerText = 'ERROR: ' + e; };
+
+try {
+  const c = document.getElementById('c');
+  const m = new MathSystem();
+  const r = new MobiusRenderer(c);
+  r.setParticleCount(589824);
+  r.setStepsOverride(16);
+  r.render(m, 0.016);
+  document.getElementById('res').innerText = JSON.stringify({
+    success: true,
+    particles: r.numParticles,
+    steps: r.stepsPerFrame,
+    draws: r.profiler.drawCallCount
+  });
+} catch (err) {
+  document.getElementById('res').innerText = 'CATCH: ' + err.message + ' ' + err.stack;
+}
+</script>
+</body>
+</html>

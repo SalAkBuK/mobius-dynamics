@@ -1,0 +1,252 @@
+import http.server
+import socketserver
+import threading
+import subprocess
+import json
+import time
+import os
+import urllib.parse
+
+PORT = 8911
+DIRECTORY = r"c:\Users\saleh\Documents\antigravity\METH"
+
+done_event = threading.Event()
+test_results = {}
+
+class VerificationHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=DIRECTORY, **kwargs)
+
+    def do_POST(self):
+        global test_results
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == '/report_results':
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            test_results.update(json.loads(body.decode('utf-8')))
+            
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"OK")
+            done_event.set()
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        pass
+
+html_page = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Production Persistence States Verification</title>
+</head>
+<body style="background:#000; color:#fff; font-family:monospace;">
+<div id="status">Running tests...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.update(0.0, 1.65);
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.adaptive.getDpr = () => 1.0;
+  renderer.resize(1200, 800);
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+
+  const results = {
+    test1_autonomous_drift: {},
+    test2_stationary_idle: {},
+    test3_active_interaction: {},
+    test4_smooth_ramp_no_jump: {},
+    test5_no_buffer_reset_on_state_change: {}
+  };
+
+  // -------------------------------------------------------------
+  // TEST 1: AUTONOMOUS DRIFT STATE (math.evolving = true, no interaction)
+  // Target: p = 0.9985
+  // -------------------------------------------------------------
+  math.evolving = true;
+  renderer.adaptive.isInteracting = false;
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  
+  // Run 100 frames to let currentPersistence settle toward autonomous drift target
+  for (let f = 0; f < 100; f++) {
+    math.update(0.016, 1.65);
+    renderer.render(math, 0.016);
+  }
+  const driftP = renderer.currentPersistence;
+  results.test1_autonomous_drift = {
+    expected: 0.9985,
+    measured: driftP,
+    passed: Math.abs(driftP - 0.9985) < 0.0001,
+    details: `Settled persistence under autonomous drift: ${driftP.toFixed(5)} (target 0.9985)`
+  };
+
+  // -------------------------------------------------------------
+  // TEST 2: TRULY STATIONARY IDLE STATE (math.evolving = false, no interaction)
+  // Target: p = 0.99925
+  // -------------------------------------------------------------
+  math.evolving = false;
+  renderer.adaptive.isInteracting = false;
+  // Run 120 frames to let currentPersistence ramp toward stationary idle target
+  for (let f = 0; f < 120; f++) {
+    renderer.render(math, 0.016);
+  }
+  const idleP = renderer.currentPersistence;
+  results.test2_stationary_idle = {
+    expected: 0.99925,
+    measured: idleP,
+    passed: Math.abs(idleP - 0.99925) < 0.00005,
+    details: `Settled persistence under stationary idle: ${idleP.toFixed(5)} (target 0.99925)`
+  };
+
+  // -------------------------------------------------------------
+  // TEST 3: ACTIVE INTERACTION STATE
+  // Target: p = 0.97
+  // -------------------------------------------------------------
+  // Run 100 frames with continuous active interaction
+  for (let f = 0; f < 100; f++) {
+    renderer.adaptive.markInteraction();
+    renderer.render(math, 0.016);
+  }
+  const activeP = renderer.currentPersistence;
+  results.test3_active_interaction = {
+    expected: 0.97,
+    measured: activeP,
+    passed: Math.abs(activeP - 0.97) < 0.0001,
+    details: `Settled persistence during active interaction: ${activeP.toFixed(5)} (target 0.97)`
+  };
+
+  // -------------------------------------------------------------
+  // TEST 4: VERIFY SMOOTH STATE TRANSITIONS (NO ABRUPT JUMPS)
+  // Transition from active (0.97) -> stationary idle (0.99925)
+  // Record per-frame persistence values during ramp
+  // -------------------------------------------------------------
+  renderer.adaptive.isInteracting = false;
+  renderer.adaptive.lastInteractionTime = 0;
+  math.evolving = false;
+  
+  const rampDeltas = [];
+  let maxPerFrameJump = 0.0;
+  let prevP = renderer.currentPersistence;
+  let framesToReach999 = 0;
+
+  for (let f = 1; f <= 120; f++) {
+    renderer.render(math, 0.016);
+    const currP = renderer.currentPersistence;
+    const delta = Math.abs(currP - prevP);
+    rampDeltas.push(delta);
+    if (delta > maxPerFrameJump) maxPerFrameJump = delta;
+    if (Math.abs(currP - 0.99925) < 0.0001 && framesToReach999 === 0) {
+      framesToReach999 = f;
+    }
+    prevP = currP;
+  }
+
+  // Smoothness criteria:
+  // 1. Max single-frame delta is bounded by dt * 4.0 * (0.99925 - 0.97) ~ 0.016 * 4 * 0.02925 ~ 0.00187
+  // 2. No sudden discontinuity (> 0.01)
+  // 3. Monotonically increasing toward target
+  results.test4_smooth_ramp_no_jump = {
+    maxSingleFrameJump: maxPerFrameJump,
+    framesToTarget: framesToReach999,
+    timeSecondsToTarget: framesToReach999 * 0.016,
+    passed: maxPerFrameJump < 0.005 && framesToReach999 > 30 && framesToReach999 < 100,
+    details: `Max single-frame delta: ${maxPerFrameJump.toFixed(6)} (smooth exponential ramp over ${(framesToReach999*0.016).toFixed(2)}s)`
+  };
+
+  // -------------------------------------------------------------
+  // TEST 5: ACCUMULATION BUFFER CONTINUITY (NO CLEAR/RESET ON STATE TRANSITIONS)
+  // Verify accumulationFrames continues counting without being reset to 0
+  // -------------------------------------------------------------
+  const accumFramesBefore = renderer.accumulationFrames;
+  // Trigger interaction state change
+  renderer.adaptive.isInteracting = true;
+  renderer.render(math, 0.016);
+  const accumFramesDuring = renderer.accumulationFrames;
+  renderer.adaptive.isInteracting = false;
+  renderer.render(math, 0.016);
+  const accumFramesAfter = renderer.accumulationFrames;
+
+  results.test5_no_buffer_reset_on_state_change = {
+    before: accumFramesBefore,
+    during: accumFramesDuring,
+    after: accumFramesAfter,
+    passed: (accumFramesDuring === accumFramesBefore + 1) && (accumFramesAfter === accumFramesBefore + 2),
+    details: `Accumulation frames strictly monotonic: ${accumFramesBefore} -> ${accumFramesDuring} -> ${accumFramesAfter} (zero buffer wipe)`
+  };
+
+  statusEl.innerText = "Reporting verification results...";
+  await fetch('/report_results', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(results)
+  });
+  statusEl.innerText = "All tests complete!";
+};
+</script>
+</body>
+</html>
+"""
+
+def main():
+    test_html_path = os.path.join(DIRECTORY, "verify_persistence_states.html")
+    with open(test_html_path, "w", encoding="utf-8") as f:
+        f.write(html_page)
+
+    httpd = socketserver.TCPServer(("127.0.0.1", PORT), VerificationHandler)
+    server_thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    server_thread.start()
+    print(f"[TEST SERVER] Listening on port {PORT}")
+
+    chrome_exe = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+    chrome_cmd = [
+        chrome_exe,
+        "--headless=new",
+        "--no-sandbox",
+        "--disable-gpu-watchdog",
+        "--use-gl=angle",
+        "--use-angle=d3d11",
+        "--window-size=1200,800",
+        f"http://127.0.0.1:{PORT}/verify_persistence_states.html"
+    ]
+
+    print("[TEST RUNNER] Launching Chrome...")
+    proc = subprocess.Popen(chrome_cmd)
+
+    completed = done_event.wait(timeout=25)
+    proc.terminate()
+    httpd.shutdown()
+    httpd.server_close()
+
+    if completed:
+        print("\n=======================================================")
+        print("PRODUCTION PERSISTENCE ARCHITECTURE VERIFICATION REPORT")
+        print("=======================================================")
+        print(json.dumps(test_results, indent=2))
+        
+        all_passed = all(t.get('passed', False) for t in test_results.values())
+        print(f"\nALL CHECKS PASSED: {all_passed}\n")
+        return 0 if all_passed else 1
+    else:
+        print("[ERROR] Verification timed out!")
+        return 1
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())

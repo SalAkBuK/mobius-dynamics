@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Center Void Dynamics Controlled Experiment</title>
+<style>
+  body { margin: 0; background: #010307; color: #8da4c4; font-family: monospace; overflow: hidden; }
+  canvas { width: 1200px; height: 800px; display: block; }
+  #status { position: absolute; top: 10px; left: 10px; font-size: 14px; background: rgba(0,0,0,0.85); padding: 8px 12px; border: 1px solid #224477; border-radius: 4px; z-index: 100; }
+</style>
+</head>
+<body>
+<div id="status">Initializing experiment...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(r));
+}
+
+async function uploadCanvas(name, meta = {}) {
+  const canvas = document.getElementById('c');
+  const dataUrl = canvas.toDataURL('image/png');
+  await fetch(`/save_image?name=${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataUrl, meta })
+  });
+}
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.evolving = false; // Freeze temporal drift for pristine progressive accumulation
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.adaptive.setMode('standard');
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0; // Standard final tonemapped view
+  renderer.clearAccumulation();
+
+  statusEl.innerText = "Running progressive accumulation without r^2 < 0.010 discard...";
+
+  // Checkpoints: 1s (60f), 3s (180f), 10s (600f), 20s (1200f)
+  const checkpoints = [
+    { targetFrame: 60, label: '1s' },
+    { targetFrame: 180, label: '3s' },
+    { targetFrame: 600, label: '10s' },
+    { targetFrame: 1200, label: '20s' }
+  ];
+
+  let currentFrame = 0;
+  for (const cp of checkpoints) {
+    while (currentFrame < cp.targetFrame - 1) {
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      currentFrame++;
+      if (currentFrame % 30 === 0) {
+        statusEl.innerText = `Accumulating frame ${currentFrame} / ${cp.targetFrame} (${cp.label})...`;
+      }
+      await nextFrame();
+    }
+
+    // Render target frame synchronously immediately prior to toDataURL (preserveDrawingBuffer rule)
+    math.update(0.016, renderer.zoom);
+    renderer.render(math, 0.016);
+    currentFrame++;
+
+    statusEl.innerText = `Capturing checkpoint ${cp.label} (frame ${currentFrame})...`;
+    await uploadCanvas(`organism_${cp.label}`, {
+      frame: currentFrame,
+      label: cp.label,
+      particles: renderer.numParticles,
+      steps: renderer.stepsPerFrame,
+      depositsPerFrame: renderer.numParticles * renderer.stepsPerFrame,
+      totalDeposits: currentFrame * renderer.numParticles * renderer.stepsPerFrame,
+      zoom: renderer.zoom,
+      viewCenter: renderer.viewCenter
+    });
+    await nextFrame();
+  }
+
+  statusEl.innerText = "All checkpoints captured. Finalizing...";
+  await fetch('/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ completed: true, totalFrames: currentFrame })
+  });
+};
+</script>
+</body>
+</html>

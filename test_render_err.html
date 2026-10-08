@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="c" width="1200" height="800"></canvas>
+<div id="res">running...</div>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onerror = function(msg, url, line, col, err) {
+  document.getElementById('res').innerText = 'ERROR: ' + msg + ' at line ' + line + ' ' + (err ? err.stack : '');
+};
+
+try {
+  const c = document.getElementById('c');
+  const m = new MathSystem();
+  const r = new MobiusRenderer(c);
+  for (let i = 0; i < 10; i++) {
+    r.render(m, 0.016);
+  }
+  document.getElementById('res').innerText = 'SUCCESS render 10, accum: ' + r.accumulationFrames;
+} catch (e) {
+  document.getElementById('res').innerText = 'TRY-CATCH: ' + e.message + ' ' + e.stack;
+}
+</script>
+</body>
+</html>

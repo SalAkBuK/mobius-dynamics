@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head><title>rAF Test</title></head>
+<body>
+<div id="status">Starting...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.evolving = false;
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0;
+  renderer.zoom = 1.65;
+  renderer.currentPersistence = 1.0;
+
+  // Let's test ULTRA (589824 x 16) and POTATO (40000 x 4) in rAF for 2 seconds each
+  const modes = [
+    { name: 'POTATO', particles: 40000, steps: 4 },
+    { name: 'ULTRA', particles: 589824, steps: 16 }
+  ];
+
+  const results = {};
+
+  for (const mode of modes) {
+    renderer.setParticleCount(mode.particles);
+    renderer.setStepsOverride(mode.steps);
+    renderer.clearAccumulation();
+
+    for (let w = 0; w < 5; w++) renderer.render(math, 0.016);
+    renderer.clearAccumulation();
+
+    // Run in requestAnimationFrame for 2.0 seconds of wall-clock time
+    const res = await new Promise(resolve => {
+      let frameCount = 0;
+      let startWall = performance.now();
+      function onFrame(now) {
+        frameCount++;
+        math.update(0.016, renderer.zoom);
+        renderer.render(math, 0.016);
+        const elapsed = now - startWall;
+        if (elapsed >= 2000) {
+          resolve({
+            frames: frameCount,
+            elapsedMs: elapsed,
+            fps: (frameCount * 1000) / elapsed
+          });
+          return;
+        }
+        requestAnimationFrame(onFrame);
+      }
+      requestAnimationFrame(onFrame);
+    });
+
+    results[mode.name] = res;
+  }
+
+  await fetch('/report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(results)
+  });
+};
+</script>
+</body>
+</html>

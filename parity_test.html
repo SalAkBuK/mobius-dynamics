@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Visual Parity Validation Suite</title>
+<style>
+  body { margin: 0; background: #010307; color: #8da4c4; font-family: monospace; }
+  canvas { width: 1200px; height: 800px; display: block; }
+  #status { position: absolute; top: 10px; left: 10px; font-size: 14px; background: rgba(0,0,0,0.85); padding: 8px 12px; border: 1px solid #224477; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="status">Initializing visual parity suite...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(r));
+}
+
+async function uploadCanvas(name) {
+  const canvas = document.getElementById('c');
+  const dataUrl = canvas.toDataURL('image/png');
+  await fetch(`/save_image?name=${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: dataUrl
+  });
+}
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.evolving = false; // Freeze temporal drift for pixel-perfect deterministic comparison
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0;
+
+  const testZooms = [
+    { label: 'A_full', name: 'Full Organism (1.0x)', zoom: 1.65, cx: 0.0, cy: 0.0 },
+    { label: 'B_zoom_4_5x', name: 'Zoom 4.5x', zoom: 1.65 * 4.5, cx: 0.1422, cy: 0.0894 },
+    { label: 'C_zoom_14x', name: 'Zoom 14x', zoom: 1.65 * 14.0, cx: 0.1422, cy: 0.0894 },
+    { label: 'D_zoom_45x', name: 'Zoom 45x', zoom: 1.65 * 45.0, cx: 0.1422, cy: 0.0894 },
+    { label: 'E_zoom_130x', name: 'Zoom 130x', zoom: 1.65 * 130.0, cx: 0.1422, cy: 0.0894 }
+  ];
+
+  const meta = {};
+
+  for (const tz of testZooms) {
+    meta[tz.label] = {};
+
+    // 1. OLD BRUTE FORCE: 589,824 particles x 16 steps
+    statusEl.innerText = `[${tz.label}] Rendering Old Brute Force (589k x 16)...`;
+    renderer.zoom = tz.zoom;
+    renderer.targetZoom = tz.zoom;
+    renderer.viewCenter = [tz.cx, tz.cy];
+    renderer.targetViewCenter = [tz.cx, tz.cy];
+    renderer.adaptive.setMode('extreme');
+    renderer.setParticleCount(589824);
+    renderer.setStepsOverride(16);
+    renderer.clearAccumulation();
+
+    // Accumulate for 70 frames (~1.2s of 589k x 16 = 660M photon deposits)
+    for (let f = 0; f < 69; f++) {
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      await nextFrame();
+    }
+    math.update(0.016, renderer.zoom);
+    renderer.render(math, 0.016);
+    statusEl.innerText = `[${tz.label}] Saving Brute Force image...`;
+    await uploadCanvas(`${tz.label}_brute`);
+    meta[tz.label].brute = {
+      particles: renderer.numParticles,
+      steps: renderer.stepsPerFrame,
+      deposits: renderer.numParticles * renderer.stepsPerFrame,
+      accumFrames: renderer.accumulationFrames
+    };
+
+    // 2. NEW ADAPTIVE: Standard tier with progressive accumulation
+    statusEl.innerText = `[${tz.label}] Rendering New Adaptive (Auto/Standard progressive)...`;
+    renderer.clearOverrides();
+    renderer.adaptive.setMode('standard');
+    renderer.clearAccumulation();
+
+    // Progressive accumulation for 130 frames (~2.2s)
+    for (let f = 0; f < 129; f++) {
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      await nextFrame();
+    }
+    math.update(0.016, renderer.zoom);
+    renderer.render(math, 0.016);
+    statusEl.innerText = `[${tz.label}] Saving Adaptive image...`;
+    await uploadCanvas(`${tz.label}_adaptive`);
+    meta[tz.label].adaptive = {
+      tier: renderer.adaptive.currentTierKey,
+      particles: renderer.numParticles,
+      steps: renderer.stepsPerFrame,
+      deposits: renderer.numParticles * renderer.stepsPerFrame,
+      accumFrames: renderer.accumulationFrames
+    };
+  }
+
+  statusEl.innerText = "Finishing parity suite...";
+  await fetch('/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(meta)
+  });
+  statusEl.innerText = "Parity suite complete!";
+};
+</script>
+</body>
+</html>

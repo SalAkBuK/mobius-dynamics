@@ -1,0 +1,84 @@
+import http.server, socketserver, threading, subprocess, time, os
+
+html = """<!DOCTYPE html>
+<html>
+<body>
+<div id="log">waiting...</div>
+<canvas id="c" width="800" height="600"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+try {
+  const canvas = document.getElementById('c');
+  const math = new MathSystem();
+  const renderer = new MobiusRenderer(canvas);
+  math.setMorphology('lace');
+
+  // Render 30 frames
+  for (let i = 0; i < 30; i++) {
+    math.update(0.016, renderer.zoom);
+    renderer.render(math, 0.016);
+  }
+
+  const gl = renderer.gl;
+
+  // Check entire accum buffer
+  gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.accumFbos[renderer.accumReadIdx]);
+  const accumPix = new Float32Array(4 * renderer.accumWidth * renderer.accumHeight);
+  gl.readPixels(0, 0, renderer.accumWidth, renderer.accumHeight, gl.RGBA, gl.FLOAT, accumPix);
+  let maxAccumB = 0, nonZeroAccum = 0;
+  for (let i = 0; i < accumPix.length; i += 4) {
+    if (accumPix[i+2] > maxAccumB) maxAccumB = accumPix[i+2];
+    if (accumPix[i+2] > 0.0001) nonZeroAccum++;
+  }
+
+  // Check screen
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  const screenPix = new Uint8Array(4 * canvas.width * canvas.height);
+  gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, screenPix);
+  let maxScreen = 0, nonZeroScreen = 0;
+  for (let i = 0; i < screenPix.length; i += 4) {
+    let m = Math.max(screenPix[i], screenPix[i+1], screenPix[i+2]);
+    if (m > maxScreen) maxScreen = m;
+    if (m > 10) nonZeroScreen++;
+  }
+
+  document.getElementById('log').innerText = JSON.stringify({
+    maxAccumB,
+    nonZeroAccum,
+    maxScreen,
+    nonZeroScreen,
+    totalScreen: canvas.width * canvas.height
+  });
+} catch (e) {
+  document.getElementById('log').innerText = 'ERROR: ' + e.message + '\\n' + e.stack;
+}
+</script>
+</body>
+</html>"""
+
+with open('test_canvas_read.html', 'w') as f:
+    f.write(html)
+
+PORT = 8794
+Handler = http.server.SimpleHTTPRequestHandler
+httpd = socketserver.TCPServer(('', PORT), Handler)
+t = threading.Thread(target=httpd.serve_forever, daemon=True)
+t.start()
+
+cmd = [
+    r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+    '--headless=new',
+    '--no-sandbox',
+    '--use-gl=angle',
+    '--use-angle=d3d11',
+    '--dump-dom',
+    f'http://localhost:{PORT}/test_canvas_read.html'
+]
+res = subprocess.run(cmd, capture_output=True, text=True, errors='ignore')
+for line in res.stdout.splitlines():
+    if 'maxAccumB' in line or 'ERROR' in line:
+        print(line)
+
+httpd.shutdown()

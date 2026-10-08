@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Active Interaction Persistence Test Harness</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 1200px; height: 800px; overflow: hidden; background: #010307; font-family: monospace; }
+  canvas { width: 1200px; height: 800px; display: block; }
+  #status { position: absolute; top: 10px; left: 10px; font-size: 13px; background: rgba(0,0,0,0.85); color: #8da4c4; padding: 8px 12px; border: 1px solid #224477; border-radius: 4px; z-index: 100; }
+</style>
+</head>
+<body>
+<div id="status">Initializing Active Interaction Persistence Test Harness...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(r));
+}
+
+let activePersistence = 0.99925;
+
+async function uploadCheckpoint(renderer, canvas, math, name, meta = {}) {
+  renderer.render(math, 0.0);
+  renderer.gl.finish();
+  const dataUrl = canvas.toDataURL('image/png');
+  await fetch('/save_checkpoint', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, dataUrl, meta })
+  });
+}
+
+function getCanvasImageData(gl, width, height) {
+  const pixels = new Uint8Array(width * height * 4);
+  gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  return pixels;
+}
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+
+  const rawGl = canvas.getContext('webgl2', {
+    preserveDrawingBuffer: true,
+    alpha: false,
+    antialias: false,
+    depth: false,
+    stencil: false,
+    powerPreference: 'high-performance'
+  });
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.adaptive.getDpr = () => 1.0;
+  renderer.resize(1200, 800);
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0;
+  renderer.setParticleCount(150000);
+  renderer.setStepsOverride(8);
+
+  const gl = renderer.gl;
+
+  // Persistence enforcement hook:
+  const origUniform1f = gl.uniform1f.bind(gl);
+  gl.uniform1f = function(loc, val) {
+    if (loc === renderer.decayUniforms.persistence) {
+      return origUniform1f(loc, activePersistence);
+    }
+    return origUniform1f(loc, val);
+  };
+
+  const origRender = renderer.render.bind(renderer);
+  renderer.render = function(m, dt, jsTime) {
+    if (m) m.evolving = true;
+    this.currentPersistence = activePersistence;
+    const res = origRender(m, dt, jsTime);
+    this.currentPersistence = activePersistence;
+    return res;
+  };
+
+  const candidates = [
+    { id: 'cand_p95', label: 'Candidate 1 (p_active = 0.95)', pActive: 0.95 },
+    { id: 'cand_p96', label: 'Candidate 2 (p_active = 0.96)', pActive: 0.96 },
+    { id: 'cand_p97', label: 'Candidate 3 (p_active = 0.97)', pActive: 0.97 }
+  ];
+
+  const pIdle = 0.99925;
+  const experimentResults = {};
+
+  for (const cand of candidates) {
+    statusEl.innerText = `[ACTIVE-TEST] Initializing ${cand.label}...`;
+    experimentResults[cand.id] = {
+      label: cand.label,
+      pActive: cand.pActive,
+      pIdle: pIdle,
+      checkpoints: {}
+    };
+
+    const math = new MathSystem();
+    math.setMorphology('lace');
+    math.setSymmetry(16);
+    math.evolving = false;
+    math.setPointer(0.0, 0.0);
+    math.pointerCurrent.r = 0.0;
+    math.pointerCurrent.i = 0.0;
+    math.update(0.0, 1.65);
+
+    activePersistence = pIdle;
+    renderer.clearAccumulation();
+
+    // Warmup 20 frames
+    for (let w = 0; w < 20; w++) {
+      renderer.render(math, 0.016);
+      await nextFrame();
+    }
+    renderer.clearAccumulation();
+    gl.finish();
+
+    // =======================================================================
+    // 1. PRE-ACCUMULATION: 15 seconds stationary (900 frames) at p_idle = 0.99925
+    // =======================================================================
+    const baseFrames = 900;
+    for (let f = 0; f < baseFrames; f += 20) {
+      for (let b = 0; b < 20; b++) {
+        renderer.render(math, 0.016);
+      }
+      statusEl.innerText = `[${cand.label}] Pre-accumulating baseline 15s (${f}/900 frames)...`;
+      await nextFrame();
+    }
+    gl.finish();
+
+    // Checkpoint 0: Baseline
+    const metaBase = {
+      candidateId: cand.id,
+      label: cand.label,
+      phase: 'baseline_15s',
+      elapsedSec: 15.0,
+      frames: 900,
+      persistence: pIdle
+    };
+    experimentResults[cand.id].checkpoints['baseline'] = metaBase;
+    await uploadCheckpoint(renderer, canvas, math, `${cand.id}_00_baseline`, metaBase);
+
+    // Read baseline image pixels for stale support mask identification
+    renderer.render(math, 0.0);
+    gl.finish();
+    const basePixels = getCanvasImageData(gl, 1200, 800);
+
+    // =======================================================================
+    // 2. ACTIVE INTERACTION: 1.0s / 60 frames pointer perturbation at pActive
+    // =======================================================================
+    statusEl.innerText = `[${cand.label}] Triggering 1.0s pointer perturbation (p=${cand.pActive})...`;
+    activePersistence = cand.pActive;
+    
+    // Pointer drag to (0.75*0.22, 0.50*0.22)
+    math.setPointer(0.75, 0.50);
+    math.pointerCurrent.r = 0.75 * 0.22;
+    math.pointerCurrent.i = 0.50 * 0.22;
+    math.update(0.0, 1.65);
+
+    for (let pf = 0; pf < 60; pf += 15) {
+      for (let b = 0; b < 15; b++) {
+        renderer.render(math, 0.016);
+      }
+      await nextFrame();
+    }
+    gl.finish();
+
+    // Checkpoint 1: Active interaction peak state
+    const metaActive = {
+      candidateId: cand.id,
+      label: cand.label,
+      phase: 'active_1.0s',
+      elapsedSec: 1.0,
+      frames: 60,
+      persistence: cand.pActive
+    };
+    experimentResults[cand.id].checkpoints['active'] = metaActive;
+    await uploadCheckpoint(renderer, canvas, math, `${cand.id}_01_active`, metaActive);
+
+    // Read active image pixels
+    renderer.render(math, 0.0);
+    gl.finish();
+    const activePixels = getCanvasImageData(gl, 1200, 800);
+
+    // Identify stale support mask indices:
+    // Pixels where active image has significant excess light over baseline
+    // (i.e. features created during perturbation that are not part of baseline)
+    const staleIndices = [];
+    const numPixels = 1200 * 800;
+    for (let i = 0; i < numPixels; i++) {
+      const idx = i * 4;
+      const bLum = 0.2989 * basePixels[idx] + 0.5870 * basePixels[idx+1] + 0.1140 * basePixels[idx+2];
+      const aLum = 0.2989 * activePixels[idx] + 0.5870 * activePixels[idx+1] + 0.1140 * activePixels[idx+2];
+      const diff = aLum - bLum;
+      // Stale feature: active excess > 10.0 LSB
+      if (diff > 10.0) {
+        staleIndices.push({ idx, bLum, aLum, initialExcess: diff });
+      }
+    }
+    console.log(`[${cand.label}] Stale support mask identified: ${staleIndices.length} pixels.`);
+
+    // =======================================================================
+    // 3. POST-RELEASE RECOVERY: pointer returns to (0,0), smooth exponential ramp to pIdle
+    // currentPersistence += (0.99925 - currentPersistence) * Math.min(1.0, dt * 4.0)
+    // Checkpoints: 0.5s (30f), 1.0s (60f), 1.5s (90f), 2.0s (120f), 3.0s (180f), 5.0s (300f)
+    // =======================================================================
+    statusEl.innerText = `[${cand.label}] Pointer released. Measuring clearance & recovery over 5s...`;
+    math.setPointer(0.0, 0.0);
+    math.pointerCurrent.r = 0.0;
+    math.pointerCurrent.i = 0.0;
+    math.update(0.0, 1.65);
+
+    const postCheckpoints = [
+      { sec: 0.5, targetFrame: 30,  id: 'rec_0.5s' },
+      { sec: 1.0, targetFrame: 60,  id: 'rec_1.0s' },
+      { sec: 1.5, targetFrame: 90,  id: 'rec_1.5s' },
+      { sec: 2.0, targetFrame: 120, id: 'rec_2.0s' },
+      { sec: 3.0, targetFrame: 180, id: 'rec_3.0s' },
+      { sec: 5.0, targetFrame: 300, id: 'rec_5.0s' }
+    ];
+
+    let recFrame = 0;
+    let cpIndex = 0;
+    const ghostHistory = [];
+    let imperceptibleFrame = null;
+    let imperceptibleSec = null;
+
+    const totalPostFrames = 300;
+    while (recFrame < totalPostFrames) {
+      recFrame++;
+      // Ramp persistence
+      activePersistence += (pIdle - activePersistence) * Math.min(1.0, 0.016 * 4.0);
+      renderer.render(math, 0.016);
+
+      // High frequency ghost tracking every 5 frames
+      if (recFrame % 5 === 0 || recFrame === totalPostFrames) {
+        gl.finish();
+        const curPixels = getCanvasImageData(gl, 1200, 800);
+        let maxGhostResidual = 0.0;
+        let sumGhostResidual = 0.0;
+
+        for (let g = 0; g < staleIndices.length; g++) {
+          const item = staleIndices[g];
+          const cLum = 0.2989 * curPixels[item.idx] + 0.5870 * curPixels[item.idx+1] + 0.1140 * curPixels[item.idx+2];
+          // Residual above baseline
+          const excess = Math.max(0.0, cLum - item.bLum);
+          if (excess > maxGhostResidual) maxGhostResidual = excess;
+          sumGhostResidual += excess;
+        }
+
+        const meanGhostResidual = staleIndices.length > 0 ? (sumGhostResidual / staleIndices.length) : 0.0;
+        const curSec = Number((recFrame / 60.0).toFixed(3));
+
+        ghostHistory.push({
+          frame: recFrame,
+          sec: curSec,
+          persistence: Number(activePersistence.toFixed(5)),
+          maxGhostResidual: Number(maxGhostResidual.toFixed(3)),
+          meanGhostResidual: Number(meanGhostResidual.toFixed(3))
+        });
+
+        if (imperceptibleFrame === null && maxGhostResidual < 2.0) {
+          imperceptibleFrame = recFrame;
+          imperceptibleSec = curSec;
+          console.log(`[${cand.label}] Ghost trail visually imperceptible (<2.0/255) at frame ${recFrame} (${curSec}s)!`);
+        }
+
+        statusEl.innerText = `[${cand.label}] Recovery frame ${recFrame}/300 (${curSec}s) | p=${activePersistence.toFixed(5)} | peak ghost=${maxGhostResidual.toFixed(2)}/255`;
+      }
+
+      // Checkpoint capture
+      if (cpIndex < postCheckpoints.length && recFrame === postCheckpoints[cpIndex].targetFrame) {
+        const cp = postCheckpoints[cpIndex];
+        gl.finish();
+        const metaRec = {
+          candidateId: cand.id,
+          label: cand.label,
+          phase: cp.id,
+          elapsedSec: cp.sec,
+          frames: recFrame,
+          currentPersistence: activePersistence,
+          targetPersistence: pIdle
+        };
+        experimentResults[cand.id].checkpoints[cp.id] = metaRec;
+        await uploadCheckpoint(renderer, canvas, math, `${cand.id}_${cp.id}`, metaRec);
+        cpIndex++;
+      }
+
+      if (recFrame % 15 === 0) {
+        await nextFrame();
+      }
+    }
+
+    // Upload ghost tracking timeline
+    await fetch('/record_ghost_timeline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        candidateId: cand.id,
+        imperceptibleFrame: imperceptibleFrame,
+        imperceptibleSec: imperceptibleSec,
+        timeline: ghostHistory
+      })
+    });
+  }
+
+  statusEl.innerText = "All candidate evaluations complete! Reporting results to Python...";
+  await fetch('/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(experimentResults)
+  });
+  statusEl.innerText = "Experiment Suite Finished Successfully!";
+};
+</script>
+</body>
+</html>

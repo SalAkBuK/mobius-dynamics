@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Real Production Detail Audit (Persistence = 0.9985)</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 1200px; height: 800px; overflow: hidden; background: #010307; font-family: monospace; }
+  canvas { width: 1200px; height: 800px; display: block; }
+  #status { position: absolute; top: 10px; left: 10px; font-size: 13px; background: rgba(0,0,0,0.85); color: #8da4c4; padding: 8px 12px; border: 1px solid #224477; border-radius: 4px; z-index: 100; }
+</style>
+</head>
+<body>
+<div id="status">Initializing Real Production Detail Audit Suite...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(r));
+}
+
+async function uploadCheckpoint(name, meta = {}) {
+  const canvas = document.getElementById('c');
+  const dataUrl = canvas.toDataURL('image/png');
+  await fetch('/save_checkpoint', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, dataUrl, meta })
+  });
+}
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+
+  // 1. SETUP MATH SYSTEM WITH FROZEN TEMPORAL DRIFT BUT LIVE/EVOLVING PERSISTENCE STATE
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.update(0, 1.65); // Initialize static attractor parameters at t = 0
+  
+  // Freeze coefficient drift completely: math.time stays at 0, no temporal drift
+  math.update = function() {};
+  // Crucial: math.evolving remains true so renderer.js line 842 does NOT trigger persistence=1.0 override!
+  math.evolving = true;
+
+  const renderer = new MobiusRenderer(canvas);
+  // Force fixed DPR 1.0 on 1200x800 for exact pixel parity across runs
+  renderer.adaptive.getDpr = () => 1.0;
+  renderer.resize(1200, 800);
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0; // Standard tonemapping view
+
+  // 2. CONFIRM AND ENFORCE REAL PRODUCTION IDLE PERSISTENCE = 0.9985
+  const prodPersistence = renderer.currentPersistence;
+  console.log("MobiusRenderer instantiated with currentPersistence:", prodPersistence);
+  renderer.persistence = 0.9985;
+  renderer.currentPersistence = 0.9985;
+
+  // Wrap render to guarantee persistence = 0.9985 on EVERY single frame
+  const origRender = renderer.render.bind(renderer);
+  renderer.render = function(m, dt, jsTime) {
+    m.evolving = true;
+    this.currentPersistence = 0.9985;
+    const res = origRender(m, dt, jsTime);
+    this.currentPersistence = 0.9985;
+    return res;
+  };
+
+  const gl = renderer.gl;
+  const extTimer = renderer.profiler.ext;
+
+  // Workloads:
+  // A. Brute Force Reference: 589,824 x 16
+  // B. Current Production: 150,000 x 8
+  // C. Intermediate Experiments: 155,000 x 8, 160,000 x 8, 165,000 x 8
+  const runs = [
+    {
+      id: 'brute_force',
+      label: 'BRUTE FORCE (589,824 x 16)',
+      particles: 589824,
+      steps: 16,
+      checkpoints: [1, 3, 5, 10, 20, 30]
+    },
+    {
+      id: 'prod_150k_8',
+      label: 'CURRENT PRODUCTION (150,000 x 8)',
+      particles: 150000,
+      steps: 8,
+      checkpoints: [1, 3, 5, 10, 20, 30]
+    },
+    {
+      id: 'exp_155k_8',
+      label: 'INTERMEDIATE (155,000 x 8)',
+      particles: 155000,
+      steps: 8,
+      checkpoints: [1, 3, 5, 10, 20, 30]
+    },
+    {
+      id: 'exp_160k_8',
+      label: 'INTERMEDIATE (160,000 x 8)',
+      particles: 160000,
+      steps: 8,
+      checkpoints: [1, 3, 5, 10, 20, 30]
+    },
+    {
+      id: 'exp_165k_8',
+      label: 'INTERMEDIATE (165,000 x 8)',
+      particles: 165000,
+      steps: 8,
+      checkpoints: [1, 3, 5, 10, 20, 30]
+    }
+  ];
+
+  const summaryMetrics = {};
+
+  for (const run of runs) {
+    statusEl.innerText = `Preparing workload: ${run.label}...`;
+    renderer.setParticleCount(run.particles);
+    renderer.setStepsOverride(run.steps);
+    renderer.currentPersistence = 0.9985;
+    renderer.clearAccumulation();
+
+    // Attractor Warmup: 20 simulation frames so random seeds converge to attractor manifold
+    for (let w = 0; w < 20; w++) {
+      renderer.render(math, 0.016);
+      await nextFrame();
+    }
+    renderer.clearAccumulation();
+    gl.finish();
+
+    // Measure GPU frame time with timer query over 5 frames
+    let measuredGpuMs = null;
+    if (extTimer) {
+      const qTimes = [];
+      for (let qf = 0; qf < 5; qf++) {
+        const q = gl.createQuery();
+        gl.beginQuery(extTimer.TIME_ELAPSED_EXT, q);
+        renderer.render(math, 0.016);
+        gl.endQuery(extTimer.TIME_ELAPSED_EXT);
+        gl.flush();
+
+        for (let poll = 0; poll < 150; poll++) {
+          await new Promise(r => setTimeout(r, 5));
+          if (gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) {
+            qTimes.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6);
+            break;
+          }
+        }
+        gl.deleteQuery(q);
+      }
+      if (qTimes.length > 0) {
+        measuredGpuMs = qTimes.reduce((a, b) => a + b, 0) / qTimes.length;
+      }
+    }
+    renderer.clearAccumulation();
+    gl.finish();
+
+    statusEl.innerText = `Running wall-clock capture for ${run.label} (GPU: ${measuredGpuMs ? measuredGpuMs.toFixed(2) + 'ms' : 'N/A'})...`;
+
+    summaryMetrics[run.id] = {
+      label: run.label,
+      particles: run.particles,
+      steps: run.steps,
+      depositsPerFrame: run.particles * run.steps,
+      measuredGpuMs: measuredGpuMs,
+      persistence: 0.9985,
+      checkpoints: {}
+    };
+
+    // Real wall-clock elapsed timing loop with paused duration deduction during PNG upload
+    await new Promise(resolve => {
+      let frameCount = 0;
+      let targetIdx = 0;
+      let pausedDuration = 0;
+      const startTime = performance.now();
+
+      async function onFrame(now) {
+        renderer.render(math, 0.016);
+        frameCount++;
+
+        const currentNow = performance.now();
+        const activeElapsedMs = (currentNow - startTime) - pausedDuration;
+        const targetSec = run.checkpoints[targetIdx];
+
+        if (activeElapsedMs >= targetSec * 1000) {
+          gl.finish();
+          const pauseStart = performance.now();
+
+          const effectiveFps = (frameCount * 1000) / activeElapsedMs;
+          const currentGpuMs = (renderer.profiler && renderer.profiler.metrics && renderer.profiler.metrics.gpuMs > 0)
+            ? renderer.profiler.metrics.gpuMs
+            : measuredGpuMs;
+
+          const meta = {
+            workloadId: run.id,
+            label: run.label,
+            targetSec: targetSec,
+            activeElapsedMs: activeElapsedMs,
+            completedFrames: frameCount,
+            effectiveFps: effectiveFps,
+            particles: run.particles,
+            steps: run.steps,
+            depositsPerFrame: run.particles * run.steps,
+            currentPersistence: renderer.currentPersistence,
+            measuredGpuMs: measuredGpuMs,
+            profilerGpuMs: currentGpuMs
+          };
+
+          summaryMetrics[run.id].checkpoints[targetSec] = meta;
+          statusEl.innerText = `[${run.id}] Captured ${targetSec}s (${frameCount} frames in ${(activeElapsedMs/1000).toFixed(2)}s, ${effectiveFps.toFixed(1)} FPS)...`;
+
+          const imgName = `${run.id}_${targetSec}s_full`;
+          await uploadCheckpoint(imgName, meta);
+
+          const pauseEnd = performance.now();
+          pausedDuration += (pauseEnd - pauseStart);
+
+          targetIdx++;
+          if (targetIdx >= run.checkpoints.length) {
+            resolve();
+            return;
+          }
+        }
+
+        requestAnimationFrame(onFrame);
+      }
+
+      requestAnimationFrame(onFrame);
+    });
+  }
+
+  statusEl.innerText = "All workloads captured. Reporting metrics to server...";
+  await fetch('/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(summaryMetrics)
+  });
+  statusEl.innerText = "Real Production Detail Audit Complete!";
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body { margin: 0; background: #010307; color: #8da4c4; font-family: monospace; }
+canvas { width: 1200px; height: 800px; display: block; }
+#status { position: absolute; top: 10px; left: 10px; font-size: 14px; background: rgba(0,0,0,0.85); padding: 8px; border: 1px solid #224477; }
+</style>
+</head>
+<body>
+<div id="status">Starting progressive accumulation benchmark...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+  
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.evolving = false; // Freeze drift for controlled long-exposure progressive accumulation
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0;
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+  renderer.currentPersistence = 1.0; // Perfect photon integration
+
+  const modes = [
+    { name: 'ULTRA', particles: 589824, steps: 16 },
+    { name: 'HIGH', particles: 300000, steps: 12 },
+    { name: 'MEDIUM', particles: 150000, steps: 8 },
+    { name: 'LOW', particles: 75000, steps: 6 },
+    { name: 'POTATO', particles: 40000, steps: 4 }
+  ];
+
+  // Target durations at 60 fps: 0.5s (30 f), 1s (60 f), 3s (180 f), 5s (300 f), 10s (600 f)
+  const checkpoints = [
+    { timeSec: 0.5, targetFrames: 30 },
+    { timeSec: 1.0, targetFrames: 60 },
+    { timeSec: 3.0, targetFrames: 180 },
+    { timeSec: 5.0, targetFrames: 300 },
+    { timeSec: 10.0, targetFrames: 600 }
+  ];
+
+  const results = {};
+
+  for (const mode of modes) {
+    statusEl.innerText = `Testing mode ${mode.name} (${mode.particles} pts, ${mode.steps} steps)...`;
+    renderer.setParticleCount(mode.particles);
+    renderer.setStepsOverride(mode.steps);
+    renderer.clearAccumulation();
+
+    // Warmup 5 initial trajectory seed steps so attractor is populated
+    for (let w = 0; w < 5; w++) {
+      renderer.render(math, 0.016);
+    }
+    renderer.clearAccumulation();
+
+    results[mode.name] = [];
+    let currentFrame = 0;
+
+    for (const cp of checkpoints) {
+      statusEl.innerText = `Mode ${mode.name}: Accumulating to ${cp.timeSec}s (${cp.targetFrames} frames)...`;
+      
+      const framesToRun = cp.targetFrames - currentFrame;
+      for (let f = 0; f < framesToRun; f++) {
+        renderer.render(math, 0.016);
+      }
+      currentFrame = cp.targetFrames;
+      renderer.gl.finish();
+
+      // Read canvas image
+      const dataUrl = canvas.toDataURL('image/png');
+      results[mode.name].push({
+        timeSec: cp.timeSec,
+        frames: currentFrame,
+        totalCumulativePhotons: mode.particles * mode.steps * currentFrame,
+        dataUrl: dataUrl
+      });
+    }
+  }
+
+  statusEl.innerText = "Reporting progressive accumulation results...";
+  await fetch('/progressive_report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(results)
+  });
+  statusEl.innerText = "Progressive accumulation benchmark complete!";
+};
+</script>
+</body>
+</html>

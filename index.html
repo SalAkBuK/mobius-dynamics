@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Möbius Complex Dynamics Laboratory</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #020408;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      color: #8da4c4;
+    }
+
+    #gl-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: crosshair;
+    }
+
+    /* UI Container */
+    #ui-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    #ui-container.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Live Mathematical Readout (Bottom Left) */
+    #equation-readout {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      pointer-events: auto;
+      background: rgba(3, 7, 16, 0.50);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(40, 80, 140, 0.28);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      letter-spacing: 0.02em;
+      color: #9cb5db;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    #equation-readout.collapsed {
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
+    }
+
+    .eq-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #d8ecff;
+      margin-bottom: 4px;
+      letter-spacing: 0.05em;
+    }
+
+    .eq-sub {
+      color: #6482a8;
+      font-size: 10.5px;
+      margin-bottom: 6px;
+    }
+
+    .eq-param {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      color: #7d9bc2;
+    }
+
+    .param-label {
+      color: #5577a3;
+    }
+
+    .param-val {
+      color: #c0daf8;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Minimal Controls Bar (Top Center) */
+    #controls-bar {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      background: rgba(3, 7, 16, 0.60);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(40, 80, 140, 0.28);
+      border-radius: 30px;
+      padding: 4px 8px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+      z-index: 10;
+      max-width: 96vw;
+    }
+
+    .control-label {
+      font-size: 9.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #507096;
+      margin-right: 2px;
+      margin-left: 2px;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 1px;
+      background: rgba(10, 20, 38, 0.65);
+      border-radius: 20px;
+      padding: 2px;
+    }
+
+    button {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #8da4c4;
+      font-family: inherit;
+      font-size: 10.5px;
+      padding: 4px 7px;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      color: #e2f0ff;
+      background: rgba(40, 90, 160, 0.25);
+    }
+
+    button.active {
+      background: rgba(30, 120, 255, 0.35);
+      color: #f0f7ff;
+      border: 1px solid rgba(60, 150, 255, 0.4);
+      font-weight: 500;
+    }
+
+    .divider {
+      width: 1px;
+      height: 14px;
+      background: rgba(40, 80, 140, 0.25);
+      margin: 0 2px;
+    }
+
+    /* Optional Coefficient Controls Drawer */
+    #coeff-drawer {
+      position: absolute;
+      top: 68px;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: auto;
+      background: rgba(3, 7, 16, 0.65);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(40, 80, 140, 0.28);
+      border-radius: 10px;
+      padding: 10px 16px;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+      font-size: 11px;
+      min-width: 380px;
+      z-index: 9;
+    }
+
+    #coeff-drawer.visible {
+      display: flex;
+    }
+
+    .coeff-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .coeff-name {
+      color: #6482a8;
+      font-family: monospace;
+      width: 45px;
+    }
+
+    .coeff-slider {
+      flex: 1;
+      accent-color: #1e82ff;
+      height: 4px;
+      cursor: pointer;
+    }
+
+    .coeff-val {
+      color: #c0daf8;
+      font-family: monospace;
+      width: 45px;
+      text-align: right;
+    }
+
+    /* Diagnostic Debug Overlay (Top Right) */
+    #debug-overlay {
+      position: absolute;
+      top: 68px;
+      right: 24px;
+      pointer-events: auto;
+      background: rgba(3, 7, 16, 0.65);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(40, 80, 140, 0.28);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+      font-size: 10.5px;
+      line-height: 1.6;
+      color: #8da4c4;
+      display: none;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    #debug-overlay.visible {
+      display: block;
+    }
+
+    .dbg-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .dbg-val {
+      color: #55ffcc;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Unhide Hint */
+    #hint-unhide {
+      position: absolute;
+      bottom: 16px;
+      right: 20px;
+      font-size: 10px;
+      color: rgba(90, 130, 180, 0.45);
+      letter-spacing: 0.05em;
+      pointer-events: none;
+      display: none;
+    }
+
+    #hint-unhide.visible {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    window.onerror = function(msg, url, line, col, err) {
+      document.body.setAttribute('data-error', `${msg} at ${url}:${line}:${col} \n${err ? err.stack : ''}`);
+      console.error(msg, err);
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      document.body.setAttribute('data-error', 'Promise: ' + (e.reason ? e.reason.stack || e.reason : 'unknown'));
+    });
+  </script>
+  <canvas id="gl-canvas"></canvas>
+
+  <div id="ui-container">
+    <!-- Top Minimal Controls Bar -->
+    <div id="controls-bar">
+      <span class="control-label">Order n</span>
+      <div class="btn-group">
+        <button class="sym-btn" data-n="3">3</button>
+        <button class="sym-btn" data-n="5">5</button>
+        <button class="sym-btn" data-n="8">8</button>
+        <button class="sym-btn active" data-n="12">12</button>
+        <button class="sym-btn" data-n="16">16</button>
+        <button class="sym-btn" data-n="24">24</button>
+        <button class="sym-btn" data-n="32">32</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Adaptive Quality Selector (Auto Recommended) -->
+      <span class="control-label">Quality</span>
+      <div class="btn-group" id="quality-btn-group">
+        <button class="quality-btn active" data-tier="auto">Auto</button>
+        <button class="quality-btn" data-tier="low">Low</button>
+        <button class="quality-btn" data-tier="standard">Standard</button>
+        <button class="quality-btn" data-tier="high">High</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Zoom navigation buttons -->
+      <div class="btn-group">
+        <button id="btn-zoom-in" title="Zoom In (+)">+</button>
+        <button id="btn-zoom-out" title="Zoom Out (-)">−</button>
+        <button id="btn-zoom-reset" title="Reset Zoom">1×</button>
+      </div>
+
+      <div class="divider"></div>
+
+      <button id="btn-pause">Pause</button>
+      <button id="btn-reset">Reset</button>
+
+      <div class="divider"></div>
+
+      <button id="btn-coeff">Coeffs</button>
+      <button id="btn-readout" class="active">Readout</button>
+      <button id="btn-bloom" class="active">Bloom: ON</button>
+      <button id="btn-raw">Raw</button>
+      <button id="btn-debug">Debug [D]</button>
+      <button id="btn-hide">Hide [H]</button>
+    </div>
+
+    <!-- Optional Coefficient Controls Drawer -->
+    <div id="coeff-drawer">
+      <div style="font-size: 10px; color: #5577a3; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
+        Live Mobius Perturbation Controls
+      </div>
+      <div class="coeff-row">
+        <span class="coeff-name">ΔRe(a)</span>
+        <input type="range" class="coeff-slider" id="slider-a-re" min="-0.5" max="0.5" step="0.01" value="0">
+        <span class="coeff-val" id="lbl-a-re">0.00</span>
+      </div>
+      <div class="coeff-row">
+        <span class="coeff-name">ΔIm(b)</span>
+        <input type="range" class="coeff-slider" id="slider-b-im" min="-0.5" max="0.5" step="0.01" value="0">
+        <span class="coeff-val" id="lbl-b-im">0.00</span>
+      </div>
+      <div class="coeff-row">
+        <span class="coeff-name">ΔRe(c)</span>
+        <input type="range" class="coeff-slider" id="slider-c-re" min="-0.5" max="0.5" step="0.01" value="0">
+        <span class="coeff-val" id="lbl-c-re">0.00</span>
+      </div>
+      <div class="coeff-row">
+        <span class="coeff-name">ΔIm(d)</span>
+        <input type="range" class="coeff-slider" id="slider-d-im" min="-0.5" max="0.5" step="0.01" value="0">
+        <span class="coeff-val" id="lbl-d-im">0.00</span>
+      </div>
+      <div style="display:flex; justify-content: flex-end; margin-top: 4px;">
+        <button id="btn-reset-coeffs" style="padding: 3px 8px; font-size: 10px;">Reset Coefficients</button>
+      </div>
+    </div>
+
+    <!-- Live Mathematical Readout (Bottom Left) -->
+    <div id="equation-readout">
+      <div class="eq-title">z → ω_k (az + b) / (cz + d)</div>
+      <div class="eq-sub">ω_k = e^(2πik / n)</div>
+      <div class="eq-param"><span class="param-label">a:</span> <span class="param-val" id="val-a">--</span></div>
+      <div class="eq-param"><span class="param-label">b:</span> <span class="param-val" id="val-b">--</span></div>
+      <div class="eq-param"><span class="param-label">c:</span> <span class="param-val" id="val-c">--</span></div>
+      <div class="eq-param"><span class="param-label">d:</span> <span class="param-val" id="val-d">--</span></div>
+      <div class="eq-param"><span class="param-label">n:</span> <span class="param-val" id="val-n">12</span></div>
+    </div>
+
+    <!-- Diagnostic Debug Overlay (Top Right) -->
+    <div id="debug-overlay">
+      <div class="eq-title" style="color: #64f3d5; margin-bottom: 6px;">Adaptive Trajectory Engine Profiler</div>
+      <div class="dbg-row"><span>Quality Tier:</span> <span class="dbg-val" id="dbg-tier">AUTO (STANDARD)</span></div>
+      <div class="dbg-row"><span>Simulated Trajectories:</span> <span class="dbg-val" id="dbg-particles">150,000</span></div>
+      <div class="dbg-row"><span>IFS Steps / Frame:</span> <span class="dbg-val" id="dbg-steps">8</span></div>
+      <div class="dbg-row"><span>Deposits / Frame:</span> <span class="dbg-val" id="dbg-iters">1,200,000</span></div>
+      <div class="dbg-row"><span>GPU Time (EMA):</span> <span class="dbg-val" id="dbg-gpu">-- ms</span></div>
+      <div class="dbg-row"><span>Target GPU Budget:</span> <span class="dbg-val" id="dbg-budget">12.0 ms</span></div>
+      <div class="dbg-row"><span>GPU Headroom:</span> <span class="dbg-val" id="dbg-headroom">-- %</span></div>
+      <div class="dbg-row"><span>Performance:</span> <span class="dbg-val" id="dbg-fps">60 FPS</span></div>
+      <div class="dbg-row"><span>Frame Time:</span> <span class="dbg-val" id="dbg-frametime">16.6 ms</span></div>
+      <div class="dbg-row"><span>CPU / JS Time:</span> <span class="dbg-val" id="dbg-cpu">-- ms</span></div>
+      <div class="dbg-row"><span>Display Ratio (DPR):</span> <span class="dbg-val" id="dbg-dpr">1.50</span></div>
+      <div class="dbg-row"><span>Accumulation Age:</span> <span class="dbg-val" id="dbg-accum">0.0s (0 frames)</span></div>
+      <div class="dbg-row"><span>Float Format:</span> <span class="dbg-val" id="dbg-format">RGBA32F</span></div>
+      <div class="dbg-row"><span>Capability Path:</span> <span class="dbg-val" id="dbg-path" style="font-size:10px;">Native Float Blend</span></div>
+      <div class="dbg-row"><span>Adaptation Event:</span> <span class="dbg-val" id="dbg-event" style="color:#a8d8ff;font-size:9.5px;">Calibrating...</span></div>
+      <div class="dbg-row"><span>Zoom Level:</span> <span class="dbg-val" id="dbg-zoom">1.00x</span></div>
+      <div class="dbg-row"><span>Render Resolution:</span> <span class="dbg-val" id="dbg-res">--</span></div>
+      <div style="margin-top: 8px; font-size: 9.5px; color: #5879a2; border-top: 1px solid rgba(40, 80, 140, 0.2); padding-top: 4px;">
+        Click to perturb • Drag (Right-click/Shift) to Pan • Scroll to Zoom • [D] Toggle Debug
+      </div>
+    </div>
+  </div>
+
+  <div id="hint-unhide">Press H to restore controls</div>
+  <div id="capture-container" style="display:none;"></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="c" width="1200" height="800"></canvas>
+<div id="res">running...</div>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onload = async function() {
+  const c = document.getElementById('c');
+  const m = new MathSystem();
+  const r = new MobiusRenderer(c);
+  r.setParticleCount(589824);
+  r.setStepsOverride(16);
+
+  // Warmup 5 frames
+  for (let i = 0; i < 5; i++) {
+    r.render(m, 0.016);
+  }
+  r.gl.finish();
+
+  const t0 = performance.now();
+  for (let i = 0; i < 30; i++) {
+    r.render(m, 0.016);
+  }
+  r.gl.finish();
+  const t1 = performance.now();
+
+  const total = t1 - t0;
+  const perFrame = total / 30;
+
+  // Poll profiler
+  for (let w = 0; w < 30; w++) {
+    r.profiler.pollOldQueries();
+    if (r.profiler.metrics.gpuMs > 0) break;
+    await new Promise(res => setTimeout(res, 20));
+  }
+
+  document.getElementById('res').innerText = JSON.stringify({
+    totalMs: total,
+    perFrameMs: perFrame,
+    metrics: r.profiler.metrics
+  });
+};
+</script>
+</body>
+</html>

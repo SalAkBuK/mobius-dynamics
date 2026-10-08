@@ -1,0 +1,38 @@
+<!DOCTYPE html><html><body><canvas id='c' width='1200' height='800'></canvas><script type='module'>
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onload = async () => {
+  const canvas = document.getElementById('c');
+  const math = new MathSystem();
+  // Default morphology is 'specimen', n=12
+  math.evolving = false;
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.adaptive.setMode('standard');
+  renderer.zoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.clearAccumulation();
+
+  for (let f = 0; f < 599; f++) {
+    math.update(0.016, renderer.zoom);
+    renderer.render(math, 0.016);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  math.update(0.016, renderer.zoom);
+  renderer.render(math, 0.016);
+  const data10s = canvas.toDataURL('image/png');
+  await fetch('/save_specimen?sec=10', { method: 'POST', body: data10s });
+
+  for (let f = 0; f < 599; f++) {
+    math.update(0.016, renderer.zoom);
+    renderer.render(math, 0.016);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  math.update(0.016, renderer.zoom);
+  renderer.render(math, 0.016);
+  const data20s = canvas.toDataURL('image/png');
+  await fetch('/save_specimen?sec=20', { method: 'POST', body: data20s });
+  await fetch('/finish_specimen', { method: 'POST' });
+};
+</script></body></html>

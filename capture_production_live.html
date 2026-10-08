@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Live Production Render</title></head>
+<body style="margin:0; background:#010307; overflow:hidden;">
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.update(0.0, 1.65);
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.adaptive.getDpr = () => 1.0;
+  renderer.resize(1200, 800);
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0;
+
+  // Render for 10 seconds (600 frames) under autonomous drift (p=0.9985)
+  for (let f = 0; f < 600; f++) {
+    math.update(0.016, 1.65);
+    renderer.render(math, 0.016);
+    if (f % 30 === 0) await new Promise(r => requestAnimationFrame(r));
+  }
+
+  // Draw to canvas and send to server
+  renderer.render(math, 0.0);
+  renderer.gl.finish();
+  const dataUrl = canvas.toDataURL('image/png');
+  await fetch('/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataUrl })
+  });
+};
+</script>
+</body>
+</html>

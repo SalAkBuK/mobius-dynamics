@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Float Format Fallback Validation Suite</title>
+<style>
+  body { margin: 0; background: #010307; color: #8da4c4; font-family: monospace; }
+  canvas { width: 1200px; height: 800px; display: block; }
+  #status { position: absolute; top: 10px; left: 10px; font-size: 14px; background: rgba(0,0,0,0.85); padding: 8px 12px; border: 1px solid #224477; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="status">Initializing float fallback suite...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(r));
+}
+
+async function uploadCanvas(name) {
+  const canvas = document.getElementById('c');
+  const dataUrl = canvas.toDataURL('image/png');
+  await fetch(`/save_image?name=${name}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: dataUrl
+  });
+}
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.evolving = false;
+
+  const renderer = new MobiusRenderer(canvas);
+  const gl = renderer.gl;
+
+  // Query and record all active extensions
+  const activeExtensions = {
+    EXT_color_buffer_float: !!gl.getExtension('EXT_color_buffer_float'),
+    EXT_color_buffer_half_float: !!gl.getExtension('EXT_color_buffer_half_float'),
+    EXT_float_blend: !!gl.getExtension('EXT_float_blend'),
+    OES_texture_float_linear: !!gl.getExtension('OES_texture_float_linear'),
+    EXT_disjoint_timer_query_webgl2: !!gl.getExtension('EXT_disjoint_timer_query_webgl2')
+  };
+
+  const formats = [
+    {
+      id: 'rgba32f',
+      name: 'RGBA32F',
+      setup: () => {
+        renderer.floatCap = {
+          internalFormat: gl.RGBA32F,
+          format: gl.RGBA,
+          type: gl.FLOAT,
+          name: 'RGBA32F',
+          label: 'Native RGBA32F Float Blending',
+          photonScale: 1.0
+        };
+        renderer.floatFormat = 'RGBA32F';
+        renderer.floatCapability = 'Native RGBA32F Float Blending';
+        renderer.initTextures();
+      }
+    },
+    {
+      id: 'rgba16f',
+      name: 'RGBA16F',
+      setup: () => {
+        renderer.floatCap = {
+          internalFormat: gl.RGBA16F,
+          format: gl.RGBA,
+          type: gl.HALF_FLOAT,
+          name: 'RGBA16F',
+          label: 'RGBA16F Half-Float Blending Fallback',
+          photonScale: 1.0
+        };
+        renderer.floatFormat = 'RGBA16F';
+        renderer.floatCapability = 'RGBA16F Half-Float Blending Fallback';
+        renderer.initTextures();
+      }
+    },
+    {
+      id: 'rgba8',
+      name: 'RGBA8',
+      setup: () => {
+        renderer.floatCap = {
+          internalFormat: gl.RGBA8,
+          format: gl.RGBA,
+          type: gl.UNSIGNED_BYTE,
+          name: 'RGBA8',
+          label: 'Reduced Precision RGBA8 Fallback',
+          photonScale: 25.0
+        };
+        renderer.floatFormat = 'RGBA8';
+        renderer.floatCapability = 'Reduced Precision RGBA8 Fallback';
+        renderer.initTextures();
+      }
+    }
+  ];
+
+  // Target accumulation times: 1s (~60 frames), 3s (~180 frames), 10s (~600 frames)
+  const checkpoints = [
+    { label: '1s', targetFrames: 60 },
+    { label: '3s', targetFrames: 180 },
+    { label: '10s', targetFrames: 600 }
+  ];
+
+  const meta = { activeExtensions, formats: {} };
+
+  for (const fmt of formats) {
+    statusEl.innerText = `Configuring format path: ${fmt.name}...`;
+    fmt.setup();
+    renderer.adaptive.setMode('standard');
+    renderer.clearAccumulation();
+
+    meta.formats[fmt.id] = { name: fmt.name, checkpoints: {} };
+
+    let currentFrame = 0;
+    for (const cp of checkpoints) {
+      statusEl.innerText = `Accumulating ${fmt.name} to ${cp.label} (${cp.targetFrames} frames)...`;
+      while (currentFrame < cp.targetFrames - 1) {
+        math.update(0.016, renderer.zoom);
+        renderer.render(math, 0.016);
+        currentFrame++;
+        await nextFrame();
+      }
+
+      // Synchronous render & capture on boundary frame
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      currentFrame++;
+
+      const capName = `fallback_${fmt.id}_${cp.label}`;
+      statusEl.innerText = `Saving ${capName}...`;
+      await uploadCanvas(capName);
+
+      meta.formats[fmt.id].checkpoints[cp.label] = {
+        accumFrames: renderer.accumulationFrames,
+        particles: renderer.numParticles,
+        steps: renderer.stepsPerFrame,
+        deposits: renderer.numParticles * renderer.stepsPerFrame * renderer.accumulationFrames
+      };
+    }
+  }
+
+  statusEl.innerText = "Finishing fallback test suite...";
+  await fetch('/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(meta)
+  });
+  statusEl.innerText = "Fallback validation complete!";
+};
+</script>
+</body>
+</html>

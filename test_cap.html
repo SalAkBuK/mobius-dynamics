@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html><body>
+<canvas id='c' width='100' height='100'></canvas>
+<script type='module'>
+import { MobiusRenderer } from './renderer.js';
+import { MathSystem } from './math.js';
+const c = document.getElementById('c');
+c.getContext('webgl2', { preserveDrawingBuffer: true });
+const r = new MobiusRenderer(c);
+const m = new MathSystem();
+r.render(m, 0.016);
+fetch('/check', { method: 'POST', body: c.toDataURL() });
+</script></body></html>

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Controlled Visual Detail Audit</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 1200px; height: 800px; overflow: hidden; background: #010307; font-family: monospace; }
+  canvas { width: 1200px; height: 800px; display: block; }
+  #status { position: absolute; top: 10px; left: 10px; font-size: 13px; background: rgba(0,0,0,0.85); color: #8da4c4; padding: 8px 12px; border: 1px solid #224477; border-radius: 4px; z-index: 100; }
+</style>
+</head>
+<body>
+<div id="status">Initializing Controlled Visual Detail Audit Suite...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(r));
+}
+
+async function uploadCheckpoint(name, meta = {}) {
+  const canvas = document.getElementById('c');
+  const dataUrl = canvas.toDataURL('image/png');
+  await fetch('/save_checkpoint', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, dataUrl, meta })
+  });
+}
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+
+  // 1. FREEZE EVERYTHING
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.evolving = false; // Freeze temporal drift
+
+  const renderer = new MobiusRenderer(canvas);
+  // Force fixed DPR 1.0 on 1200x800 for exact pixel parity
+  renderer.adaptive.getDpr = () => 1.0;
+  renderer.resize(1200, 800);
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0; // Standard tonemapping view
+  renderer.currentPersistence = 1.0; // Deterministic pure photon accumulation
+
+  const gl = renderer.gl;
+  const extTimer = renderer.profiler.ext;
+
+  // Measurement definition
+  // Baseline run: Brute Force (589k x 16) vs Standard Adaptive (150k x 8) at 1s, 3s, 5s, 10s, 20s
+  // Experimental run: 180k x 8 and 150k x 10 at 3s, 5s, 10s
+  const runs = [
+    {
+      id: 'brute_force',
+      label: 'OLD BRUTE FORCE (589,824 x 16)',
+      particles: 589824,
+      steps: 16,
+      checkpoints: [1.0, 3.0, 5.0, 10.0, 20.0]
+    },
+    {
+      id: 'adaptive_std',
+      label: 'CURRENT ADAPTIVE STD (150,000 x 8)',
+      particles: 150000,
+      steps: 8,
+      checkpoints: [1.0, 3.0, 5.0, 10.0, 20.0]
+    },
+    {
+      id: 'exp_180k_8',
+      label: 'EXPERIMENTAL A (180,000 x 8)',
+      particles: 180000,
+      steps: 8,
+      checkpoints: [3.0, 5.0, 10.0]
+    },
+    {
+      id: 'exp_150k_10',
+      label: 'EXPERIMENTAL B (150,000 x 10)',
+      particles: 150000,
+      steps: 10,
+      checkpoints: [3.0, 5.0, 10.0]
+    }
+  ];
+
+  const summaryMetrics = {};
+
+  for (const run of runs) {
+    statusEl.innerText = `Preparing workload: ${run.label}...`;
+    renderer.setParticleCount(run.particles);
+    renderer.setStepsOverride(run.steps);
+    renderer.currentPersistence = 1.0;
+    renderer.clearAccumulation();
+
+    // Attractor Warmup: run 15 simulation steps so initial seeds converge to attractor without accumulation
+    for (let w = 0; w < 15; w++) {
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      await nextFrame();
+    }
+    renderer.clearAccumulation();
+    gl.finish();
+
+    // Measure GPU frame time with timer query
+    let measuredGpuMs = null;
+    if (extTimer) {
+      const q = gl.createQuery();
+      gl.beginQuery(extTimer.TIME_ELAPSED_EXT, q);
+      renderer.render(math, 0.016);
+      gl.endQuery(extTimer.TIME_ELAPSED_EXT);
+      gl.flush();
+
+      for (let poll = 0; poll < 150; poll++) {
+        await new Promise(r => setTimeout(r, 10));
+        if (gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) {
+          measuredGpuMs = gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6;
+          break;
+        }
+      }
+      gl.deleteQuery(q);
+    }
+    renderer.clearAccumulation();
+    gl.finish();
+
+    statusEl.innerText = `Running wall-clock capture for ${run.label} (GPU: ${measuredGpuMs ? measuredGpuMs.toFixed(2) + 'ms' : 'N/A'})...`;
+
+    summaryMetrics[run.id] = {
+      label: run.label,
+      particles: run.particles,
+      steps: run.steps,
+      depositsPerFrame: run.particles * run.steps,
+      measuredGpuMs: measuredGpuMs,
+      checkpoints: {}
+    };
+
+    // Run progressive accumulation strictly driven by performance.now() elapsed wall-clock time
+    await new Promise(resolve => {
+      let frameCount = 0;
+      let targetIdx = 0;
+      const startTime = performance.now();
+
+      async function onFrame(now) {
+        math.update(0.016, renderer.zoom);
+        renderer.render(math, 0.016);
+        frameCount++;
+
+        const elapsedMs = performance.now() - startTime;
+        const targetSec = run.checkpoints[targetIdx];
+
+        if (elapsedMs >= targetSec * 1000) {
+          gl.finish();
+          const effectiveFps = (frameCount * 1000) / elapsedMs;
+          const meta = {
+            workloadId: run.id,
+            label: run.label,
+            targetSec: targetSec,
+            actualElapsedMs: elapsedMs,
+            completedFrames: frameCount,
+            effectiveFps: effectiveFps,
+            particles: run.particles,
+            steps: run.steps,
+            depositsPerFrame: run.particles * run.steps,
+            totalDeposits: frameCount * run.particles * run.steps,
+            measuredGpuMs: measuredGpuMs
+          };
+
+          summaryMetrics[run.id].checkpoints[targetSec] = meta;
+          statusEl.innerText = `[${run.id}] Captured ${targetSec}s (${frameCount} frames in ${(elapsedMs/1000).toFixed(2)}s, ${effectiveFps.toFixed(1)} FPS)...`;
+
+          const imgName = `${run.id}_${targetSec}s_full`;
+          await uploadCheckpoint(imgName, meta);
+
+          targetIdx++;
+          if (targetIdx >= run.checkpoints.length) {
+            resolve();
+            return;
+          }
+        }
+
+        requestAnimationFrame(onFrame);
+      }
+
+      requestAnimationFrame(onFrame);
+    });
+  }
+
+  statusEl.innerText = "All workloads captured. Reporting metrics to server...";
+  await fetch('/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(summaryMetrics)
+  });
+  statusEl.innerText = "Controlled Visual Detail Audit Complete!";
+};
+</script>
+</body>
+</html>

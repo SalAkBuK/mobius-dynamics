@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Edge Probe</title>
+</head>
+<body>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+
+  const renderer = new MobiusRenderer(canvas);
+  const gl = renderer.gl;
+
+  // Run 60 frames to calibrate adaptive tier
+  for (let i = 0; i < 60; i++) {
+    math.update(0.016, renderer.zoom);
+    renderer.render(math, 0.016);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+
+  const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+  const unmaskedRenderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
+  const unmaskedVendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : 'unknown';
+
+  const report = {
+    browser: 'Microsoft Edge',
+    webgl2Available: !!gl,
+    unmaskedRenderer,
+    unmaskedVendor,
+    floatFormat: renderer.floatFormat,
+    floatCapability: renderer.floatCapability,
+    hasRgba32f: renderer.floatFormat === 'RGBA32F',
+    hasRgba16fFallback: renderer.testFboFormat(gl.RGBA16F, gl.HALF_FLOAT, false),
+    hasTimerQuery: renderer.profiler.supported,
+    tierSelected: renderer.adaptive.currentTierKey,
+    activeParticles: renderer.numParticles,
+    activeSteps: renderer.stepsPerFrame,
+    presentationFps: renderer.profiler.metrics.fps,
+    gpuEmaMs: renderer.adaptive.gpuEma ? parseFloat(renderer.adaptive.gpuEma.toFixed(2)) : null,
+    visualIssues: 'none'
+  };
+
+  await fetch('/edge_report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(report)
+  });
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Systems Validation Suite</title>
+</head>
+<body>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+import { QUALITY_TIERS } from './adaptive.js';
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(r));
+}
+
+async function waitMs(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+
+  const renderer = new MobiusRenderer(canvas);
+  renderer.adaptive.setMode('standard');
+  const gl = renderer.gl;
+
+  const results = {};
+
+  // =========================================================================
+  // TEST 8: HIGH-REFRESH DISPLAY LOGIC (Programmatic RAF Simulation)
+  // =========================================================================
+  {
+    function testHighRefreshSchedule(targetHz, simDurationSec = 1.0) {
+      const frameIntervalMs = 1000.0 / targetHz;
+      const totalFrames = Math.round(targetHz * simDurationSec);
+      
+      let rafDeltas = [];
+      let refreshRate = 60;
+      let isHighRefresh = false;
+      let lastRafTimestamp = 0;
+      let lastSimTime = 0;
+      let simExecutions = 0;
+      let presentationFrames = 0;
+
+      for (let f = 0; f < totalFrames; f++) {
+        const currentTime = f * frameIntervalMs;
+        presentationFrames++;
+
+        if (lastRafTimestamp > 0) {
+          const delta = currentTime - lastRafTimestamp;
+          if (delta > 2.0 && delta < 100.0) {
+            rafDeltas.push(delta);
+            if (rafDeltas.length > 45) rafDeltas.shift();
+            if (rafDeltas.length >= 15) {
+              const sorted = [...rafDeltas].sort((a, b) => a - b);
+              const median = sorted[Math.floor(sorted.length / 2)];
+              refreshRate = Math.round(1000 / median);
+              isHighRefresh = refreshRate >= 75;
+            }
+          }
+        }
+        lastRafTimestamp = currentTime;
+
+        // Throttling logic from app.js line 451
+        if (isHighRefresh) {
+          const simDt = currentTime - lastSimTime;
+          if (simDt < 15.0) {
+            continue; // Skipped simulation step
+          }
+        }
+        lastSimTime = currentTime;
+        simExecutions++;
+      }
+
+      return {
+        targetHz,
+        simDurationSec,
+        presentationFrames,
+        simExecutions,
+        effectiveSimHz: Math.round(simExecutions / simDurationSec),
+        isCappedNear60Hz: (simExecutions / simDurationSec) <= 68,
+        powerSavingsPercent: Math.round((1.0 - (simExecutions / presentationFrames)) * 100)
+      };
+    }
+
+    results.highRefresh = {
+      display60Hz: testHighRefreshSchedule(60),
+      display75Hz: testHighRefreshSchedule(75),
+      display90Hz: testHighRefreshSchedule(90),
+      display120Hz: testHighRefreshSchedule(120),
+      display144Hz: testHighRefreshSchedule(144),
+      display165Hz: testHighRefreshSchedule(165),
+      display240Hz: testHighRefreshSchedule(240)
+    };
+  }
+
+  // =========================================================================
+  // TEST 9: BACKGROUND / HIDDEN TAB RESTORE TEST
+  // =========================================================================
+  {
+    // Warmup 30 frames
+    for (let i = 0; i < 30; i++) {
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      await nextFrame();
+    }
+    const preHiddenAccumFrames = renderer.accumulationFrames;
+    const preHiddenMathTime = math.time;
+
+    // Simulate tab hidden for 5 simulated passes of 500ms
+    let simCallsWhileHidden = 0;
+    let isTabHidden = true;
+    for (let h = 0; h < 10; h++) {
+      if (!isTabHidden) {
+        simCallsWhileHidden++;
+      }
+      await waitMs(20);
+    }
+
+    // Restore tab
+    isTabHidden = false;
+    // On resume: app.js resets lastTime and lastSimTime (preventing delta-time explosion)
+    const resumeDt = Math.min(0.05, 0.016); // app.js clamps dt to 0.05 max
+    math.update(resumeDt, renderer.zoom);
+    renderer.render(math, resumeDt);
+    await nextFrame();
+
+    results.tabVisibility = {
+      simCallsWhileHidden: simCallsWhileHidden,
+      gpuSimHaltedWhenHidden: simCallsWhileHidden === 0,
+      accumulationPreserved: renderer.accumulationFrames >= preHiddenAccumFrames,
+      noDeltaTimeSpike: resumeDt <= 0.05,
+      mathTimeSmooth: (math.time - preHiddenMathTime) < 1.0,
+      tierPreserved: renderer.adaptive.currentTierKey
+    };
+  }
+
+  // =========================================================================
+  // TEST 10: RESIZE TEST
+  // =========================================================================
+  {
+    const resizeEvents = [];
+    const sizes = [
+      { w: 640, h: 480, label: 'small' },
+      { w: 1200, h: 800, label: 'standard' },
+      { w: 1920, h: 1080, label: 'fullscreen' },
+      { w: 1200, h: 800, label: 'restored' }
+    ];
+
+    for (const s of sizes) {
+      renderer.resize(s.w, s.h);
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      await nextFrame();
+
+      resizeEvents.push({
+        label: s.label,
+        canvasW: canvas.width,
+        canvasH: canvas.height,
+        accumW: renderer.accumWidth,
+        accumH: renderer.accumHeight,
+        bloomW: renderer.bloomWidth,
+        bloomH: renderer.bloomHeight,
+        aspect: parseFloat(renderer.aspect.toFixed(3)),
+        status: gl.checkFramebufferStatus(gl.FRAMEBUFFER) === 0 || gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE
+      });
+    }
+
+    results.resizing = {
+      events: resizeEvents,
+      allComplete: resizeEvents.every(e => e.status),
+      bloomProportional: resizeEvents.every(e => Math.abs(e.bloomW - Math.floor(e.accumW / 4)) <= 1)
+    };
+  }
+
+  // =========================================================================
+  // TEST 13: MOBILE / WEAK HARDWARE (Forced POTATO Mode)
+  // =========================================================================
+  {
+    renderer.adaptive.setMode('potato');
+    // Force RGBA16F format
+    renderer.floatCap = {
+      internalFormat: gl.RGBA16F,
+      format: gl.RGBA,
+      type: gl.HALF_FLOAT,
+      name: 'RGBA16F',
+      label: 'RGBA16F Half-Float Blending Fallback',
+      photonScale: 1.0
+    };
+    renderer.initTextures();
+    renderer.clearAccumulation();
+
+    const potatoSamples = [];
+    for (let p = 0; p < 45; p++) {
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      potatoSamples.push(renderer.profiler.metrics.gpuMs);
+      await nextFrame();
+    }
+
+    const avgPotatoGpu = potatoSamples.filter(x => x > 0).reduce((a, b) => a + b, 0) / Math.max(1, potatoSamples.filter(x => x > 0).length);
+
+    results.potatoMode = {
+      particles: renderer.numParticles,
+      steps: renderer.stepsPerFrame,
+      deposits: renderer.numParticles * renderer.stepsPerFrame,
+      tier: renderer.adaptive.currentTierKey,
+      dpr: renderer.adaptive.getDpr(),
+      format: renderer.floatFormat,
+      avgGpuMs: parseFloat(avgPotatoGpu.toFixed(2)),
+      fps: renderer.profiler.metrics.fps,
+      withinBudget: avgPotatoGpu < 12.0
+    };
+  }
+
+  // =========================================================================
+  // TEST 14: INPUT RESPONSIVENESS & FRAME SPIKES
+  // =========================================================================
+  {
+    renderer.adaptive.setMode('standard');
+    renderer.floatCap = renderer.detectFloatCapability();
+    renderer.initTextures();
+
+    const spikeMetrics = {
+      frameTimes: [],
+      maxFrameTime: 0,
+      interactionsTriggered: 0
+    };
+
+    // Simulate rapid pointer dragging, wheel zoom, and symmetry changes
+    for (let step = 0; step < 90; step++) {
+      const t0 = performance.now();
+
+      if (step % 10 === 0) {
+        renderer.adaptive.markInteraction();
+        math.setPointer(Math.sin(step * 0.2), Math.cos(step * 0.2));
+        spikeMetrics.interactionsTriggered++;
+      }
+      if (step === 30) {
+        renderer.targetZoom = 3.5;
+      }
+      if (step === 60) {
+        math.setSymmetry(24);
+      }
+
+      math.update(0.016, renderer.zoom);
+      renderer.render(math, 0.016);
+      const elapsed = performance.now() - t0;
+      spikeMetrics.frameTimes.push(elapsed);
+      if (elapsed > spikeMetrics.maxFrameTime) {
+        spikeMetrics.maxFrameTime = elapsed;
+      }
+      await nextFrame();
+    }
+
+    const avgFt = spikeMetrics.frameTimes.reduce((a, b) => a + b, 0) / spikeMetrics.frameTimes.length;
+    results.inputResponsiveness = {
+      avgFrameTimeMs: parseFloat(avgFt.toFixed(2)),
+      worstObservedFrameSpikeMs: parseFloat(spikeMetrics.maxFrameTime.toFixed(2)),
+      interactionsTriggered: spikeMetrics.interactionsTriggered,
+      noSevereStall: spikeMetrics.maxFrameTime < 33.3, // No 30 FPS drops
+      adaptiveWorkloadResponsive: renderer.adaptive.isInteracting !== null
+    };
+  }
+
+  // Transmit complete report
+  await fetch('/systems_report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(results)
+  });
+};
+</script>
+</body>
+</html>

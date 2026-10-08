@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Controlled Idle Persistence Experiment (150k x 8)</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 1200px; height: 800px; overflow: hidden; background: #010307; font-family: monospace; }
+  canvas { width: 1200px; height: 800px; display: block; }
+  #status { position: absolute; top: 10px; left: 10px; font-size: 13px; background: rgba(0,0,0,0.85); color: #8da4c4; padding: 8px 12px; border: 1px solid #224477; border-radius: 4px; z-index: 100; }
+</style>
+</head>
+<body>
+<div id="status">Initializing Controlled Idle Persistence Experiment Suite...</div>
+<canvas id="c" width="1200" height="800"></canvas>
+<script type="module">
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+
+function nextFrame() {
+  return new Promise(r => requestAnimationFrame(r));
+}
+
+async function uploadCheckpoint(name, meta = {}) {
+  const canvas = document.getElementById('c');
+  const dataUrl = canvas.toDataURL('image/png');
+  await fetch('/save_checkpoint', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, dataUrl, meta })
+  });
+}
+
+window.onload = async function() {
+  const canvas = document.getElementById('c');
+  const statusEl = document.getElementById('status');
+
+  // 1. SETUP MATH SYSTEM WITH FROZEN TEMPORAL DRIFT (t=0)
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.update(0, 1.65); // Static attractor coefficients at t = 0
+  
+  // Freeze coefficient drift completely
+  math.update = function() {};
+  math.evolving = true; // Avoid renderer.js line 842 setting targetPersistence = 1.0!
+
+  const renderer = new MobiusRenderer(canvas);
+  // Force fixed DPR 1.0 on 1200x800 for exact pixel parity across all runs
+  renderer.adaptive.getDpr = () => 1.0;
+  renderer.resize(1200, 800);
+  renderer.zoom = 1.65;
+  renderer.targetZoom = 1.65;
+  renderer.viewCenter = [0.0, 0.0];
+  renderer.targetViewCenter = [0.0, 0.0];
+  renderer.bloomEnabled = true;
+  renderer.viewMode = 0; // Standard production tonemapping
+
+  const gl = renderer.gl;
+  const extTimer = renderer.profiler.ext;
+
+  // STRICT PERSISTENCE ENFORCEMENT HOOK:
+  // Override gl.uniform1f to guarantee decayUniforms.persistence receives EXACT test persistence
+  let activePersistence = 0.9985;
+  const origUniform1f = gl.uniform1f.bind(gl);
+  gl.uniform1f = function(loc, val) {
+    if (loc === renderer.decayUniforms.persistence) {
+      return origUniform1f(loc, activePersistence);
+    }
+    return origUniform1f(loc, val);
+  };
+
+  const origRender = renderer.render.bind(renderer);
+  renderer.render = function(m, dt, jsTime) {
+    m.evolving = true;
+    this.currentPersistence = activePersistence;
+    const res = origRender(m, dt, jsTime);
+    this.currentPersistence = activePersistence;
+    return res;
+  };
+
+  // Evaluation runs:
+  // 1. Reference: Brute Force (589k x 16, p=0.9985) @ 10s, 20s, 30s
+  // 2. Candidate A: Prod Baseline (150k x 8, p=0.9985) @ 3s, 5s, 10s, 20s, 30s
+  // 3. Candidate B: (150k x 8, p=0.9990) @ 3s, 5s, 10s, 20s, 30s
+  // 4. Candidate C: (150k x 8, p=0.99925) @ 3s, 5s, 10s, 20s, 30s
+  // 5. Candidate D: (150k x 8, p=0.9995) @ 3s, 5s, 10s, 20s, 30s
+  const runs = [
+    {
+      id: 'brute_force',
+      label: 'BRUTE FORCE (589k x 16, p=0.9985)',
+      particles: 589824,
+      steps: 16,
+      persistence: 0.9985,
+      checkpoints: [10, 20, 30]
+    },
+    {
+      id: 'cand_p09985',
+      label: 'PROD BASELINE (150k x 8, p=0.9985)',
+      particles: 150000,
+      steps: 8,
+      persistence: 0.9985,
+      checkpoints: [3, 5, 10, 20, 30]
+    },
+    {
+      id: 'cand_p09990',
+      label: 'CANDIDATE B (150k x 8, p=0.9990)',
+      particles: 150000,
+      steps: 8,
+      persistence: 0.9990,
+      checkpoints: [3, 5, 10, 20, 30]
+    },
+    {
+      id: 'cand_p099925',
+      label: 'CANDIDATE C (150k x 8, p=0.99925)',
+      particles: 150000,
+      steps: 8,
+      persistence: 0.99925,
+      checkpoints: [3, 5, 10, 20, 30]
+    },
+    {
+      id: 'cand_p09995',
+      label: 'CANDIDATE D (150k x 8, p=0.9995)',
+      particles: 150000,
+      steps: 8,
+      persistence: 0.9995,
+      checkpoints: [3, 5, 10, 20, 30]
+    }
+  ];
+
+  const summaryMetrics = {};
+
+  for (const run of runs) {
+    statusEl.innerText = `Preparing workload: ${run.label}...`;
+    activePersistence = run.persistence;
+    renderer.setParticleCount(run.particles);
+    renderer.setStepsOverride(run.steps);
+    renderer.currentPersistence = run.persistence;
+    renderer.clearAccumulation();
+
+    // Attractor Warmup: 20 simulation frames so random seeds populate attractor manifold
+    for (let w = 0; w < 20; w++) {
+      renderer.render(math, 0.016);
+      await nextFrame();
+    }
+    renderer.clearAccumulation();
+    gl.finish();
+
+    // Measure GPU frame time via disjoint timer queries over 5 frames
+    let measuredGpuMs = null;
+    if (extTimer) {
+      const qTimes = [];
+      for (let qf = 0; qf < 5; qf++) {
+        const q = gl.createQuery();
+        gl.beginQuery(extTimer.TIME_ELAPSED_EXT, q);
+        renderer.render(math, 0.016);
+        gl.endQuery(extTimer.TIME_ELAPSED_EXT);
+        gl.flush();
+
+        for (let poll = 0; poll < 150; poll++) {
+          await new Promise(r => setTimeout(r, 5));
+          if (gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) {
+            qTimes.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6);
+            break;
+          }
+        }
+        gl.deleteQuery(q);
+      }
+      if (qTimes.length > 0) {
+        measuredGpuMs = qTimes.reduce((a, b) => a + b, 0) / qTimes.length;
+      }
+    }
+    renderer.clearAccumulation();
+    gl.finish();
+
+    statusEl.innerText = `Running wall-clock capture for ${run.label} (GPU: ${measuredGpuMs ? measuredGpuMs.toFixed(2) + 'ms' : 'N/A'})...`;
+
+    summaryMetrics[run.id] = {
+      label: run.label,
+      particles: run.particles,
+      steps: run.steps,
+      depositsPerFrame: run.particles * run.steps,
+      targetPersistence: run.persistence,
+      measuredGpuMs: measuredGpuMs,
+      checkpoints: {}
+    };
+
+    // Real wall-clock timing loop with pause compensation during screenshot upload
+    await new Promise(resolve => {
+      let frameCount = 0;
+      let targetIdx = 0;
+      let pausedDuration = 0;
+      const startTime = performance.now();
+
+      async function onFrame(now) {
+        renderer.render(math, 0.016);
+        frameCount++;
+
+        const currentNow = performance.now();
+        const activeElapsedMs = (currentNow - startTime) - pausedDuration;
+        const targetSec = run.checkpoints[targetIdx];
+
+        if (activeElapsedMs >= targetSec * 1000) {
+          gl.finish();
+          const pauseStart = performance.now();
+
+          const effectiveFps = (frameCount * 1000) / activeElapsedMs;
+          const meta = {
+            workloadId: run.id,
+            label: run.label,
+            targetSec: targetSec,
+            activeElapsedMs: activeElapsedMs,
+            completedFrames: frameCount,
+            effectiveFps: effectiveFps,
+            particles: run.particles,
+            steps: run.steps,
+            depositsPerFrame: run.particles * run.steps,
+            targetPersistence: run.persistence,
+            measuredGpuMs: measuredGpuMs
+          };
+
+          summaryMetrics[run.id].checkpoints[targetSec] = meta;
+          statusEl.innerText = `[${run.id}] Captured ${targetSec}s (${frameCount} frames in ${(activeElapsedMs/1000).toFixed(2)}s, ${effectiveFps.toFixed(1)} FPS)...`;
+
+          const imgName = `${run.id}_${targetSec}s_full`;
+          await uploadCheckpoint(imgName, meta);
+
+          const pauseEnd = performance.now();
+          pausedDuration += (pauseEnd - pauseStart);
+
+          targetIdx++;
+          if (targetIdx >= run.checkpoints.length) {
+            resolve();
+            return;
+          }
+        }
+
+        requestAnimationFrame(onFrame);
+      }
+
+      requestAnimationFrame(onFrame);
+    });
+  }
+
+  statusEl.innerText = "All idle persistence workloads captured. Reporting metrics to server...";
+  await fetch('/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(summaryMetrics)
+  });
+  statusEl.innerText = "Idle Persistence Experiment Captures Complete!";
+};
+</script>
+</body>
+</html>

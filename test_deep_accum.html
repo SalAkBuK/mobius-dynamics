@@ -1,0 +1,29 @@
+<!DOCTYPE html><html><body><canvas id='c' width='1200' height='800'></canvas><script type='module'>
+import { MathSystem } from './math.js';
+import { MobiusRenderer } from './renderer.js';
+window.onload = async () => {
+  const canvas = document.getElementById('c');
+  const math = new MathSystem();
+  math.setMorphology('lace');
+  math.setSymmetry(16);
+  math.evolving = false;
+  const renderer = new MobiusRenderer(canvas);
+  renderer.zoom = 1.65 * 130.0;
+  renderer.targetZoom = renderer.zoom;
+  renderer.viewCenter = [0.1422, 0.0894];
+  renderer.targetViewCenter = [0.1422, 0.0894];
+  renderer.clearOverrides();
+  renderer.adaptive.setMode('standard');
+  renderer.clearAccumulation();
+  
+  for (let f = 0; f < 599; f++) {
+    math.update(0.016, renderer.zoom);
+    renderer.render(math, 0.016);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  math.update(0.016, renderer.zoom);
+  renderer.render(math, 0.016);
+  const data = canvas.toDataURL('image/png');
+  await fetch('/save?frames=600', { method: 'POST', body: data });
+};
+</script></body></html>

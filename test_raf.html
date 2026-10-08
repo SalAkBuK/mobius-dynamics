@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div id="res">running</div>
+<script>
+let frames = 0;
+const t0 = performance.now();
+function loop(now) {
+  frames++;
+  if (now - t0 >= 1000) {
+    document.getElementById('res').innerText = JSON.stringify({frames: frames, elapsed: now - t0});
+    return;
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
