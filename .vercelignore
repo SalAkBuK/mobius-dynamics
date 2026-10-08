@@ -1,0 +1,27 @@
+# Dependencies & Build Cache
+node_modules/
+.vercel/
+__pycache__/
+*.pyc
+
+# Benchmark & Validation Capture Suites
+accum_captures/
+active_persistence_test/
+center_void_captures/
+drift_aware_persistence_experiment/
+fallback_captures/
+idle_persistence_experiment/
+parity_captures/
+persistence_audit/
+validation_captures/
+visual_detail_audit/
+
+# Temporary Local Test Outputs
+*.png
+!preview.png
+*.log
+test_out.txt
+*.json
+!vercel.json
+
+.vercel
