@@ -66,7 +66,9 @@ class App {
 
     // Parse URL parameters for automated testing & direct linking
     const params = new URLSearchParams(window.location.search);
-    if (params.has('tier')) {
+    if (params.has('bruteforce') || params.has('brute')) {
+      this.renderer.adaptive.setMode('bruteforce');
+    } else if (params.has('tier')) {
       this.renderer.adaptive.setMode(params.get('tier'));
     }
     if (params.has('morph')) {
@@ -537,7 +539,13 @@ class App {
         this.dbgCpu.innerText = `${m.cpuMs.toFixed(2)} ms (JS: ${m.jsUpdateMs.toFixed(2)}ms)`;
       }
 
-      if (status.gpuEma !== null) {
+      if (status.timerQueryState === 'disjoint') {
+        if (this.dbgGpu) this.dbgGpu.innerText = `${status.gpuEma ? status.gpuEma.toFixed(2) + ' ms' : '-- ms'} (disjoint discarded)`;
+      } else if (status.timerQueryState === 'unavailable') {
+        if (this.dbgGpu) this.dbgGpu.innerText = `${status.gpuEma ? status.gpuEma.toFixed(2) + ' ms' : '-- ms'} (CPU fallback)`;
+      } else if (status.timerQueryState === 'pending') {
+        if (this.dbgGpu) this.dbgGpu.innerText = `Calibrating queries...`;
+      } else if (status.gpuEma !== null) {
         if (this.dbgGpu) this.dbgGpu.innerText = `${status.gpuEma.toFixed(2)} ms (EMA)`;
       } else if (m.gpuSupported && m.gpuMs !== null) {
         if (this.dbgGpu) this.dbgGpu.innerText = `${m.gpuMs.toFixed(2)} ms`;

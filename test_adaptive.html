@@ -83,7 +83,8 @@
         targetBudgetMs: postCalibStatus.targetBudgetMs,
         headroomPercent: postCalibStatus.headroomPercent,
         lastEvent: postCalibStatus.lastEvent,
-        promotedToStandard: postCalibStatus.tierKey === 'STANDARD',
+        promotedToStandard: ['STANDARD', 'HIGH', 'ULTRA', 'EXTREME'].includes(postCalibStatus.tierKey),
+        queryState: renderer.profiler.getQueryStatus().state,
         measuredRealGpuTime: postCalibStatus.gpuEma !== null && postCalibStatus.gpuEma > 0
       };
 
@@ -360,6 +361,84 @@
         rolledBackToStandard: rolledBackTier === 'STANDARD',
         hysteresisTierBlocked: isTierBlocked,
         antiOscillationPreserved: antiOscillationTier === 'STANDARD'
+      };
+
+      log("12. Testing Calibration Ceiling Fix (1.2 ms measured headroom)...");
+      renderer.adaptive.setMode('auto');
+      renderer.adaptive.hasMeasuredGpu = true;
+      renderer.adaptive.gpuEma = 1.2; // 1.2 ms measured headroom on powerful discrete GPU
+      renderer.adaptive.completeCalibration();
+      const directHighEndTier = renderer.adaptive.currentTierKey;
+      const directValidationActive = renderer.adaptive.validationState.active;
+      results.calibrationCeilingFix = {
+        calibratedAboveStandard: directHighEndTier === 'ULTRA' || directHighEndTier === 'HIGH',
+        calibratedTier: directHighEndTier,
+        validationActiveOnCalibration: directValidationActive
+      };
+
+      log("13. Testing Full Empirical Promotion Ladder (STANDARD -> HIGH -> ULTRA -> EXTREME)...");
+      renderer.adaptive.setMode('auto');
+      renderer.adaptive.currentTierKey = 'STANDARD';
+      renderer.adaptive.currentTier = QUALITY_TIERS.STANDARD;
+      renderer.adaptive.hasMeasuredGpu = true;
+      renderer.adaptive.blockedTiers = {};
+      renderer.adaptive.validationState.active = false;
+      renderer.adaptive.cooldownFrames = 0;
+
+      // STANDARD -> HIGH (gpu 4.5ms)
+      renderer.adaptive.gpuEma = 4.5;
+      for (let f = 0; f < 100; f++) renderer.adaptive.evaluateAdaptation();
+      const ladderHigh = renderer.adaptive.currentTierKey;
+      // Complete validation of HIGH
+      for (let f = 0; f < 95; f++) renderer.adaptive.evaluateAdaptation();
+      renderer.adaptive.cooldownFrames = 0;
+
+      // HIGH -> ULTRA (gpu 4.0ms)
+      renderer.adaptive.gpuEma = 4.0;
+      for (let f = 0; f < 100; f++) renderer.adaptive.evaluateAdaptation();
+      const ladderUltra = renderer.adaptive.currentTierKey;
+      // Complete validation of ULTRA
+      for (let f = 0; f < 95; f++) renderer.adaptive.evaluateAdaptation();
+      renderer.adaptive.cooldownFrames = 0;
+
+      // ULTRA -> EXTREME (gpu 4.0ms)
+      renderer.adaptive.gpuEma = 4.0;
+      for (let f = 0; f < 100; f++) renderer.adaptive.evaluateAdaptation();
+      const ladderExtreme = renderer.adaptive.currentTierKey;
+
+      results.fullPromotionLadder = {
+        climbedToHigh: ladderHigh === 'HIGH',
+        climbedToUltra: ladderUltra === 'ULTRA',
+        climbedToExtreme: ladderExtreme === 'EXTREME',
+        finalParticles: renderer.adaptive.getWorkload(1.65).particles,
+        finalSteps: renderer.adaptive.getWorkload(1.65).steps,
+        finalDeposits: renderer.adaptive.getWorkload(1.65).deposits,
+        reusedVboBuffer: renderer.numParticles <= renderer.maxParticleCapacity
+      };
+
+      log("14. Testing Query Validity, Disjoint Distinction & CPU Fallback...");
+      // Valid query
+      renderer.adaptive.recordGpuTime(1.5);
+      const validQueryState = renderer.adaptive.timerQueryState === 'valid';
+
+      // Disjoint event
+      renderer.adaptive.recordDisjoint();
+      const disjointQueryState = renderer.adaptive.timerQueryState === 'disjoint';
+      const disjointCounterWorking = renderer.adaptive.disjointCount > 0;
+
+      // Unavailable fallback
+      renderer.adaptive.hasMeasuredGpu = false;
+      renderer.adaptive.gpuEma = 0.0;
+      renderer.adaptive.recordCpuFallbackTime(16.0);
+      const unavailState = renderer.adaptive.timerQueryState === 'unavailable';
+      const cpuEmaRecorded = renderer.adaptive.gpuEma === 16.0;
+
+      results.queryDistinction = {
+        validQueryHandled: validQueryState,
+        disjointDistinguished: disjointQueryState,
+        disjointCountTracked: disjointCounterWorking,
+        unavailableFallbackHandled: unavailState,
+        cpuEmaRecordedOnFallback: cpuEmaRecorded
       };
 
       log("Verification complete! Transmitting report...");

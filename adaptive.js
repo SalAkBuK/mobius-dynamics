@@ -116,6 +116,9 @@ export class AdaptiveManager {
     this.gpuEmaAlpha = 0.08; // Smooth exponential moving average
     this.hasMeasuredGpu = false;
     this.effectiveFpsEma = 60.0;
+    this.timerQueryState = 'pending'; // 'valid' | 'pending' | 'disjoint' | 'unavailable' | 'invalid'
+    this.disjointCount = 0;
+    this.fpsDegradeFrames = 0;
 
     // Empirical promotion & hysteresis parameters (Requirements 4, 5)
     this.sustainedHeadroomFrames = 0;
@@ -221,6 +224,7 @@ export class AdaptiveManager {
     if (gpuMs === null || gpuMs === undefined || isNaN(gpuMs) || gpuMs <= 0) return;
     // Clamp timer query anomalies to prevent driver query spikes from poisoning EMA
     const cleanGpuMs = Math.min(100.0, Math.max(0.1, gpuMs));
+    this.timerQueryState = 'valid';
     this.hasMeasuredGpu = true;
     if (this.gpuEma === 0.0) {
       this.gpuEma = cleanGpuMs;
@@ -229,7 +233,14 @@ export class AdaptiveManager {
     }
   }
 
+  recordDisjoint() {
+    this.timerQueryState = 'disjoint';
+    this.disjointCount = (this.disjointCount || 0) + 1;
+    // Disjoint event: timings are discarded; do not update gpuEma with corrupt data
+  }
+
   recordCpuFallbackTime(cpuMs) {
+    this.timerQueryState = 'unavailable';
     // If GPU timer queries are unavailable, use CPU frame time as proxy
     if (!this.hasMeasuredGpu && cpuMs > 0) {
       if (this.gpuEma === 0.0) {
@@ -288,20 +299,58 @@ export class AdaptiveManager {
     this.state = 'settled';
     this.cooldownFrames = this.minCooldown;
 
-    // Use measured GPU timing to choose initial settled tier.
-    // Valid timer query (even 1-2 ms) is interpreted as true GPU headroom (>1.5ms arbitrary requirement removed).
+    const oldTier = this.currentTierKey;
+
+    // Requirement 3: AUTO calibration must no longer hard-cap successful GPUs at STANDARD.
+    // A very low valid GPU timer result such as 1–2 ms must be interpreted as GPU headroom,
+    // NOT automatically treated as a broken query.
+    // Distinguish valid query vs unavailable/disjoint.
     if (this.hasMeasuredGpu && this.gpuEma > 0) {
-      if (this.gpuEma < 11.5) {
-        this.setTier('STANDARD', `Calibrated to Standard: GPU EMA ${this.gpuEma.toFixed(1)}ms < 11.5ms budget`);
+      if (this.gpuEma < 1.5) {
+        // Discrete / high-end GPU with massive headroom (e.g. RTX 4070 Laptop running Low tier in ~1.0-1.4 ms):
+        // 600k deposits in 1.4 ms implies Ultra (4.0M) takes ~9.3 ms, well within 12.0 ms target.
+        const reason = `Calibrated to Ultra: exceptional measured GPU headroom (${this.gpuEma.toFixed(1)}ms < 1.5ms at Low)`;
+        this.logTierTransition(oldTier, 'ULTRA', reason);
+        this.setTier('ULTRA', reason);
+        this.initValidation('STANDARD', 'ULTRA');
+      } else if (this.gpuEma < 3.0) {
+        // High headroom GPU (e.g. 1.5 - 2.9 ms at Low):
+        // High tier (2.0M deposits) will take ~5-9 ms, well within 11.5 ms target.
+        const reason = `Calibrated to High: strong measured GPU headroom (${this.gpuEma.toFixed(1)}ms < 3.0ms at Low)`;
+        this.logTierTransition(oldTier, 'HIGH', reason);
+        this.setTier('HIGH', reason);
+        this.initValidation('STANDARD', 'HIGH');
+      } else if (this.gpuEma < 11.5) {
+        // Standard GPU budget (e.g. Iris Xe running ~9.1 ms):
+        const reason = `Calibrated to Standard: GPU EMA ${this.gpuEma.toFixed(1)}ms < 11.5ms budget`;
+        this.logTierTransition(oldTier, 'STANDARD', reason);
+        this.setTier('STANDARD', reason);
       } else if (this.gpuEma < 15.5) {
-        this.setTier('LOW', `Calibrated to Low: GPU EMA ${this.gpuEma.toFixed(1)}ms maintains target`);
+        const reason = `Calibrated to Low: GPU EMA ${this.gpuEma.toFixed(1)}ms maintains target`;
+        this.logTierTransition(oldTier, 'LOW', reason);
+        this.setTier('LOW', reason);
       } else {
-        this.setTier('POTATO', `Calibrated to Potato: GPU EMA ${this.gpuEma.toFixed(1)}ms constrained`);
+        const reason = `Calibrated to Potato: GPU EMA ${this.gpuEma.toFixed(1)}ms constrained`;
+        this.logTierTransition(oldTier, 'POTATO', reason);
+        this.setTier('POTATO', reason);
       }
     } else {
       // Fallback: promote to STANDARD on modern systems if timer queries unavailable
-      this.setTier('STANDARD', 'Calibrated to Standard (timer query fallback)');
+      const reason = 'Calibrated to Standard (timer query fallback)';
+      this.logTierTransition(oldTier, 'STANDARD', reason);
+      this.setTier('STANDARD', reason);
     }
+  }
+
+  initValidation(fromTier, toTier) {
+    this.validationState = {
+      active: true,
+      framesRemaining: 90, // ~1.5s observation window (Requirement 5)
+      promotedFrom: fromTier,
+      promotedTo: toTier,
+      overBudgetFrames: 0,
+      fpsDegradeFrames: 0
+    };
   }
 
   evaluateAdaptation() {
@@ -382,6 +431,18 @@ export class AdaptiveManager {
       this.overBudgetFrames = 0;
     }
 
+    // Thermal safety / sustained low FPS check (<50 FPS for 60 frames)
+    if (fps < 50) {
+      this.fpsDegradeFrames = (this.fpsDegradeFrames || 0) + 1;
+      if (this.fpsDegradeFrames >= 60) {
+        this.fpsDegradeFrames = 0;
+        this.downgradeTier(`Downgraded: sustained presentation FPS drop (${fps} < 50 FPS)`);
+        return;
+      }
+    } else {
+      this.fpsDegradeFrames = 0;
+    }
+
     // 3. Empirical Promotion Ladder (Requirements 4, 5, 6)
     // Only promote after sustained measured headroom below safe presentation budget (60 Hz target)
     if (this.cooldownFrames === 0 && !this.isInteracting) {
@@ -440,14 +501,7 @@ export class AdaptiveManager {
     this.logTierTransition(oldTier, tierKey, reasonMsg);
     this.setTier(tierKey, reasonMsg);
     // Initialize 90-frame (~1.5s) post-promotion validation (Requirement 5)
-    this.validationState = {
-      active: true,
-      framesRemaining: 90,
-      promotedFrom: oldTier,
-      promotedTo: tierKey,
-      overBudgetFrames: 0,
-      fpsDegradeFrames: 0
-    };
+    this.initValidation(oldTier, tierKey);
   }
 
   setTier(tierKey, eventMsg) {
@@ -617,6 +671,8 @@ export class AdaptiveManager {
       isInteracting: this.isInteracting,
       state: this.state,
       isValidating: this.validationState.active,
+      timerQueryState: this.timerQueryState,
+      disjointCount: this.disjointCount,
       accumulationAgeSec: parseFloat((this.stationaryFrames / 60.0).toFixed(1)),
       stationaryFrames: this.stationaryFrames
     };

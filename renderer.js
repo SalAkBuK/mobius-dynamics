@@ -809,10 +809,17 @@ export class MobiusRenderer {
                             mathSys.shockMag > 0.05;
 
     // Feed measured GPU frame time from timer queries into adaptive manager BEFORE updating adaptive state
-    if (this.profiler && this.profiler.metrics.gpuSupported && this.profiler.metrics.gpuMs !== null && this.profiler.metrics.gpuMs > 0) {
-      this.adaptive.recordGpuTime(this.profiler.metrics.gpuMs);
-    } else if (this.profiler) {
-      this.adaptive.recordCpuFallbackTime(this.profiler.metrics.cpuMs);
+    // Distinguishes valid query, disjoint event, unavailable fallback, and pending in-flight queries
+    if (this.profiler) {
+      const qStatus = this.profiler.getQueryStatus ? this.profiler.getQueryStatus() : null;
+      if (qStatus && qStatus.state === 'valid' && qStatus.gpuMs !== null && qStatus.gpuMs > 0) {
+        this.adaptive.recordGpuTime(qStatus.gpuMs);
+      } else if (qStatus && qStatus.state === 'disjoint') {
+        this.adaptive.recordDisjoint();
+      } else if (qStatus && qStatus.state === 'unavailable') {
+        this.adaptive.recordCpuFallbackTime(qStatus.cpuMs);
+      }
+      // If qStatus.state is 'pending', wait for ring buffer queries to complete without poisoning EMA
     }
 
     // Update adaptive quality manager

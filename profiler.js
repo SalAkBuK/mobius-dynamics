@@ -62,20 +62,26 @@ export class Profiler {
     this.gpuTimeHistory = [];
     this.cpuTimeHistory = [];
 
+    // Query state machine: 'valid' | 'pending' | 'disjoint' | 'invalid' | 'unavailable'
+    this.queryState = this.supported ? 'pending' : 'unavailable';
+    this.disjointCount = 0;
+
     // Current averaged or latest metrics
     this.metrics = {
       fps: 60,
       fps1Low: 60,
       frameMs: 16.67,
       cpuMs: 0,
-      gpuMs: this.supported ? 0 : null,
+      gpuMs: null,
       gpuSupported: this.supported,
+      queryState: this.queryState,
+      disjointCount: 0,
       jsUpdateMs: 0,
-      simGpuMs: this.supported ? 0 : null,
-      splatGpuMs: this.supported ? 0 : null,
-      decayGpuMs: this.supported ? 0 : null,
-      bloomGpuMs: this.supported ? 0 : null,
-      postGpuMs: this.supported ? 0 : null,
+      simGpuMs: null,
+      splatGpuMs: null,
+      decayGpuMs: null,
+      bloomGpuMs: null,
+      postGpuMs: null,
       simCpuMs: 0,
       splatCpuMs: 0,
       decayCpuMs: 0,
@@ -257,7 +263,11 @@ export class Profiler {
   }
 
   pollOldQueries() {
-    if (!this.supported) return;
+    if (!this.supported) {
+      this.queryState = 'unavailable';
+      this.metrics.queryState = 'unavailable';
+      return;
+    }
 
     const gl = this.gl;
     const ext = this.ext;
@@ -272,7 +282,12 @@ export class Profiler {
 
       const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
       if (disjoint) {
+        this.queryState = 'disjoint';
+        this.metrics.queryState = 'disjoint';
+        this.disjointCount++;
+        this.metrics.disjointCount = this.disjointCount;
         for (const s of this.ring) s.active = false;
+        console.warn(`[Profiler] WebGL timer query disjoint event #${this.disjointCount} detected. Timings discarded.`);
         break;
       }
 
@@ -295,22 +310,39 @@ export class Profiler {
       const postNs = gl.getQueryParameter(slot.post, gl.QUERY_RESULT);
       const totalGpuNs = decayNs + simNs + splatNs + bloomNs + postNs;
 
-      const gpuMs = totalGpuNs / 1e6;
-      this.gpuTimeHistory.push(gpuMs);
-      if (this.gpuTimeHistory.length > this.historyCapacity) {
-        this.gpuTimeHistory.shift();
-      }
+      if (totalGpuNs > 0) {
+        const gpuMs = totalGpuNs / 1e6;
+        this.queryState = 'valid';
+        this.metrics.queryState = 'valid';
+        this.gpuTimeHistory.push(gpuMs);
+        if (this.gpuTimeHistory.length > this.historyCapacity) {
+          this.gpuTimeHistory.shift();
+        }
 
-      this.metrics.gpuSupported = true;
-      this.metrics.gpuMs = parseFloat(gpuMs.toFixed(2));
-      this.metrics.simGpuMs = parseFloat((simNs / 1e6).toFixed(2));
-      this.metrics.splatGpuMs = parseFloat((splatNs / 1e6).toFixed(2));
-      this.metrics.decayGpuMs = parseFloat((decayNs / 1e6).toFixed(2));
-      this.metrics.bloomGpuMs = parseFloat((bloomNs / 1e6).toFixed(2));
-      this.metrics.postGpuMs = parseFloat((postNs / 1e6).toFixed(2));
+        this.metrics.gpuSupported = true;
+        this.metrics.gpuMs = parseFloat(gpuMs.toFixed(2));
+        this.metrics.simGpuMs = parseFloat((simNs / 1e6).toFixed(2));
+        this.metrics.splatGpuMs = parseFloat((splatNs / 1e6).toFixed(2));
+        this.metrics.decayGpuMs = parseFloat((decayNs / 1e6).toFixed(2));
+        this.metrics.bloomGpuMs = parseFloat((bloomNs / 1e6).toFixed(2));
+        this.metrics.postGpuMs = parseFloat((postNs / 1e6).toFixed(2));
+      } else {
+        this.queryState = 'invalid';
+        this.metrics.queryState = 'invalid';
+      }
 
       slot.active = false;
     }
+  }
+
+  getQueryStatus() {
+    return {
+      state: this.queryState, // 'valid' | 'pending' | 'disjoint' | 'invalid' | 'unavailable'
+      gpuMs: this.metrics.gpuMs,
+      cpuMs: this.metrics.cpuMs,
+      supported: this.supported,
+      disjointCount: this.disjointCount
+    };
   }
 
   /**
