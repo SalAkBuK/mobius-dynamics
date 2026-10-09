@@ -8,9 +8,58 @@
 import { Profiler } from './profiler.js';
 import { AdaptiveManager, QUALITY_TIERS } from './adaptive.js';
 
+export const PALETTES = {
+  cobalt: {
+    key: 'cobalt',
+    name: 'Simone Conradi (Cobalt Reference)',
+    bg: [0.004, 0.010, 0.022],
+    midnight: [0.025, 0.080, 0.240],
+    electric: [0.080, 0.440, 0.940],
+    icy: [0.650, 0.900, 1.000],
+    white: [1.0, 1.0, 1.0]
+  },
+  solar: {
+    key: 'solar',
+    name: 'Solar Amber',
+    bg: [0.020, 0.008, 0.003],
+    midnight: [0.220, 0.070, 0.018],
+    electric: [0.940, 0.460, 0.080],
+    icy: [1.000, 0.880, 0.580],
+    white: [1.0, 1.0, 1.0]
+  },
+  aurora: {
+    key: 'aurora',
+    name: 'Aurora Emerald',
+    bg: [0.003, 0.020, 0.012],
+    midnight: [0.018, 0.200, 0.110],
+    electric: [0.080, 0.880, 0.520],
+    icy: [0.620, 1.000, 0.880],
+    white: [1.0, 1.0, 1.0]
+  },
+  amethyst: {
+    key: 'amethyst',
+    name: 'Amethyst Nebula',
+    bg: [0.016, 0.004, 0.025],
+    midnight: [0.170, 0.022, 0.260],
+    electric: [0.720, 0.100, 0.940],
+    icy: [0.960, 0.650, 1.000],
+    white: [1.0, 1.0, 1.0]
+  },
+  monochrome: {
+    key: 'monochrome',
+    name: 'Silver Monolith',
+    bg: [0.008, 0.008, 0.008],
+    midnight: [0.110, 0.125, 0.140],
+    electric: [0.440, 0.520, 0.600],
+    icy: [0.860, 0.900, 0.940],
+    white: [1.0, 1.0, 1.0]
+  }
+};
+
 export class MobiusRenderer {
   constructor(canvas) {
     this.canvas = canvas;
+    this.activePalette = 'cobalt';
     this.gl = canvas.getContext('webgl2', {
       alpha: false,
       antialias: false,
@@ -370,6 +419,11 @@ export class MobiusRenderer {
       uniform float u_viewMode; // 0.0: Final HDR, 1.0: No-Bloom, 2.0: Raw Trajectories
       uniform float u_bloomEnabled;
       uniform float u_photonScale;
+      uniform vec3 u_colBg;
+      uniform vec3 u_colMidnight;
+      uniform vec3 u_colElectric;
+      uniform vec3 u_colIcy;
+      uniform vec3 u_colWhite;
 
       void main() {
         vec4 accum = texture(u_accumTex, v_uv);
@@ -391,17 +445,12 @@ export class MobiusRenderer {
         // Elevate faint outer filaments with toe power curve (retains pitch-black at 0, lifts faint outer loops)
         norm = pow(norm, 0.76);
 
-        // Required Color Hierarchy from reference:
-        // Background: pitch black with subtle blue-black bias (#010307)
-        vec3 col_bg = vec3(0.004, 0.010, 0.022);
-        // Deep midnight cobalt for outer atmosphere (#05112a)
-        vec3 col_midnight = vec3(0.025, 0.080, 0.240);
-        // Cerulean / electric blue for mid filaments (#1468d6)
-        vec3 col_electric = vec3(0.080, 0.440, 0.940);
-        // Delicate icy blue (#92d8ff)
-        vec3 col_icy = vec3(0.650, 0.900, 1.000);
-        // Brilliant caustic white (#ffffff)
-        vec3 col_white = vec3(1.0, 1.0, 1.0);
+        // Dynamic Curated Palette Hierarchy
+        vec3 col_bg = u_colBg;
+        vec3 col_midnight = u_colMidnight;
+        vec3 col_electric = u_colElectric;
+        vec3 col_icy = u_colIcy;
+        vec3 col_white = u_colWhite;
 
         vec3 c = col_bg;
         if (norm < 0.03) {
@@ -553,7 +602,12 @@ export class MobiusRenderer {
       gain: gl.getUniformLocation(this.postProg, 'u_gain'),
       bloomEnabled: gl.getUniformLocation(this.postProg, 'u_bloomEnabled'),
       viewMode: gl.getUniformLocation(this.postProg, 'u_viewMode'),
-      photonScale: gl.getUniformLocation(this.postProg, 'u_photonScale')
+      photonScale: gl.getUniformLocation(this.postProg, 'u_photonScale'),
+      colBg: gl.getUniformLocation(this.postProg, 'u_colBg'),
+      colMidnight: gl.getUniformLocation(this.postProg, 'u_colMidnight'),
+      colElectric: gl.getUniformLocation(this.postProg, 'u_colElectric'),
+      colIcy: gl.getUniformLocation(this.postProg, 'u_colIcy'),
+      colWhite: gl.getUniformLocation(this.postProg, 'u_colWhite')
     };
     this.rawUniforms = {
       viewCenter: gl.getUniformLocation(this.rawProg, 'u_viewCenter'),
@@ -1006,6 +1060,13 @@ export class MobiusRenderer {
     gl.uniform1f(this.postUniforms.viewMode, this.viewMode);
     gl.uniform1f(this.postUniforms.photonScale, this.floatCap.photonScale || 1.0);
 
+    const pal = PALETTES[this.activePalette] || PALETTES.cobalt;
+    gl.uniform3fv(this.postUniforms.colBg, pal.bg);
+    gl.uniform3fv(this.postUniforms.colMidnight, pal.midnight);
+    gl.uniform3fv(this.postUniforms.colElectric, pal.electric);
+    gl.uniform3fv(this.postUniforms.colIcy, pal.icy);
+    gl.uniform3fv(this.postUniforms.colWhite, pal.white);
+
     gl.bindVertexArray(this.quadVao);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     if (this.profiler) {
@@ -1108,5 +1169,296 @@ export class MobiusRenderer {
       omega.r * mr - omega.i * mi,
       omega.r * mi + omega.i * mr
     ];
+  }
+
+  setPalette(key) {
+    if (PALETTES[key]) {
+      this.activePalette = key;
+    }
+  }
+
+  /**
+   * Offscreen High-Resolution Image Export (4K UHD 3840 x 2160)
+   * Renders at pristine high resolution in dedicated offscreen framebuffers.
+   * Performs an accumulation/develop pass without altering interactive screen state.
+   */
+  async exportPNG(mathSys, options = {}) {
+    const width = options.width || 3840;
+    const height = options.height || 2160;
+    const accumFrames = options.accumFrames || 60;
+    const filename = options.filename || 'simone_conradi_reference_4k.png';
+    const onProgress = options.onProgress || (() => {});
+
+    const gl = this.gl;
+
+    // 1. Save original renderer state
+    const origAccumWidth = this.accumWidth;
+    const origAccumHeight = this.accumHeight;
+    const origAspect = this.aspect;
+    const origBloomWidth = this.bloomWidth;
+    const origBloomHeight = this.bloomHeight;
+    const origAccumTextures = this.accumTextures;
+    const origAccumFbos = this.accumFbos;
+    const origBloomTextures = this.bloomTextures;
+    const origBloomFbos = this.bloomFbos;
+    const origAccumReadIdx = this.accumReadIdx;
+    const origAccumFrames = this.accumulationFrames;
+    const origEvolving = mathSys ? mathSys.evolving : false;
+
+    let expAccumTex = null;
+    let expAccumFbo = null;
+    let expBloomTex = null;
+    let expBloomFbo = null;
+    let expPostTex = null;
+    let expPostFbo = null;
+
+    try {
+      onProgress(5, 'Allocating 4K GPU framebuffers (3840x2160)...');
+
+      // 2. Allocate 4K offscreen accumulation textures and FBOs
+      expAccumTex = [
+        this.createFloatTexture(width, height, null),
+        this.createFloatTexture(width, height, null)
+      ];
+      expAccumFbo = [
+        this.createFbo(expAccumTex[0]),
+        this.createFbo(expAccumTex[1])
+      ];
+      for (const fbo of expAccumFbo) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
+
+      const expBloomW = Math.max(1, Math.floor(width / 4));
+      const expBloomH = Math.max(1, Math.floor(height / 4));
+      expBloomTex = [
+        this.createFloatTexture(expBloomW, expBloomH, null),
+        this.createFloatTexture(expBloomW, expBloomH, null)
+      ];
+      expBloomFbo = [
+        this.createFbo(expBloomTex[0]),
+        this.createFbo(expBloomTex[1])
+      ];
+
+      // RGBA8 output texture & FBO for final tonemapped post composite
+      expPostTex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, expPostTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      expPostFbo = this.createFbo(expPostTex);
+
+      // Set export dimensions
+      this.accumWidth = width;
+      this.accumHeight = height;
+      this.aspect = width / height;
+      this.bloomWidth = expBloomW;
+      this.bloomHeight = expBloomH;
+      this.accumTextures = expAccumTex;
+      this.accumFbos = expAccumFbo;
+      this.bloomTextures = expBloomTex;
+      this.bloomFbos = expBloomFbo;
+      this.accumReadIdx = 0;
+
+      // Freeze drift during export develop pass to produce pin-sharp caustics
+      mathSys.evolving = false;
+
+      // Use full particle capacity and steps for high-res deposit density
+      const exportParticles = Math.min(589824, this.maxParticleCapacity);
+      const exportSteps = 12;
+
+      // 3. Pre-export accumulation / develop pass
+      const totalFrames = accumFrames;
+      const chunkSize = 10;
+      let framesDone = 0;
+
+      while (framesDone < totalFrames) {
+        const chunk = Math.min(chunkSize, totalFrames - framesDone);
+        for (let c = 0; c < chunk; c++) {
+          const readTex = this.accumTextures[this.accumReadIdx];
+          const writeFbo = this.accumFbos[1 - this.accumReadIdx];
+
+          // Decay pass (persistence 1.0 for stationary integration)
+          gl.bindFramebuffer(gl.FRAMEBUFFER, writeFbo);
+          gl.viewport(0, 0, width, height);
+          gl.useProgram(this.decayProg);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, readTex);
+          gl.uniform1i(this.decayUniforms.accumTex, 0);
+          gl.uniform1f(this.decayUniforms.persistence, 1.0);
+          gl.bindVertexArray(this.quadVao);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+          // Splat & Sim pass
+          gl.enable(gl.BLEND);
+          gl.blendFunc(gl.ONE, gl.ONE);
+
+          gl.useProgram(this.splatProg);
+          gl.uniform2f(this.splatUniforms.viewCenter, this.viewCenter[0], this.viewCenter[1]);
+          gl.uniform1f(this.splatUniforms.zoom, this.zoom);
+          gl.uniform1f(this.splatUniforms.aspect, this.aspect);
+          gl.uniform1f(this.splatUniforms.photonScale, this.floatCap.photonScale || 1.0);
+
+          gl.useProgram(this.simProg);
+          gl.uniform2f(this.simUniforms.a, mathSys.a.r, mathSys.a.i);
+          gl.uniform2f(this.simUniforms.b, mathSys.b.r, mathSys.b.i);
+          gl.uniform2f(this.simUniforms.c, mathSys.c.r, mathSys.c.i);
+          gl.uniform2f(this.simUniforms.d, mathSys.d.r, mathSys.d.i);
+          gl.uniform1f(this.simUniforms.n, mathSys.n);
+          gl.uniform1f(this.simUniforms.time, mathSys.time);
+          gl.uniform2f(this.simUniforms.viewCenter, this.viewCenter[0], this.viewCenter[1]);
+          gl.uniform1f(this.simUniforms.zoom, this.zoom);
+          gl.uniform1f(this.simUniforms.respawnAll, 0.0);
+
+          for (let s = 0; s < exportSteps; s++) {
+            gl.useProgram(this.simProg);
+            gl.uniform1f(this.simUniforms.step, s);
+            gl.enable(gl.RASTERIZER_DISCARD);
+            gl.bindVertexArray(this.simVaos[this.vboCur]);
+            gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.simVbos[1 - this.vboCur]);
+            gl.beginTransformFeedback(gl.POINTS);
+            gl.drawArrays(gl.POINTS, 0, exportParticles);
+            gl.endTransformFeedback();
+            gl.disable(gl.RASTERIZER_DISCARD);
+            gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+            this.vboCur = 1 - this.vboCur;
+
+            gl.useProgram(this.splatProg);
+            gl.bindVertexArray(this.splatVaos[this.vboCur]);
+            gl.drawArrays(gl.POINTS, 0, exportParticles);
+          }
+          gl.disable(gl.BLEND);
+
+          this.accumReadIdx = 1 - this.accumReadIdx;
+        }
+        framesDone += chunk;
+        const progressPct = 10 + Math.round((framesDone / totalFrames) * 75);
+        onProgress(progressPct, `Developing 4K passes (${framesDone}/${totalFrames})...`);
+        await new Promise(r => requestAnimationFrame(r));
+      }
+
+      // 4. Bloom pass
+      onProgress(88, 'Filtering high-resolution bloom...');
+      const currentAccumTex = this.accumTextures[this.accumReadIdx];
+      if (this.bloomEnabled) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, expBloomFbo[0]);
+        gl.viewport(0, 0, expBloomW, expBloomH);
+        gl.useProgram(this.blurProg);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, currentAccumTex);
+        gl.uniform1i(this.blurUniforms.image, 0);
+        gl.uniform2f(this.blurUniforms.dir, 1.5 / expBloomW, 0.0);
+        gl.bindVertexArray(this.quadVao);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, expBloomFbo[1]);
+        gl.bindTexture(gl.TEXTURE_2D, expBloomTex[0]);
+        gl.uniform2f(this.blurUniforms.dir, 0.0, 1.5 / expBloomH);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      }
+
+      // 5. Post-processing to output FBO
+      onProgress(92, 'Tonemapping & composite...');
+      gl.bindFramebuffer(gl.FRAMEBUFFER, expPostFbo);
+      gl.viewport(0, 0, width, height);
+
+      gl.useProgram(this.postProg);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, currentAccumTex);
+      gl.uniform1i(this.postUniforms.accumTex, 0);
+
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, expBloomTex[1]);
+      gl.uniform1i(this.postUniforms.bloomTex, 1);
+
+      const zoomMag = Math.max(1.0, this.zoom / 1.65);
+      const adaptiveGain = this.gain * (1.0 + Math.pow(zoomMag - 1.0, 0.85) * 2.8);
+      gl.uniform1f(this.postUniforms.gain, adaptiveGain);
+      gl.uniform1f(this.postUniforms.bloomEnabled, this.bloomEnabled ? 1.0 : 0.0);
+      gl.uniform1f(this.postUniforms.viewMode, this.viewMode);
+      gl.uniform1f(this.postUniforms.photonScale, this.floatCap.photonScale || 1.0);
+
+      const pal = PALETTES[this.activePalette] || PALETTES.cobalt;
+      gl.uniform3fv(this.postUniforms.colBg, pal.bg);
+      gl.uniform3fv(this.postUniforms.colMidnight, pal.midnight);
+      gl.uniform3fv(this.postUniforms.colElectric, pal.electric);
+      gl.uniform3fv(this.postUniforms.colIcy, pal.icy);
+      gl.uniform3fv(this.postUniforms.colWhite, pal.white);
+
+      gl.bindVertexArray(this.quadVao);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      // 6. Read pixels
+      onProgress(95, 'Reading 4K framebuffer...');
+      const pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+      // 7. Convert to PNG via offscreen 2D canvas with vertical row flip
+      onProgress(98, 'Encoding PNG...');
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = width;
+      offCanvas.height = height;
+      const ctx = offCanvas.getContext('2d');
+      const imgData = ctx.createImageData(width, height);
+      const rowBytes = width * 4;
+      for (let y = 0; y < height; y++) {
+        const srcRow = (height - 1 - y) * rowBytes;
+        const dstRow = y * rowBytes;
+        imgData.data.set(pixels.subarray(srcRow, srcRow + rowBytes), dstRow);
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      // 8. Generate blob & trigger download
+      return new Promise((resolve) => {
+        offCanvas.toBlob((blob) => {
+          onProgress(100, 'Export complete!');
+          if (blob && typeof window !== 'undefined' && typeof document !== 'undefined') {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+          }
+          resolve(blob);
+        }, 'image/png');
+      });
+    } finally {
+      // 9. Clean up temporary 4K GL resources safely
+      if (expAccumTex) {
+        for (let i = 0; i < 2; i++) {
+          if (expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
+          if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
+        }
+      }
+      if (expBloomTex) {
+        for (let i = 0; i < 2; i++) {
+          if (expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
+          if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
+        }
+      }
+      if (expPostTex) gl.deleteTexture(expPostTex);
+      if (expPostFbo) gl.deleteFramebuffer(expPostFbo);
+
+      // 10. Restore original renderer state
+      this.accumWidth = origAccumWidth;
+      this.accumHeight = origAccumHeight;
+      this.aspect = origAspect;
+      this.bloomWidth = origBloomWidth;
+      this.bloomHeight = origBloomHeight;
+      this.accumTextures = origAccumTextures;
+      this.accumFbos = origAccumFbos;
+      this.bloomTextures = origBloomTextures;
+      this.bloomFbos = origBloomFbos;
+      this.accumReadIdx = origAccumReadIdx;
+      this.accumulationFrames = origAccumFrames;
+      mathSys.evolving = origEvolving;
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    }
   }
 }

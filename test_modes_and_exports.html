@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Mode Architecture & Export Tests</title></head>
+<body>
+<div id="results">Running tests...</div>
+<canvas id="gl-canvas" width="800" height="600"></canvas>
+<div id="ui-container">
+  <div id="controls-bar">
+    <button id="btn-mode-reference" class="active"></button>
+    <button id="btn-mode-explore"></button>
+    <button id="btn-randomize-action"></button>
+    <button id="btn-randomize-toggle"></button>
+    <button id="btn-palette-toggle"></button>
+    <button id="btn-zoom-in"></button>
+    <button id="btn-zoom-out"></button>
+    <button id="btn-pause"></button>
+    <button id="btn-reset"></button>
+    <button class="sym-btn" data-n="16"></button>
+    <button class="sym-btn" data-n="24"></button>
+    <button class="palette-select-btn" data-pal="cobalt"></button>
+    <button class="palette-select-btn" data-pal="amethyst"></button>
+  </div>
+  <div id="mode-status-pill"></div>
+  <div id="randomize-menu"></div>
+  <div id="palette-menu"></div>
+  <div id="equation-readout"></div>
+  <span id="val-a"></span><span id="val-b"></span><span id="val-c"></span><span id="val-d"></span><span id="val-n"></span>
+  <div id="coeff-drawer">
+    <input type="range" class="coeff-slider" id="slider-a-re" value="0">
+    <span class="coeff-val" id="lbl-a-re">0.00</span>
+    <input type="range" class="coeff-slider" id="slider-b-im" value="0">
+    <span class="coeff-val" id="lbl-b-im">0.00</span>
+    <input type="range" class="coeff-slider" id="slider-c-re" value="0">
+    <span class="coeff-val" id="lbl-c-re">0.00</span>
+    <input type="range" class="coeff-slider" id="slider-d-im" value="0">
+    <span class="coeff-val" id="lbl-d-im">0.00</span>
+    <button id="btn-reset-coeffs"></button>
+  </div>
+  <div id="coeff-lock-notice"></div>
+  <div id="export-modal"></div>
+  <div id="preset-modal"></div>
+  <div id="toast-banner"></div>
+  <span id="export-status-label"></span>
+  <span id="export-status-pct"></span>
+  <div id="export-progress-fill"></div>
+  <button id="btn-export-start"></button>
+  <button id="btn-export-cancel"></button>
+  <div id="export-progress-area"></div>
+</div>
+
+<script>
+  window.onerror = function(msg, url, line, col, err) {
+    fetch('/test_report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([{ name: 'Runtime Error', passed: false, details: `${msg} at ${line}:${col} 
+${err ? err.stack : ''}` }])
+    });
+  };
+  window.addEventListener('unhandledrejection', function(e) {
+    fetch('/test_report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([{ name: 'Unhandled Rejection', passed: false, details: String(e.reason ? e.reason.stack || e.reason : 'unknown') }])
+    });
+  });
+</script>
+<script type="module" src="./app.js"></script>
+<script type="module">
+import { MathSystem, CONRADI_REFERENCE } from './math.js';
+import { MobiusRenderer, PALETTES } from './renderer.js';
+import { CURATED_PRESETS, App } from './app.js';
+
+async function runTests() {
+  const tests = [];
+  
+  // Wait for window.app to initialize
+  await new Promise(r => setTimeout(r, 200));
+  let app = window.app || window.__app;
+  if (!app) {
+    app = new App();
+    window.app = app;
+  }
+  const renderer = app.renderer;
+  const math = app.math;
+
+  // =========================================================================
+  // TEST GROUP 1: REFERENCE MODE VERIFICATION
+  // =========================================================================
+  // 1.1 Activate Reference mode
+  app.setMode('reference');
+
+  const refPass = (
+    math.n === 16 &&
+    Math.abs(math.a.r - (-0.755)) < 1e-4 &&
+    Math.abs(math.a.i - (0.330)) < 1e-4 &&
+    Math.abs(math.b.r - (-0.376)) < 1e-4 &&
+    Math.abs(math.b.i - (0.026)) < 1e-4 &&
+    Math.abs(math.c.r - (6.401)) < 1e-4 &&
+    Math.abs(math.c.i - (0.803)) < 1e-4 &&
+    Math.abs(math.d.r - (1.520)) < 1e-4 &&
+    Math.abs(math.d.i - (0.840)) < 1e-4 &&
+    math.evolving === false &&
+    renderer.zoom === 1.65 &&
+    renderer.viewCenter[0] === 0.0 && renderer.viewCenter[1] === 0.0
+  );
+  tests.push({
+    name: "Reference Mode: Exact Conradi Parameters & Framing",
+    passed: refPass,
+    details: `n=${math.n}, a=${math.a.format()}, b=${math.b.format()}, c=${math.c.format()}, d=${math.d.format()}, zoom=${renderer.zoom}, evolving=${math.evolving}`
+  });
+
+  // 1.2 Mouse movement must NOT alter formula in Reference mode
+  const aBeforePert = math.a.clone();
+  math.setPointer(0.75, -0.75);
+  math.update(0.1, 1.65);
+  const aAfterPert = math.a.clone();
+  const pertDiff = Math.hypot(aAfterPert.r - aBeforePert.r, aAfterPert.i - aBeforePert.i);
+  tests.push({
+    name: "Reference Mode: Mouse Movement Invariant (Does NOT alter formula)",
+    passed: pertDiff === 0.0,
+    details: `Perturbation diff in Reference mode: ${pertDiff}`
+  });
+
+  // 1.3 Click shock must NOT alter formula in Reference mode
+  const cBeforeShock = math.c.clone();
+  math.injectShock(1.0, 0.0);
+  math.update(0.016, 1.65);
+  const cAfterShock = math.c.clone();
+  const shockDiff = Math.hypot(cAfterShock.r - cBeforeShock.r, cAfterShock.i - cBeforeShock.i);
+  tests.push({
+    name: "Reference Mode: Click Shock Invariant (Does NOT alter formula)",
+    passed: shockDiff === 0.0,
+    details: `Shock diff in Reference mode: ${shockDiff}`
+  });
+
+  // 1.4 User offset must NOT alter formula in Reference mode
+  math.setCoefficientOffset('a', 0.5, 0.5);
+  math.update(0.016, 1.65);
+  tests.push({
+    name: "Reference Mode: Coefficient Offsets Invariant",
+    passed: math.userOffsetA.r === 0 && math.a.r === -0.755,
+    details: `Offset A: ${math.userOffsetA.format()}, a: ${math.a.format()}`
+  });
+
+  // 1.5 Drift must be paused in Reference mode
+  const t0 = math.time;
+  math.update(0.5, 1.65);
+  tests.push({
+    name: "Reference Mode: Autonomous Drift Paused",
+    passed: math.evolving === false && math.time === t0,
+    details: `Evolving: ${math.evolving}, time delta: ${math.time - t0}`
+  });
+
+  // 1.6 Reference Mode Framing preservation
+  const preZoom = renderer.targetZoom;
+  document.getElementById('btn-zoom-in').click();
+  const postZoom = renderer.targetZoom;
+  tests.push({
+    name: "Reference Mode: Camera Framing Locked Against Zoom Buttons",
+    passed: preZoom === postZoom && app.mode === 'reference',
+    details: `Pre-zoom: ${preZoom}, post-zoom: ${postZoom}, mode: ${app.mode}`
+  });
+
+  // 1.7 Clicking n=16 in Reference mode keeps mode as 'reference'
+  document.querySelector('.sym-btn[data-n="16"]').click();
+  tests.push({
+    name: "Reference Mode: Selecting n=16 Does Not Kick Out to Explore",
+    passed: app.mode === 'reference' && math.n === 16,
+    details: `Mode: ${app.mode}, n: ${math.n}`
+  });
+
+  // =========================================================================
+  // TEST GROUP 2: EXPLORE MODE VERIFICATION
+  // =========================================================================
+  app.setMode('explore');
+  const exploreInitialA = math.a.clone();
+  math.setPointer(0.6, -0.4);
+  math.update(0.1, 1.65);
+  const explorePertA = math.a.clone();
+  const explorePertDiff = Math.hypot(explorePertA.r - exploreInitialA.r, explorePertA.i - exploreInitialA.i);
+  tests.push({
+    name: "Explore Mode: Pointer Perturbation Active",
+    passed: explorePertDiff > 0.001,
+    details: `Delta a in Explore mode: ${explorePertDiff.toFixed(5)}`
+  });
+
+  // Shock in explore mode
+  const explorePreShockC = math.c.clone();
+  math.injectShock(1.0, 0.0);
+  math.update(0.016, 1.65);
+  const explorePostShockC = math.c.clone();
+  const exploreShockDiff = Math.hypot(explorePostShockC.r - explorePreShockC.r, explorePostShockC.i - explorePreShockC.i);
+  tests.push({
+    name: "Explore Mode: Click Shock Active",
+    passed: exploreShockDiff > 0.05,
+    details: `Delta c on shock: ${exploreShockDiff.toFixed(5)}`
+  });
+
+  // Slider editing in explore mode
+  math.setCoefficientOffset('b', 0.12, -0.08);
+  math.update(0.016, 1.65);
+  tests.push({
+    name: "Explore Mode: Coefficient Slider Offsets Active",
+    passed: Math.abs(math.userOffsetB.i - (-0.08)) < 1e-4,
+    details: `userOffsetB: ${math.userOffsetB.format()}`
+  });
+
+  // =========================================================================
+  // TEST GROUP 3: CURATED RANDOMIZATION STYLES & 1-CLICK RANDOMIZE
+  // =========================================================================
+  const styles = ['subtle', 'organic', 'dense lace', 'symmetric', 'chaotic', 'conradi-like'];
+  for (const st of styles) {
+    const res = math.randomize(st);
+    const valid = (
+      res.style.toLowerCase() === st.toLowerCase() &&
+      Number.isInteger(res.n) && res.n >= 3 &&
+      !isNaN(math.a.r) && !isNaN(math.a.i) &&
+      !isNaN(math.c.r) && !isNaN(math.c.i) &&
+      math.mode === 'explore'
+    );
+    tests.push({
+      name: `Randomize Style: [${st}]`,
+      passed: valid,
+      details: `${res.name} (n=${res.n}, a=${res.a})`
+    });
+  }
+
+  // Quick Randomize without arguments
+  const quickRes = math.randomize();
+  tests.push({
+    name: "Quick Randomize Without Arguments: Aesthetically Curated",
+    passed: quickRes && styles.includes(quickRes.style) && Number.isInteger(quickRes.n),
+    details: `Selected style: [${quickRes.style}] (${quickRes.name})`
+  });
+
+  // =========================================================================
+  // TEST GROUP 4: PRESET SERIALIZATION & CURATED PRESETS RESTORATION
+  // =========================================================================
+  // 4.1 Curated Preset loading: Filament Storm (24-fold)
+  const stormPreset = CURATED_PRESETS.find(p => p.name.includes('Filament Storm'));
+  app.loadPresetObject(stormPreset);
+  const stormPass = (
+    math.n === 24 &&
+    math.evolving === true &&
+    app.mode === 'explore' &&
+    renderer.activePalette === 'amethyst'
+  );
+  tests.push({
+    name: "Curated Preset Load: Filament Storm (n=24, drift=true, palette=amethyst)",
+    passed: stormPass,
+    details: `n=${math.n}, evolving=${math.evolving}, mode=${app.mode}, palette=${renderer.activePalette}`
+  });
+
+  // 4.2 Curated Preset loading: Organic Knot (8-fold)
+  const knotPreset = CURATED_PRESETS.find(p => p.name.includes('Organic Knot'));
+  app.loadPresetObject(knotPreset);
+  const knotPass = (
+    math.n === 8 &&
+    math.evolving === true &&
+    renderer.activePalette === 'aurora'
+  );
+  tests.push({
+    name: "Curated Preset Load: Organic Knot (n=8, palette=aurora)",
+    passed: knotPass,
+    details: `n=${math.n}, palette=${renderer.activePalette}`
+  });
+
+  // 4.3 User Preset Round-trip Serialization
+  app.setMode('explore');
+  math.setSymmetry(20);
+  math.setCoefficientOffset('a', 0.25, 0.0);
+  renderer.setPalette('solar');
+  const userPresetObj = app.getPresetObject('My Custom Test Preset');
+  
+  // Mutate away
+  app.setMode('reference');
+  
+  // Restore user preset
+  app.loadPresetObject(userPresetObj);
+  const userPresetRestored = (
+    math.n === 20 &&
+    math.mode === 'explore' &&
+    Math.abs(math.userOffsetA.r - 0.25) < 1e-4 &&
+    renderer.activePalette === 'solar' &&
+    document.getElementById('lbl-a-re').innerText === '0.25'
+  );
+  tests.push({
+    name: "User Preset Round-trip: Parameter, Offsets & Slider Sync",
+    passed: userPresetRestored,
+    details: `n=${math.n}, userOffsetA=${math.userOffsetA.format()}, slider lbl=${document.getElementById('lbl-a-re').innerText}`
+  });
+
+  // =========================================================================
+  // TEST GROUP 5: 4K OFFSCREEN IMAGE EXPORT & ZERO CONCURRENT COLLISIONS
+  // =========================================================================
+  // Monitor render() calls during export to guarantee no collision with animate()
+  let renderCallsDuringExport = 0;
+  const origRender = renderer.render.bind(renderer);
+  renderer.render = function(...args) {
+    if (app.isExporting) {
+      renderCallsDuringExport++;
+    }
+    return origRender(...args);
+  };
+
+  app.exportPasses = 10; // 10 passes for speed in test suite
+  const preExportAccumWidth = renderer.accumWidth;
+  const preExportAccumHeight = renderer.accumHeight;
+  const preExportFrames = renderer.accumulationFrames;
+
+  let exportBlob = null;
+  let exportSuccess = false;
+  let exportErr = null;
+  app.isExporting = true;
+
+  try {
+    exportBlob = await renderer.exportPNG(math, {
+      width: 3840,
+      height: 2160,
+      accumFrames: 10,
+      filename: 'test_conradi_4k.png'
+    });
+    if (exportBlob && exportBlob.size > 10000 && exportBlob.type === 'image/png') {
+      exportSuccess = true;
+    }
+  } catch (err) {
+    exportErr = err ? (err.stack || err.message || String(err)) : 'unknown error';
+    console.error('Export error in test:', err);
+  } finally {
+    app.isExporting = false;
+  }
+
+  // Restore render spy
+  renderer.render = origRender;
+
+  const statePreserved = (
+    renderer.accumWidth === preExportAccumWidth &&
+    renderer.accumHeight === preExportAccumHeight &&
+    renderer.accumulationFrames === preExportFrames
+  );
+
+  tests.push({
+    name: "Offscreen 4K PNG Export: 3840x2160 Valid Render & Encoding",
+    passed: exportSuccess,
+    details: exportBlob ? `PNG Blob size: ${(exportBlob.size / (1024 * 1024)).toFixed(2)} MB, type: image/png` : `Export failed with error: ${exportErr}`
+  });
+
+  tests.push({
+    name: "Offscreen 4K Export: Zero Render Call Collisions During Animation",
+    passed: renderCallsDuringExport === 0,
+    details: `Concurrent render calls observed: ${renderCallsDuringExport}`
+  });
+
+  tests.push({
+    name: "Offscreen 4K Export: Session & Interactive State Preserved",
+    passed: statePreserved,
+    details: `Accum width=${renderer.accumWidth}, height=${renderer.accumHeight}, frames=${renderer.accumulationFrames}`
+  });
+
+  // Post results to python server
+  fetch('/test_report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tests)
+  });
+  document.getElementById('results').innerText = JSON.stringify(tests, null, 2);
+  window._testsFinished = true;
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  runTests();
+});
+</script>
+</body>
+</html>

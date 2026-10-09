@@ -1,20 +1,154 @@
 /**
- * Application Controller & Interactive Laboratory
- * Orchestrates authentic Mobius complex dynamics, GPU simulation,
- * interactive perturbations, deep zoom navigation, and live readouts.
+ * Application Controller & Mode Architecture
+ * 
+ * PRODUCT ARCHITECTURE:
+ * 1. MODE 1 — REFERENCE:
+ *    - Faithful reproduction of published Simone Conradi 2026 Mobius attractor
+ *    - Symmetry n = 16, exact Conradi coefficients (a = -0.755+0.330i, b = -0.376+0.026i, c = 6.401+0.803i, d = 1.520+0.840i)
+ *    - User offsets & disturbances strictly reset to 0
+ *    - Autonomous micro-drift paused (stationary integration)
+ *    - Mouse movement does NOT alter formula
+ *    - Preserves camera framing intended for reference piece (zoom 1.65, center [0,0])
+ *    - Allows Brute Force for maximum fidelity
+ * 
+ * 2. MODE 2 — EXPLORE:
+ *    - Interactive mathematical sandbox
+ *    - Pointer-based coefficient perturbation & click shocks enabled
+ *    - Coefficient sliders & symmetry order selection enabled
+ *    - Drift toggle, zoom & pan navigation enabled
+ *    - Curated color grading palettes
+ * 
+ * 3. MODE 3 — RANDOMIZE:
+ *    - Curated morphology families: subtle, organic, dense lace, symmetric, chaotic, conradi-like
+ * 
+ * 4. EXPORT & PRESETS:
+ *    - High-resolution offscreen PNG export (3840 x 2160 4K UHD)
+ *    - Pre-export accumulation/develop pass with progress indicator
+ *    - Preserves session state and screen accumulation
+ *    - Full JSON preset library (save, load, copy, import)
  */
 
-import { MathSystem } from './math.js';
-import { MobiusRenderer } from './renderer.js';
+import { MathSystem, CONRADI_REFERENCE } from './math.js';
+import { MobiusRenderer, PALETTES } from './renderer.js';
 
-class App {
+export const CURATED_PRESETS = [
+  {
+    name: 'Simone Conradi (Reference Artwork)',
+    description: 'Exact published 2026 Mobius attractor with 16-fold rosette',
+    mode: 'reference',
+    symmetry: 16,
+    coefficients: {
+      a: { r: -0.755, i: 0.330 },
+      b: { r: -0.376, i: 0.026 },
+      c: { r: 6.401, i: 0.803 },
+      d: { r: 1.520, i: 0.840 }
+    },
+    userOffsets: { a: { r: 0, i: 0 }, b: { r: 0, i: 0 }, c: { r: 0, i: 0 }, d: { r: 0, i: 0 } },
+    camera: { zoom: 1.65, center: [0.0, 0.0] },
+    palette: 'cobalt',
+    drift: { evolving: false, time: 0 },
+    rendering: { bloom: true, viewMode: 0, tier: 'auto' }
+  },
+  {
+    name: 'Caustic Crown (16-fold)',
+    description: 'Strong inner orbital boundary, complex interference outside',
+    mode: 'explore',
+    symmetry: 16,
+    coefficients: {
+      a: { r: -0.785, i: 0.315 },
+      b: { r: -0.410, i: 0.010 },
+      c: { r: 6.650, i: 0.650 },
+      d: { r: 1.580, i: 0.920 }
+    },
+    userOffsets: { a: { r: 0, i: 0 }, b: { r: 0, i: 0 }, c: { r: 0, i: 0 }, d: { r: 0, i: 0 } },
+    camera: { zoom: 1.65, center: [0.0, 0.0] },
+    palette: 'cobalt',
+    drift: { evolving: true, time: 0 },
+    rendering: { bloom: true, viewMode: 0, tier: 'high' }
+  },
+  {
+    name: 'Filament Storm (24-fold)',
+    description: 'Interlocking braided secondary orbits with counter-rotating wave crests',
+    mode: 'explore',
+    symmetry: 24,
+    coefficients: {
+      a: { r: -0.710, i: 0.420 },
+      b: { r: -0.395, i: 0.010 },
+      c: { r: 7.350, i: 0.650 },
+      d: { r: 1.650, i: 0.820 }
+    },
+    userOffsets: { a: { r: 0, i: 0 }, b: { r: 0, i: 0 }, c: { r: 0, i: 0 }, d: { r: 0, i: 0 } },
+    camera: { zoom: 1.65, center: [0.0, 0.0] },
+    palette: 'amethyst',
+    drift: { evolving: true, time: 0 },
+    rendering: { bloom: true, viewMode: 0, tier: 'high' }
+  },
+  {
+    name: 'Organic Knot (8-fold)',
+    description: 'Chambered recursive curls with pinched intersections',
+    mode: 'explore',
+    symmetry: 8,
+    coefficients: {
+      a: { r: -0.755, i: 0.330 },
+      b: { r: -0.376, i: 0.026 },
+      c: { r: 6.401, i: 0.803 },
+      d: { r: 1.520, i: 0.840 }
+    },
+    userOffsets: { a: { r: 0, i: 0 }, b: { r: 0, i: 0 }, c: { r: 0, i: 0 }, d: { r: 0, i: 0 } },
+    camera: { zoom: 1.65, center: [0.0, 0.0] },
+    palette: 'aurora',
+    drift: { evolving: true, time: 0 },
+    rendering: { bloom: true, viewMode: 0, tier: 'standard' }
+  },
+  {
+    name: 'Deep Specimen (12-fold)',
+    description: 'Nested concentric levels of micro-caustics across scales',
+    mode: 'explore',
+    symmetry: 12,
+    coefficients: {
+      a: { r: -0.755, i: 0.330 },
+      b: { r: -0.376, i: 0.026 },
+      c: { r: 6.401, i: 0.803 },
+      d: { r: 1.520, i: 0.840 }
+    },
+    userOffsets: { a: { r: 0, i: 0 }, b: { r: 0, i: 0 }, c: { r: 0, i: 0 }, d: { r: 0, i: 0 } },
+    camera: { zoom: 1.65, center: [0.0, 0.0] },
+    palette: 'solar',
+    drift: { evolving: true, time: 0 },
+    rendering: { bloom: true, viewMode: 0, tier: 'ultra' }
+  },
+  {
+    name: 'Gossamer Lace (32-fold)',
+    description: 'High-density web filigree with brilliant harmonic ring',
+    mode: 'explore',
+    symmetry: 32,
+    coefficients: {
+      a: { r: -0.745, i: 0.335 },
+      b: { r: -0.372, i: 0.024 },
+      c: { r: 6.480, i: 0.810 },
+      d: { r: 1.530, i: 0.845 }
+    },
+    userOffsets: { a: { r: 0, i: 0 }, b: { r: 0, i: 0 }, c: { r: 0, i: 0 }, d: { r: 0, i: 0 } },
+    camera: { zoom: 1.65, center: [0.0, 0.0] },
+    palette: 'monochrome',
+    drift: { evolving: true, time: 0 },
+    rendering: { bloom: true, viewMode: 0, tier: 'high' }
+  }
+];
+
+export class App {
   constructor() {
     this.canvas = document.getElementById('gl-canvas');
-    this.math = new MathSystem();
+    this.math = new MathSystem('explore');
     this.renderer = new MobiusRenderer(this.canvas);
+
+    // Primary mode state: 'reference' (default faithful art) | 'explore' (interactive sandbox)
+    this.mode = 'reference';
 
     // UI elements
     this.uiContainer = document.getElementById('ui-container');
+    this.controlsBar = document.getElementById('controls-bar');
+    this.modeStatusPill = document.getElementById('mode-status-pill');
     this.readoutEl = document.getElementById('equation-readout');
     this.valA = document.getElementById('val-a');
     this.valB = document.getElementById('val-b');
@@ -23,6 +157,15 @@ class App {
     this.valN = document.getElementById('val-n');
     this.debugOverlay = document.getElementById('debug-overlay');
     this.coeffDrawer = document.getElementById('coeff-drawer');
+    this.coeffLockNotice = document.getElementById('coeff-lock-notice');
+    this.btnModeRef = document.getElementById('btn-mode-reference');
+    this.btnModeExp = document.getElementById('btn-mode-explore');
+    this.randomizeMenu = document.getElementById('randomize-menu');
+    this.paletteMenu = document.getElementById('palette-menu');
+    this.btnPaletteToggle = document.getElementById('btn-palette-toggle');
+    this.exportModal = document.getElementById('export-modal');
+    this.presetModal = document.getElementById('preset-modal');
+    this.toastBanner = document.getElementById('toast-banner');
 
     // Debug fields
     this.dbgMode = document.getElementById('dbg-mode');
@@ -37,16 +180,12 @@ class App {
     this.dbgFrameTime = document.getElementById('dbg-frametime');
     this.dbgCpu = document.getElementById('dbg-cpu');
     this.dbgGpu = document.getElementById('dbg-gpu');
-    this.dbgGpuSim = document.getElementById('dbg-gpusim');
-    this.dbgGpuSplat = document.getElementById('dbg-gpusplat');
-    this.dbgGpuPost = document.getElementById('dbg-gpupost');
     this.dbgParticles = document.getElementById('dbg-particles');
     this.dbgSteps = document.getElementById('dbg-steps');
     this.dbgIters = document.getElementById('dbg-iters');
     this.dbgDpr = document.getElementById('dbg-dpr');
     this.dbgZoom = document.getElementById('dbg-zoom');
     this.dbgAccum = document.getElementById('dbg-accum');
-    this.dbgDraws = document.getElementById('dbg-draws');
     this.dbgRes = document.getElementById('dbg-res');
 
     this.debugMode = false;
@@ -57,15 +196,28 @@ class App {
     // Power & display throttling state
     this.isTabHidden = false;
     this.lastSimTime = performance.now();
-
-    // Display refresh rate detection (Requirement 14)
     this.refreshRate = 60;
     this.rafDeltas = [];
     this.isHighRefresh = false;
     this.lastRafTimestamp = 0;
 
+    // Interaction state
+    this.isDragging = false;
+    this.dragStart = [0, 0];
+    this.dragCenterStart = [0, 0];
+
+    // Export state
+    this.isExporting = false;
+    this.exportWidth = 3840;
+    this.exportHeight = 2160;
+    this.exportPasses = 60;
+
     // Parse URL parameters for automated testing & direct linking
     const params = new URLSearchParams(window.location.search);
+    let startMode = 'reference';
+    if (params.has('mode')) {
+      startMode = params.get('mode');
+    }
     if (params.has('bruteforce') || params.has('brute')) {
       this.renderer.adaptive.setMode('bruteforce');
     } else if (params.has('tier')) {
@@ -73,9 +225,11 @@ class App {
     }
     if (params.has('morph')) {
       this.math.setMorphology(params.get('morph'));
+      startMode = 'explore';
     }
     if (params.has('n')) {
       this.math.setSymmetry(parseInt(params.get('n'), 10));
+      startMode = 'explore';
     }
     if (params.has('particles')) {
       this.renderer.setParticleCount(parseInt(params.get('particles'), 10));
@@ -95,6 +249,13 @@ class App {
       this.renderer.viewCenter = [cx, cy];
       this.renderer.targetViewCenter = [cx, cy];
     }
+    if (params.has('palette')) {
+      this.renderer.setPalette(params.get('palette'));
+    }
+    if (params.has('randomize')) {
+      this.math.randomize(params.get('randomize'));
+      startMode = 'explore';
+    }
     if (params.has('view')) {
       const v = params.get('view');
       if (v === 'raw') {
@@ -107,9 +268,7 @@ class App {
         this.renderer.bloomEnabled = true;
       }
     } else {
-      if (params.has('raw')) {
-        this.renderer.viewMode = 2;
-      }
+      if (params.has('raw')) this.renderer.viewMode = 2;
       if (params.has('nobloom')) {
         this.renderer.viewMode = 1;
         this.renderer.bloomEnabled = false;
@@ -117,7 +276,7 @@ class App {
     }
     if (params.has('debug') || params.has('profile')) {
       this.debugMode = true;
-      this.debugOverlay.classList.add('visible');
+      this.debugOverlay?.classList.add('visible');
       document.getElementById('btn-debug')?.classList.add('active');
     }
 
@@ -127,13 +286,9 @@ class App {
     window.__math = this.math;
     window.__profiler = this.renderer.profiler;
 
-    // Interaction state
-    this.isDragging = false;
-    this.dragStart = [0, 0];
-    this.dragCenterStart = [0, 0];
-
     this.setupEvents();
     this.setupUI();
+    this.setMode(startMode);
     this.onResize();
 
     this.lastTime = performance.now();
@@ -145,10 +300,165 @@ class App {
     }
   }
 
+  setMode(mode) {
+    this.mode = mode;
+    this.math.setMode(mode);
+
+    if (mode === 'reference') {
+      // MODE 1 — REFERENCE:
+      // Exact Conradi coefficients, n = 16, drift paused, offsets & perturbations reset
+      this.renderer.zoom = 1.65;
+      this.renderer.targetZoom = 1.65;
+      this.renderer.viewCenter = [0.0, 0.0];
+      this.renderer.targetViewCenter = [0.0, 0.0];
+      this.renderer.setPalette('cobalt');
+      this.renderer.clearAccumulation();
+
+      // Sliders reset to 0.00
+      this.resetSliderDisplay();
+      this.showToast('Reference Mode activated • Exact Conradi artwork restored');
+    } else {
+      // MODE 2 — EXPLORE:
+      this.showToast('Explore Mode activated • Interactive sandbox unlocked');
+    }
+
+    this.updateModeUI();
+  }
+
+  updateModeUI() {
+    const isRef = (this.mode === 'reference');
+
+    // Update Mode Switcher buttons
+    if (this.btnModeRef) this.btnModeRef.classList.toggle('active', isRef);
+    if (this.btnModeExp) this.btnModeExp.classList.toggle('active', !isRef);
+
+    // Update Mode Status Pill
+    if (this.modeStatusPill) {
+      if (isRef) {
+        this.modeStatusPill.className = 'pill-reference';
+        this.modeStatusPill.innerHTML = `
+          <span class="mode-dot ref-dot"></span>
+          <strong>REFERENCE MODE</strong> &bull; Exact Simone Conradi 2026 Artwork (Formula Protected &bull; Drift Paused)
+        `;
+      } else {
+        this.modeStatusPill.className = 'pill-explore';
+        this.modeStatusPill.innerHTML = `
+          <span class="mode-dot exp-dot"></span>
+          <strong>EXPLORE MODE</strong> &bull; Interactive Sandbox (Pointer Perturbations &amp; Sliders Active)
+        `;
+      }
+    }
+
+    // Lock indicator in slider drawer
+    if (this.coeffLockNotice) {
+      this.coeffLockNotice.style.display = isRef ? 'block' : 'none';
+    }
+
+    // Disable/lock sliders in Reference mode
+    const sliders = document.querySelectorAll('.coeff-slider');
+    sliders.forEach(s => s.disabled = isRef);
+    const resetCoeffBtn = document.getElementById('btn-reset-coeffs');
+    if (resetCoeffBtn) resetCoeffBtn.disabled = isRef;
+
+    // Symmetry buttons: in Reference mode, locked to 16
+    const symBtns = document.querySelectorAll('.sym-btn');
+    symBtns.forEach(btn => {
+      const n = parseInt(btn.dataset.n, 10);
+      btn.classList.toggle('active', isRef ? n === 16 : n === this.math.n);
+      btn.style.opacity = isRef && n !== 16 ? '0.4' : '1.0';
+      btn.title = isRef ? 'Locked to n=16 in Reference mode' : `Order n = ${n}`;
+    });
+
+    // Pause/Resume button
+    const btnPause = document.getElementById('btn-pause');
+    if (btnPause) {
+      if (isRef) {
+        btnPause.innerText = 'Drift: Off';
+        btnPause.classList.remove('active');
+        btnPause.disabled = true;
+        btnPause.title = 'Drift is paused in Reference mode';
+      } else {
+        btnPause.disabled = false;
+        btnPause.innerText = this.math.evolving ? 'Pause' : 'Resume';
+        btnPause.classList.toggle('active', !this.math.evolving);
+        btnPause.title = 'Toggle autonomous coefficient drift';
+      }
+    }
+
+    // Palette button: update active item
+    if (this.btnPaletteToggle) {
+      const curPal = PALETTES[this.renderer.activePalette] || PALETTES.cobalt;
+      this.btnPaletteToggle.innerText = `Palette: ${curPal.name.split(' ')[0]} ▾`;
+    }
+  }
+
+  updateSliderInputs() {
+    const sA = document.getElementById('slider-a-re');
+    const sB = document.getElementById('slider-b-im');
+    const sC = document.getElementById('slider-c-re');
+    const sD = document.getElementById('slider-d-im');
+    const lA = document.getElementById('lbl-a-re');
+    const lB = document.getElementById('lbl-b-im');
+    const lC = document.getElementById('lbl-c-re');
+    const lD = document.getElementById('lbl-d-im');
+
+    const offA = this.math.userOffsetA ? this.math.userOffsetA.r : 0;
+    const offB = this.math.userOffsetB ? this.math.userOffsetB.i : 0;
+    const offC = this.math.userOffsetC ? this.math.userOffsetC.r : 0;
+    const offD = this.math.userOffsetD ? this.math.userOffsetD.i : 0;
+
+    if (sA) sA.value = offA;
+    if (sB) sB.value = offB;
+    if (sC) sC.value = offC;
+    if (sD) sD.value = offD;
+    if (lA) lA.innerText = offA.toFixed(2);
+    if (lB) lB.innerText = offB.toFixed(2);
+    if (lC) lC.innerText = offC.toFixed(2);
+    if (lD) lD.innerText = offD.toFixed(2);
+  }
+
+  resetSliderDisplay() {
+    if (this.math) {
+      this.math.userOffsetA = new (this.math.userOffsetA.constructor)(0, 0);
+      this.math.userOffsetB = new (this.math.userOffsetB.constructor)(0, 0);
+      this.math.userOffsetC = new (this.math.userOffsetC.constructor)(0, 0);
+      this.math.userOffsetD = new (this.math.userOffsetD.constructor)(0, 0);
+    }
+    this.updateSliderInputs();
+  }
+
+  randomize(style = null) {
+    // Mode 3: Randomize switches to explore sandbox mode
+    this.mode = 'explore';
+    const res = this.math.randomize(style);
+    this.renderer.clearAccumulation();
+
+    this.updateSliderInputs();
+    this.updateModeUI();
+    this.closeDropdowns();
+
+    this.showToast(`Randomized [${res.style}]: ${res.name}`);
+  }
+
+  showToast(message, duration = 3000) {
+    if (!this.toastBanner) return;
+    this.toastBanner.innerText = message;
+    this.toastBanner.classList.add('show');
+    clearTimeout(this._toastTimeout);
+    this._toastTimeout = setTimeout(() => {
+      this.toastBanner?.classList.remove('show');
+    }, duration);
+  }
+
+  closeDropdowns() {
+    if (this.randomizeMenu) this.randomizeMenu.classList.remove('visible');
+    if (this.paletteMenu) this.paletteMenu.classList.remove('visible');
+  }
+
   setupEvents() {
     window.addEventListener('resize', () => this.onResize());
 
-    // Tab visibility handling: pause/throttle simulation loop when hidden to conserve GPU/battery
+    // Tab visibility handling
     document.addEventListener('visibilitychange', () => {
       this.isTabHidden = document.hidden;
       if (!this.isTabHidden) {
@@ -157,37 +467,52 @@ class App {
       }
     });
 
-    // Pointer move: subtle continuous mathematical coefficient perturbation
-    window.addEventListener('pointermove', (e) => {
-      this.renderer.adaptive.markInteraction();
-      if (this.isDragging) {
-        const dx = (e.clientX - this.dragStart[0]) / (this.canvas.width * 0.5);
-        const dy = (e.clientY - this.dragStart[1]) / (this.canvas.height * 0.5);
-        const aspect = this.canvas.width / this.canvas.height;
-        const scale = 2.0 / (this.renderer.zoom * 2.0);
-
-        this.renderer.targetViewCenter[0] = this.dragCenterStart[0] - dx * scale * aspect;
-        this.renderer.targetViewCenter[1] = this.dragCenterStart[1] + dy * scale;
-      } else {
-        const normX = (e.clientX / window.innerWidth) * 2 - 1;
-        const normY = 1 - (e.clientY / window.innerHeight) * 2;
-        this.math.setPointer(normX, normY);
+    // Close dropdowns on outside click
+    window.addEventListener('click', (e) => {
+      if (!e.target.closest('.dropdown-container')) {
+        this.closeDropdowns();
       }
     });
 
-    // Pointer down: click disturbance shock or drag navigation
+    // Pointer move:
+    // IMPORTANT UX RULE: In Reference mode, ordinary mouse movement must NOT alter the formula!
+    window.addEventListener('pointermove', (e) => {
+      this.renderer.adaptive.markInteraction();
+      if (this.isDragging) {
+        if (this.mode === 'explore') {
+          const dx = (e.clientX - this.dragStart[0]) / (this.canvas.width * 0.5);
+          const dy = (e.clientY - this.dragStart[1]) / (this.canvas.height * 0.5);
+          const aspect = this.canvas.width / this.canvas.height;
+          const scale = 2.0 / (this.renderer.zoom * 2.0);
+
+          this.renderer.targetViewCenter[0] = this.dragCenterStart[0] - dx * scale * aspect;
+          this.renderer.targetViewCenter[1] = this.dragCenterStart[1] + dy * scale;
+        }
+      } else {
+        if (this.mode === 'explore') {
+          const normX = (e.clientX / window.innerWidth) * 2 - 1;
+          const normY = 1 - (e.clientY / window.innerHeight) * 2;
+          this.math.setPointer(normX, normY);
+        }
+      }
+    });
+
+    // Pointer down:
+    // In Reference mode, click shock disturbance is strictly locked out!
     this.canvas.addEventListener('pointerdown', (e) => {
       this.renderer.adaptive.markInteraction();
       if (e.button === 2 || e.shiftKey || e.altKey) {
-        // Pan
-        this.isDragging = true;
-        this.dragStart = [e.clientX, e.clientY];
-        this.dragCenterStart = [...this.renderer.targetViewCenter];
+        if (this.mode === 'explore') {
+          this.isDragging = true;
+          this.dragStart = [e.clientX, e.clientY];
+          this.dragCenterStart = [...this.renderer.targetViewCenter];
+        }
       } else if (e.button === 0) {
-        // Shock disturbance to transformation mathematics
-        const normX = (e.clientX / window.innerWidth) * 2 - 1;
-        const normY = 1 - (e.clientY / window.innerHeight) * 2;
-        this.math.injectShock(normX, normY);
+        if (this.mode === 'explore') {
+          const normX = (e.clientX / window.innerWidth) * 2 - 1;
+          const normY = 1 - (e.clientY / window.innerHeight) * 2;
+          this.math.injectShock(normX, normY);
+        }
       }
     });
 
@@ -197,10 +522,15 @@ class App {
 
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // Smooth Deep Zoom with mouse wheel
+    // Wheel zoom: in Reference mode, framing is strictly preserved
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.renderer.adaptive.markInteraction();
+      if (this.mode === 'reference') {
+        this.showToast('Framing locked in Reference Mode. Switch to Explore to zoom.');
+        return;
+      }
+
       const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
       const newZoom = Math.max(0.3, Math.min(500.0, this.renderer.targetZoom * zoomFactor));
 
@@ -210,7 +540,6 @@ class App {
       const cx = (mouseX * aspect) / this.renderer.zoom + this.renderer.viewCenter[0];
       const cy = mouseY / this.renderer.zoom + this.renderer.viewCenter[1];
 
-      // Shift view center towards cursor when zooming in
       if (zoomFactor > 1.0) {
         this.renderer.targetViewCenter[0] += (cx - this.renderer.targetViewCenter[0]) * 0.15;
         this.renderer.targetViewCenter[1] += (cy - this.renderer.targetViewCenter[1]) * 0.15;
@@ -221,14 +550,21 @@ class App {
 
     // Keyboard shortcuts
     window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
       const key = e.key.toLowerCase();
-      if (key === 'h') {
+      if (key === '1') {
+        this.setMode('reference');
+      } else if (key === '2') {
+        this.setMode('explore');
+      } else if (key === '3') {
+        this.randomize();
+      } else if (key === 'h') {
         this.toggleUI();
       } else if (key === 'd') {
         this.toggleDebug();
       } else if (key === ' ') {
         e.preventDefault();
-        this.togglePause();
+        if (this.mode === 'explore') this.togglePause();
       } else if (key === 'r') {
         this.resetView();
       } else if (key === 'b') {
@@ -239,6 +575,10 @@ class App {
         this.toggleReadout();
       } else if (key === 'p') {
         this.toggleCoeffDrawer();
+      } else if (key === 'e') {
+        this.openExportModal();
+      } else if (key === 's') {
+        this.openPresetModal();
       } else if (key === 'x') {
         const next = this.renderer.adaptive.mode === 'bruteforce' ? 'auto' : 'bruteforce';
         this.renderer.adaptive.setMode(next);
@@ -250,6 +590,48 @@ class App {
   }
 
   setupUI() {
+    // Mode Switcher buttons
+    this.btnModeRef?.addEventListener('click', () => this.setMode('reference'));
+    this.btnModeExp?.addEventListener('click', () => this.setMode('explore'));
+
+    // Randomize direct button & dropdown toggle & styles
+    document.getElementById('btn-randomize-action')?.addEventListener('click', () => this.randomize());
+
+    const btnRandToggle = document.getElementById('btn-randomize-toggle');
+    btnRandToggle?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.randomizeMenu?.classList.toggle('visible');
+      if (this.paletteMenu) this.paletteMenu.classList.remove('visible');
+    });
+
+    document.querySelectorAll('.rnd-style-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const style = btn.dataset.style;
+        this.randomize(style);
+      });
+    });
+
+    // Palette dropdown toggle & selectors
+    this.btnPaletteToggle?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.paletteMenu?.classList.toggle('visible');
+      if (this.randomizeMenu) this.randomizeMenu.classList.remove('visible');
+    });
+
+    document.querySelectorAll('.palette-select-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const palKey = btn.dataset.pal;
+        if (this.mode === 'reference' && palKey !== 'cobalt') {
+          this.setMode('explore');
+        }
+        this.renderer.setPalette(palKey);
+        document.querySelectorAll('.palette-select-btn').forEach(b => b.classList.toggle('active', b.dataset.pal === palKey));
+        this.updateModeUI();
+        this.closeDropdowns();
+        this.showToast(`Palette: ${PALETTES[palKey]?.name || palKey}`);
+      });
+    });
+
     // Adaptive Quality Selector buttons
     const qualityBtns = document.querySelectorAll('.quality-btn');
     qualityBtns.forEach((btn) => {
@@ -262,50 +644,102 @@ class App {
       });
     });
 
-    // Sync active button on startup
-    const currentMode = this.renderer.adaptive.mode;
-    qualityBtns.forEach((b) => {
-      b.classList.toggle('active', b.dataset.tier === currentMode);
-    });
-
     // Symmetry selector buttons
     const symmetryBtns = document.querySelectorAll('.sym-btn');
     symmetryBtns.forEach((btn) => {
       btn.addEventListener('click', () => {
         const n = parseInt(btn.dataset.n, 10);
+        if (this.mode === 'reference') {
+          if (n === 16) return;
+          this.setMode('explore');
+        }
         this.math.setSymmetry(n);
         symmetryBtns.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
-        // Graceful symmetry transition without black flash
         this.renderer.startSymmetryTransition();
         this.renderer.adaptive.markInteraction();
       });
     });
 
-    // Zoom buttons
-    document.getElementById('btn-zoom-in').addEventListener('click', () => {
+    // Zoom buttons: locked in Reference mode to preserve camera framing intended for reference piece
+    document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
+      if (this.mode === 'reference') {
+        this.showToast('Framing locked in Reference Mode. Switch to Explore to zoom.');
+        return;
+      }
       this.renderer.adaptive.markInteraction();
       this.renderer.targetZoom = Math.min(500.0, this.renderer.targetZoom * 1.5);
     });
-    document.getElementById('btn-zoom-out').addEventListener('click', () => {
+    document.getElementById('btn-zoom-out')?.addEventListener('click', () => {
+      if (this.mode === 'reference') {
+        this.showToast('Framing locked in Reference Mode. Switch to Explore to zoom.');
+        return;
+      }
       this.renderer.adaptive.markInteraction();
       this.renderer.targetZoom = Math.max(0.3, this.renderer.targetZoom / 1.5);
     });
-    document.getElementById('btn-zoom-reset').addEventListener('click', () => {
+    document.getElementById('btn-zoom-reset')?.addEventListener('click', () => {
       this.renderer.adaptive.markInteraction();
       this.renderer.targetZoom = 1.65;
       this.renderer.targetViewCenter = [0.0, 0.0];
     });
 
     // Main Control buttons
-    document.getElementById('btn-pause').addEventListener('click', () => this.togglePause());
-    document.getElementById('btn-reset').addEventListener('click', () => this.resetView());
-    document.getElementById('btn-debug').addEventListener('click', () => this.toggleDebug());
-    document.getElementById('btn-hide').addEventListener('click', () => this.toggleUI());
-    document.getElementById('btn-bloom').addEventListener('click', () => this.toggleBloom());
-    document.getElementById('btn-raw').addEventListener('click', () => this.toggleRawTrajectories());
-    document.getElementById('btn-readout').addEventListener('click', () => this.toggleReadout());
-    document.getElementById('btn-coeff').addEventListener('click', () => this.toggleCoeffDrawer());
+    document.getElementById('btn-pause')?.addEventListener('click', () => {
+      if (this.mode === 'explore') this.togglePause();
+    });
+    document.getElementById('btn-reset')?.addEventListener('click', () => this.resetView());
+    document.getElementById('btn-debug')?.addEventListener('click', () => this.toggleDebug());
+    document.getElementById('btn-hide')?.addEventListener('click', () => this.toggleUI());
+    document.getElementById('btn-bloom')?.addEventListener('click', () => this.toggleBloom());
+    document.getElementById('btn-raw')?.addEventListener('click', () => this.toggleRawTrajectories());
+    document.getElementById('btn-readout')?.addEventListener('click', () => this.toggleReadout());
+    document.getElementById('btn-coeff')?.addEventListener('click', () => this.toggleCoeffDrawer());
+
+    // Export & Presets Triggers
+    document.getElementById('btn-export-trigger')?.addEventListener('click', () => this.openExportModal());
+    document.getElementById('btn-preset-trigger')?.addEventListener('click', () => this.openPresetModal());
+
+    // Export Modal Controls
+    document.getElementById('btn-export-close')?.addEventListener('click', () => this.closeExportModal());
+    document.getElementById('btn-export-cancel')?.addEventListener('click', () => this.closeExportModal());
+    document.getElementById('btn-export-start')?.addEventListener('click', () => this.startExport());
+
+    document.querySelectorAll('.export-res-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.export-res-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const w = btn.dataset.w;
+        const h = btn.dataset.h;
+        if (w === 'viewport') {
+          this.exportWidth = this.canvas.width;
+          this.exportHeight = this.canvas.height;
+        } else {
+          this.exportWidth = parseInt(w, 10);
+          this.exportHeight = parseInt(h, 10);
+        }
+      });
+    });
+
+    document.querySelectorAll('.export-pass-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.export-pass-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.exportPasses = parseInt(btn.dataset.passes, 10);
+      });
+    });
+
+    // Presets Modal Controls
+    document.getElementById('btn-preset-close')?.addEventListener('click', () => this.closePresetModal());
+    document.getElementById('btn-preset-done')?.addEventListener('click', () => this.closePresetModal());
+    document.getElementById('btn-preset-save')?.addEventListener('click', () => this.saveUserPreset());
+    document.getElementById('btn-preset-copy')?.addEventListener('click', () => this.copyPresetJSON());
+
+    const fileInput = document.getElementById('preset-file-input');
+    fileInput?.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (file) this.importPresetFile(file);
+    });
 
     // Coefficient Sliders
     const sliderARe = document.getElementById('slider-a-re');
@@ -313,37 +747,39 @@ class App {
     const sliderCRe = document.getElementById('slider-c-re');
     const sliderDIm = document.getElementById('slider-d-im');
 
-    sliderARe.addEventListener('input', (e) => {
+    sliderARe?.addEventListener('input', (e) => {
+      if (this.mode === 'reference') return;
       this.renderer.adaptive.markInteraction();
       const v = parseFloat(e.target.value);
       document.getElementById('lbl-a-re').innerText = v.toFixed(2);
       this.math.setCoefficientOffset('a', v, 0);
     });
-    sliderBIm.addEventListener('input', (e) => {
+    sliderBIm?.addEventListener('input', (e) => {
+      if (this.mode === 'reference') return;
       this.renderer.adaptive.markInteraction();
       const v = parseFloat(e.target.value);
       document.getElementById('lbl-b-im').innerText = v.toFixed(2);
       this.math.setCoefficientOffset('b', 0, v);
     });
-    sliderCRe.addEventListener('input', (e) => {
+    sliderCRe?.addEventListener('input', (e) => {
+      if (this.mode === 'reference') return;
       this.renderer.adaptive.markInteraction();
       const v = parseFloat(e.target.value);
       document.getElementById('lbl-c-re').innerText = v.toFixed(2);
       this.math.setCoefficientOffset('c', v, 0);
     });
-    sliderDIm.addEventListener('input', (e) => {
+    sliderDIm?.addEventListener('input', (e) => {
+      if (this.mode === 'reference') return;
       this.renderer.adaptive.markInteraction();
       const v = parseFloat(e.target.value);
       document.getElementById('lbl-d-im').innerText = v.toFixed(2);
       this.math.setCoefficientOffset('d', 0, v);
     });
 
-    document.getElementById('btn-reset-coeffs').addEventListener('click', () => {
+    document.getElementById('btn-reset-coeffs')?.addEventListener('click', () => {
+      if (this.mode === 'reference') return;
       this.renderer.adaptive.markInteraction();
-      sliderARe.value = 0; document.getElementById('lbl-a-re').innerText = '0.00';
-      sliderBIm.value = 0; document.getElementById('lbl-b-im').innerText = '0.00';
-      sliderCRe.value = 0; document.getElementById('lbl-c-re').innerText = '0.00';
-      sliderDIm.value = 0; document.getElementById('lbl-d-im').innerText = '0.00';
+      this.resetSliderDisplay();
       this.math.setCoefficientOffset('a', 0, 0);
       this.math.setCoefficientOffset('b', 0, 0);
       this.math.setCoefficientOffset('c', 0, 0);
@@ -351,65 +787,338 @@ class App {
     });
   }
 
+  // --- Export Features ---
+  openExportModal() {
+    if (this.exportModal) this.exportModal.classList.add('visible');
+  }
+
+  closeExportModal() {
+    if (this.isExporting) return;
+    if (this.exportModal) this.exportModal.classList.remove('visible');
+    const progArea = document.getElementById('export-progress-area');
+    if (progArea) progArea.style.display = 'none';
+  }
+
+  async startExport() {
+    if (this.isExporting) return;
+    this.isExporting = true;
+
+    const progArea = document.getElementById('export-progress-area');
+    const statusLbl = document.getElementById('export-status-label');
+    const statusPct = document.getElementById('export-status-pct');
+    const progFill = document.getElementById('export-progress-fill');
+    const btnStart = document.getElementById('btn-export-start');
+    const btnCancel = document.getElementById('btn-export-cancel');
+
+    if (progArea) progArea.style.display = 'block';
+    if (btnStart) btnStart.disabled = true;
+    if (btnCancel) btnCancel.disabled = true;
+
+    const width = this.exportWidth || 3840;
+    const height = this.exportHeight || 2160;
+    const passes = this.exportPasses || 60;
+    const modeTag = this.mode === 'reference' ? 'simone_conradi_reference' : 'mobius_explore';
+    const filename = `${modeTag}_${width}x${height}.png`;
+
+    try {
+      await this.renderer.exportPNG(this.math, {
+        width,
+        height,
+        accumFrames: passes,
+        filename,
+        onProgress: (pct, msg) => {
+          if (statusLbl) statusLbl.innerText = msg;
+          if (statusPct) statusPct.innerText = `${pct}%`;
+          if (progFill) progFill.style.width = `${pct}%`;
+        }
+      });
+      this.showToast(`Successfully exported ${width}×${height} PNG!`);
+      setTimeout(() => {
+        if (btnStart) btnStart.disabled = false;
+        if (btnCancel) btnCancel.disabled = false;
+        this.closeExportModal();
+      }, 700);
+    } catch (err) {
+      console.error('Export error:', err);
+      if (statusLbl) statusLbl.innerText = 'Export failed: ' + err.message;
+      if (btnStart) btnStart.disabled = false;
+      if (btnCancel) btnCancel.disabled = false;
+    } finally {
+      this.isExporting = false;
+    }
+  }
+
+  // --- Preset Features ---
+  openPresetModal() {
+    this.populateCuratedPresets();
+    this.renderUserPresets();
+    if (this.presetModal) this.presetModal.classList.add('visible');
+  }
+
+  closePresetModal() {
+    if (this.presetModal) this.presetModal.classList.remove('visible');
+  }
+
+  populateCuratedPresets() {
+    const list = document.getElementById('curated-presets-list');
+    if (!list) return;
+    list.innerHTML = '';
+    CURATED_PRESETS.forEach(p => {
+      const btn = document.createElement('button');
+      btn.style.cssText = 'display:flex; flex-direction:column; align-items:flex-start; padding:6px 10px; background:rgba(20,40,80,0.5); border:1px solid rgba(40,90,160,0.3); border-radius:6px;';
+      btn.innerHTML = `
+        <div style="font-weight:600; color:#e2f0ff; font-size:10.5px;">${p.name}</div>
+        <div style="font-size:9px; color:#6482a8; margin-top:2px;">${p.description}</div>
+      `;
+      btn.addEventListener('click', () => {
+        this.loadPresetObject(p);
+        this.closePresetModal();
+      });
+      list.appendChild(btn);
+    });
+  }
+
+  getUserPresets() {
+    try {
+      const saved = localStorage.getItem('mobius_custom_presets');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  renderUserPresets() {
+    const list = document.getElementById('user-presets-list');
+    if (!list) return;
+    const presets = this.getUserPresets();
+    if (presets.length === 0) {
+      list.innerHTML = '<div style="font-size:10px; color:#5577a3; padding:4px;">No custom presets saved yet.</div>';
+      return;
+    }
+    list.innerHTML = '';
+    presets.forEach((p, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:rgba(10,24,48,0.5); border:1px solid rgba(40,80,140,0.25); border-radius:6px; padding:4px 8px;';
+      row.innerHTML = `
+        <div style="font-size:10.5px; color:#c0daf8;">${p.name || 'Unnamed Preset'} <span style="font-size:9px; color:#5577a3;">(n=${p.symmetry})</span></div>
+        <div style="display:flex; gap:4px;">
+          <button class="load-user-preset" style="padding:2px 8px; font-size:9.5px; background:rgba(30,120,255,0.3);">Load</button>
+          <button class="del-user-preset" style="padding:2px 6px; font-size:9.5px; color:#f87171;">✕</button>
+        </div>
+      `;
+      row.querySelector('.load-user-preset')?.addEventListener('click', () => {
+        this.loadPresetObject(p);
+        this.closePresetModal();
+      });
+      row.querySelector('.del-user-preset')?.addEventListener('click', () => {
+        this.deleteUserPreset(idx);
+      });
+      list.appendChild(row);
+    });
+  }
+
+  saveUserPreset() {
+    const input = document.getElementById('preset-name-input');
+    const name = input?.value.trim() || `Preset ${new Date().toLocaleTimeString()}`;
+    const preset = this.getPresetObject(name);
+
+    // Save to localStorage
+    const existing = this.getUserPresets();
+    existing.unshift(preset);
+    try {
+      localStorage.setItem('mobius_custom_presets', JSON.stringify(existing.slice(0, 20)));
+    } catch (e) {
+      console.warn('LocalStorage save error:', e);
+    }
+    this.renderUserPresets();
+
+    // Also download JSON
+    const jsonStr = JSON.stringify(preset, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name.replace(/\s+/g, '_').toLowerCase()}.mobius.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+    if (input) input.value = '';
+    this.showToast(`Saved preset: "${name}"`);
+  }
+
+  deleteUserPreset(idx) {
+    const existing = this.getUserPresets();
+    existing.splice(idx, 1);
+    try {
+      localStorage.setItem('mobius_custom_presets', JSON.stringify(existing));
+    } catch (e) {}
+    this.renderUserPresets();
+  }
+
+  getPresetObject(name = 'Custom Mobius Organism') {
+    return {
+      name,
+      timestamp: Date.now(),
+      version: '1.0',
+      mode: this.mode,
+      symmetry: this.math.n,
+      coefficients: {
+        a: { r: this.math.baseA.r, i: this.math.baseA.i },
+        b: { r: this.math.baseB.r, i: this.math.baseB.i },
+        c: { r: this.math.baseC.r, i: this.math.baseC.i },
+        d: { r: this.math.baseD.r, i: this.math.baseD.i }
+      },
+      userOffsets: {
+        a: { r: this.math.userOffsetA.r, i: this.math.userOffsetA.i },
+        b: { r: this.math.userOffsetB.r, i: this.math.userOffsetB.i },
+        c: { r: this.math.userOffsetC.r, i: this.math.userOffsetC.i },
+        d: { r: this.math.userOffsetD.r, i: this.math.userOffsetD.i }
+      },
+      camera: {
+        zoom: this.renderer.zoom,
+        center: [...this.renderer.viewCenter]
+      },
+      palette: this.renderer.activePalette,
+      drift: {
+        evolving: this.math.evolving,
+        time: this.math.time
+      },
+      rendering: {
+        bloom: this.renderer.bloomEnabled,
+        viewMode: this.renderer.viewMode,
+        tier: this.renderer.adaptive.mode
+      }
+    };
+  }
+
+  loadPresetObject(preset) {
+    if (!preset) return;
+    const targetMode = preset.mode || 'explore';
+    this.setMode(targetMode);
+
+    // Restore mathematical parameters (coefficients, symmetry, offsets, drift)
+    this.math.fromJSON(preset);
+
+    // If preset specified symmetry, ensure roots of unity & transition
+    if (preset.symmetry || preset.n) {
+      const sym = preset.symmetry || preset.n;
+      this.math.setSymmetry(sym);
+      this.renderer.startSymmetryTransition();
+    }
+
+    // Explicitly restore drift state if provided
+    if (preset.drift && preset.drift.evolving !== undefined) {
+      this.math.evolving = (targetMode === 'reference') ? false : !!preset.drift.evolving;
+    }
+
+    if (preset.palette) {
+      this.renderer.setPalette(preset.palette);
+    }
+    if (preset.camera) {
+      this.renderer.zoom = preset.camera.zoom !== undefined ? preset.camera.zoom : 1.65;
+      this.renderer.targetZoom = this.renderer.zoom;
+      this.renderer.viewCenter = preset.camera.center ? [...preset.camera.center] : [0, 0];
+      this.renderer.targetViewCenter = [...this.renderer.viewCenter];
+    }
+    if (preset.rendering) {
+      if (preset.rendering.bloom !== undefined) this.renderer.bloomEnabled = !!preset.rendering.bloom;
+      if (preset.rendering.viewMode !== undefined) this.renderer.viewMode = preset.rendering.viewMode;
+      if (preset.rendering.tier) this.renderer.adaptive.setMode(preset.rendering.tier);
+    }
+
+    // Update UI sliders to reflect restored user offsets
+    this.updateSliderInputs();
+
+    this.renderer.clearAccumulation();
+    this.updateModeUI();
+    this.showToast(`Loaded preset: ${preset.name || 'Unnamed'}`);
+  }
+
+  copyPresetJSON() {
+    const preset = this.getPresetObject();
+    const str = JSON.stringify(preset, null, 2);
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(str).then(() => {
+        this.showToast('Preset JSON copied to clipboard!');
+      });
+    } else {
+      this.showToast('Clipboard access unavailable.');
+    }
+  }
+
+  importPresetFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        this.loadPresetObject(data);
+        this.closePresetModal();
+      } catch (err) {
+        this.showToast('Failed to parse preset JSON file.');
+      }
+    };
+    reader.readAsText(file);
+  }
+
   togglePause() {
     this.math.evolving = !this.math.evolving;
     const btn = document.getElementById('btn-pause');
-    btn.innerText = this.math.evolving ? 'Pause' : 'Resume';
-    btn.classList.toggle('active', !this.math.evolving);
+    if (btn) {
+      btn.innerText = this.math.evolving ? 'Pause' : 'Resume';
+      btn.classList.toggle('active', !this.math.evolving);
+    }
     if (!this.math.evolving) {
       this.renderer.clearAccumulation();
     }
   }
 
   resetView() {
-    this.math.reset();
-    this.renderer.targetZoom = 1.65;
-    this.renderer.targetViewCenter = [0.0, 0.0];
-    this.renderer.clearAccumulation();
-
-    // Reset sliders
-    document.getElementById('slider-a-re').value = 0; document.getElementById('lbl-a-re').innerText = '0.00';
-    document.getElementById('slider-b-im').value = 0; document.getElementById('lbl-b-im').innerText = '0.00';
-    document.getElementById('slider-c-re').value = 0; document.getElementById('lbl-c-re').innerText = '0.00';
-    document.getElementById('slider-d-im').value = 0; document.getElementById('lbl-d-im').innerText = '0.00';
+    if (this.mode === 'reference') {
+      this.setMode('reference');
+    } else {
+      this.math.reset();
+      this.renderer.targetZoom = 1.65;
+      this.renderer.targetViewCenter = [0.0, 0.0];
+      this.renderer.clearAccumulation();
+      this.resetSliderDisplay();
+    }
   }
 
   toggleUI() {
     this.uiHidden = !this.uiHidden;
-    this.uiContainer.classList.toggle('hidden', this.uiHidden);
-    document.getElementById('hint-unhide').classList.toggle('visible', this.uiHidden);
+    this.uiContainer?.classList.toggle('hidden', this.uiHidden);
+    document.getElementById('hint-unhide')?.classList.toggle('visible', this.uiHidden);
   }
 
   toggleReadout() {
     this.readoutVisible = !this.readoutVisible;
-    this.readoutEl.classList.toggle('collapsed', !this.readoutVisible);
-    document.getElementById('btn-readout').classList.toggle('active', this.readoutVisible);
+    this.readoutEl?.classList.toggle('collapsed', !this.readoutVisible);
+    document.getElementById('btn-readout')?.classList.toggle('active', this.readoutVisible);
   }
 
   toggleCoeffDrawer() {
     this.coeffDrawerVisible = !this.coeffDrawerVisible;
-    this.coeffDrawer.classList.toggle('visible', this.coeffDrawerVisible);
-    document.getElementById('btn-coeff').classList.toggle('active', this.coeffDrawerVisible);
+    this.coeffDrawer?.classList.toggle('visible', this.coeffDrawerVisible);
+    document.getElementById('btn-coeff')?.classList.toggle('active', this.coeffDrawerVisible);
   }
 
   toggleDebug() {
     this.debugMode = !this.debugMode;
-    this.debugOverlay.classList.toggle('visible', this.debugMode);
-    document.getElementById('btn-debug').classList.toggle('active', this.debugMode);
+    this.debugOverlay?.classList.toggle('visible', this.debugMode);
+    document.getElementById('btn-debug')?.classList.toggle('active', this.debugMode);
   }
 
   toggleBloom() {
     this.renderer.bloomEnabled = !this.renderer.bloomEnabled;
-    if (this.renderer.bloomEnabled) {
-      this.renderer.viewMode = 0;
-    } else {
-      this.renderer.viewMode = 1;
-    }
+    this.renderer.viewMode = this.renderer.bloomEnabled ? 0 : 1;
     const btn = document.getElementById('btn-bloom');
-    btn.innerText = `Bloom: ${this.renderer.bloomEnabled ? 'ON' : 'OFF'}`;
-    btn.classList.toggle('active', this.renderer.bloomEnabled);
-    const rawBtn = document.getElementById('btn-raw');
-    rawBtn.classList.remove('active');
+    if (btn) {
+      btn.innerText = `Bloom: ${this.renderer.bloomEnabled ? 'ON' : 'OFF'}`;
+      btn.classList.toggle('active', this.renderer.bloomEnabled);
+    }
+    document.getElementById('btn-raw')?.classList.remove('active');
   }
 
   toggleRawTrajectories() {
@@ -419,8 +1128,10 @@ class App {
       this.renderer.viewMode = 2;
     }
     const btn = document.getElementById('btn-raw');
-    btn.innerText = `Raw: ${this.renderer.viewMode === 2 ? 'ON' : 'OFF'}`;
-    btn.classList.toggle('active', this.renderer.viewMode === 2);
+    if (btn) {
+      btn.innerText = `Raw: ${this.renderer.viewMode === 2 ? 'ON' : 'OFF'}`;
+      btn.classList.toggle('active', this.renderer.viewMode === 2);
+    }
   }
 
   onResize() {
@@ -434,14 +1145,12 @@ class App {
   animate(currentTime) {
     requestAnimationFrame(this.animate);
 
-    // Visibility throttling: stop simulation loop when document is hidden to conserve GPU/battery
-    if (this.isTabHidden) {
+    if (this.isTabHidden || this.isExporting) {
       this.lastTime = currentTime;
       return;
     }
 
-    // Refresh rate estimation (Requirement 14):
-    // Collect rolling RAF intervals to detect actual monitor refresh behavior (60, 75, 90, 120, 144, 240 Hz)
+    // Refresh rate tracking
     if (this.lastRafTimestamp > 0) {
       const delta = currentTime - this.lastRafTimestamp;
       if (delta > 2.0 && delta < 100.0) {
@@ -457,22 +1166,18 @@ class App {
     }
     this.lastRafTimestamp = currentTime;
 
-    // High-refresh display power efficiency (Requirement 14):
-    // On high-refresh displays (>65 Hz), cap heavy simulation updates to ~60 Hz (sim interval >= 15.0ms)
-    // On native 60 Hz displays, NEVER drop frames due to minor scheduling jitter!
+    // High-refresh display power capping (~60 Hz)
     const isCapture = typeof window !== 'undefined' && window.location.search.includes('capture=1');
     if (!isCapture && this.isHighRefresh) {
       const simDt = currentTime - this.lastSimTime;
-      if (simDt < 15.0) {
-        return;
-      }
+      if (simDt < 15.0) return;
     }
     this.lastSimTime = currentTime;
 
     const dt = Math.min(0.05, (currentTime - this.lastTime) / 1000);
     this.lastTime = currentTime;
 
-    // Check if dynamic DPR adaptation requires resizing
+    // Check dynamic DPR resize
     const currentTargetDpr = this.customDpr || this.renderer.adaptive.getDpr();
     const targetW = Math.floor(window.innerWidth * currentTargetDpr);
     const targetH = Math.floor(window.innerHeight * currentTargetDpr);
@@ -489,71 +1194,53 @@ class App {
     this.renderer.render(this.math, dt, jsTime);
 
     // Update Live Equation Readout
-    this.valA.innerText = this.math.a.format(3);
-    this.valB.innerText = this.math.b.format(3);
-    this.valC.innerText = this.math.c.format(3);
-    this.valD.innerText = this.math.d.format(3);
-    this.valN.innerText = this.math.n;
+    if (this.valA) this.valA.innerText = this.math.a.format(3);
+    if (this.valB) this.valB.innerText = this.math.b.format(3);
+    if (this.valC) this.valC.innerText = this.math.c.format(3);
+    if (this.valD) this.valD.innerText = this.math.d.format(3);
+    if (this.valN) this.valN.innerText = this.math.n;
 
-    // Update Diagnostic Debug / Profiler Overlay (if visible)
+    // Update Profiler Overlay
     if (this.debugMode) {
       const m = this.renderer.profiler.metrics;
       const status = this.renderer.adaptive.getStatus();
       const isBrute = status.mode === 'bruteforce' || status.tierKey === 'BRUTEFORCE';
 
-      if (this.dbgBruteBanner) {
-        this.dbgBruteBanner.style.display = isBrute ? 'block' : 'none';
-      }
+      if (this.dbgBruteBanner) this.dbgBruteBanner.style.display = isBrute ? 'block' : 'none';
       if (this.dbgMode) this.dbgMode.innerText = status.modeDisplay;
       if (this.dbgTier) {
-        if (isBrute) {
-          this.dbgTier.innerHTML = '<span style="color:#ff5577;font-weight:bold;">BRUTE FORCE</span>';
-        } else {
-          this.dbgTier.innerText = status.tierDisplay;
-        }
+        this.dbgTier.innerHTML = isBrute
+          ? '<span style="color:#ff5577;font-weight:bold;">BRUTE FORCE</span>'
+          : status.tierDisplay;
       }
       if (this.dbgParticles) {
-        this.dbgParticles.innerText = isBrute
-          ? '589,824'
-          : `${this.renderer.numParticles.toLocaleString()}`;
+        this.dbgParticles.innerText = isBrute ? '589,824' : `${this.renderer.numParticles.toLocaleString()}`;
       }
-      if (this.dbgSteps) {
-        this.dbgSteps.innerText = `${this.renderer.stepsPerFrame}`;
-      }
+      if (this.dbgSteps) this.dbgSteps.innerText = `${this.renderer.stepsPerFrame}`;
       if (this.dbgIters) {
         const deposits = this.renderer.numParticles * this.renderer.stepsPerFrame;
-        this.dbgIters.innerText = isBrute
-          ? '9,437,184 deposits/frame'
-          : `${deposits.toLocaleString()} deposits/frame`;
+        this.dbgIters.innerText = isBrute ? '9,437,184 deposits/frame' : `${deposits.toLocaleString()} deposits/frame`;
       }
-      if (this.dbgBudget) {
-        this.dbgBudget.innerText = isBrute ? 'Enthusiast (Unbounded)' : `${status.targetBudgetMs.toFixed(1)} ms`;
-      }
-      if (this.dbgHeadroom) {
-        this.dbgHeadroom.innerText = status.headroomPercent !== null ? `${status.headroomPercent}%` : '--%';
-      }
-      if (this.dbgFps) {
-        this.dbgFps.innerText = `${m.fps} FPS (${m.fps1Low} 1% low) [${this.refreshRate}Hz display]`;
-      }
-      if (this.dbgFrameTime) {
-        this.dbgFrameTime.innerText = `${m.frameMs.toFixed(1)} ms`;
-      }
-      if (this.dbgCpu) {
-        this.dbgCpu.innerText = `${m.cpuMs.toFixed(2)} ms (JS: ${m.jsUpdateMs.toFixed(2)}ms)`;
-      }
+      if (this.dbgBudget) this.dbgBudget.innerText = isBrute ? 'Enthusiast (Unbounded)' : `${status.targetBudgetMs.toFixed(1)} ms`;
+      if (this.dbgHeadroom) this.dbgHeadroom.innerText = status.headroomPercent !== null ? `${status.headroomPercent}%` : '--%';
+      if (this.dbgFps) this.dbgFps.innerText = `${m.fps} FPS (${m.fps1Low} 1% low) [${this.refreshRate}Hz display]`;
+      if (this.dbgFrameTime) this.dbgFrameTime.innerText = `${m.frameMs.toFixed(1)} ms`;
+      if (this.dbgCpu) this.dbgCpu.innerText = `${m.cpuMs.toFixed(2)} ms (JS: ${m.jsUpdateMs.toFixed(2)}ms)`;
 
-      if (status.timerQueryState === 'disjoint') {
-        if (this.dbgGpu) this.dbgGpu.innerText = `${status.gpuEma ? status.gpuEma.toFixed(2) + ' ms' : '-- ms'} (disjoint discarded)`;
-      } else if (status.timerQueryState === 'unavailable') {
-        if (this.dbgGpu) this.dbgGpu.innerText = `${status.gpuEma ? status.gpuEma.toFixed(2) + ' ms' : '-- ms'} (CPU fallback)`;
-      } else if (status.timerQueryState === 'pending') {
-        if (this.dbgGpu) this.dbgGpu.innerText = `Calibrating queries...`;
-      } else if (status.gpuEma !== null) {
-        if (this.dbgGpu) this.dbgGpu.innerText = `${status.gpuEma.toFixed(2)} ms (EMA)`;
-      } else if (m.gpuSupported && m.gpuMs !== null) {
-        if (this.dbgGpu) this.dbgGpu.innerText = `${m.gpuMs.toFixed(2)} ms`;
-      } else {
-        if (this.dbgGpu) this.dbgGpu.innerText = `N/A (timer query unavail)`;
+      if (this.dbgGpu) {
+        if (status.timerQueryState === 'disjoint') {
+          this.dbgGpu.innerText = `${status.gpuEma ? status.gpuEma.toFixed(2) + ' ms' : '-- ms'} (disjoint discarded)`;
+        } else if (status.timerQueryState === 'unavailable') {
+          this.dbgGpu.innerText = `${status.gpuEma ? status.gpuEma.toFixed(2) + ' ms' : '-- ms'} (CPU fallback)`;
+        } else if (status.timerQueryState === 'pending') {
+          this.dbgGpu.innerText = `Calibrating queries...`;
+        } else if (status.gpuEma !== null) {
+          this.dbgGpu.innerText = `${status.gpuEma.toFixed(2)} ms (EMA)`;
+        } else if (m.gpuSupported && m.gpuMs !== null) {
+          this.dbgGpu.innerText = `${m.gpuMs.toFixed(2)} ms`;
+        } else {
+          this.dbgGpu.innerText = `N/A (timer query unavail)`;
+        }
       }
 
       if (this.dbgDpr) this.dbgDpr.innerText = `${currentTargetDpr.toFixed(2)}`;
@@ -566,56 +1253,14 @@ class App {
     }
 
     document.body.setAttribute('data-frames', this.renderer.accumulationFrames);
+    document.body.setAttribute('data-mode', this.mode);
 
     // Capture hook for automated test harness
     if (window.location.search.includes('capture=1') && !window._captured) {
       window._captured = true;
       const params = new URLSearchParams(window.location.search);
-      if (params.has('morph')) {
-        this.math.setMorphology(params.get('morph'));
-      }
-      if (params.has('n')) {
-        this.math.setSymmetry(parseInt(params.get('n'), 10));
-      }
-      if (params.has('zoom')) {
-        const z = parseFloat(params.get('zoom'));
-        this.renderer.zoom = 1.65 * z;
-        this.renderer.targetZoom = 1.65 * z;
-        const cx = params.has('cx') ? parseFloat(params.get('cx')) : 0.0;
-        const cy = params.has('cy') ? parseFloat(params.get('cy')) : 0.0;
-        this.renderer.viewCenter = [cx, cy];
-        this.renderer.targetViewCenter = [cx, cy];
-      }
-      if (params.has('view')) {
-        const v = params.get('view');
-        if (v === 'raw') {
-          this.renderer.viewMode = 2;
-        } else if (v === 'nobloom') {
-          this.renderer.viewMode = 1;
-          this.renderer.bloomEnabled = false;
-        } else {
-          this.renderer.viewMode = 0;
-          this.renderer.bloomEnabled = true;
-        }
-      } else {
-        if (params.has('raw')) {
-          this.renderer.viewMode = 2;
-        }
-        if (params.has('nobloom')) {
-          this.renderer.viewMode = 1;
-          this.renderer.bloomEnabled = false;
-        }
-      }
-      if (params.has('debug')) {
-        this.debugMode = true;
-        this.debugOverlay.classList.add('visible');
-        document.getElementById('btn-debug').classList.add('active');
-      }
-
-      // Pre-accumulate frames synchronously for high-quality test captures
       const zFactor = params.has('zoom') ? parseFloat(params.get('zoom')) : 1.0;
       const numFrames = params.has('raw') ? 25 : (zFactor > 50.0 ? 120 : (zFactor > 10.0 ? 90 : 60));
-      // Freeze drift during capture accumulation so progressive accumulation forms crystal-clear caustics
       this.math.evolving = false;
       for (let i = 0; i < numFrames; i++) {
         this.math.update(0.016, this.renderer.zoom);
@@ -632,6 +1277,10 @@ class App {
   }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  window.app = new App();
-});
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', () => {
+    if (!window.app) window.app = new App();
+  });
+} else {
+  if (!window.app) window.app = new App();
+}

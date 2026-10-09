@@ -105,25 +105,36 @@
       font-variant-numeric: tabular-nums;
     }
 
-    /* Minimal Controls Bar (Top Center) */
-    #controls-bar {
+    #top-bar-container {
       position: absolute;
-      top: 16px;
+      top: 10px;
       left: 50%;
       transform: translateX(-50%);
       pointer-events: auto;
       display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 3px;
-      background: rgba(3, 7, 16, 0.60);
+      gap: 5px;
+      z-index: 10;
+      max-width: 98vw;
+    }
+
+    /* Minimal Controls Bar (Top Center) */
+    #controls-bar {
+      pointer-events: auto;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 2px 3px;
+      background: rgba(3, 7, 16, 0.75);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border: 1px solid rgba(40, 80, 140, 0.28);
-      border-radius: 30px;
-      padding: 4px 8px;
+      border-radius: 24px;
+      padding: 3px 8px;
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-      z-index: 10;
-      max-width: 96vw;
+      max-width: 98vw;
     }
 
     .control-label {
@@ -276,8 +287,247 @@
       display: none;
     }
 
-    #hint-unhide.visible {
-      display: block;
+    /* Mode Switcher */
+    .mode-btn-group {
+      display: flex;
+      gap: 2px;
+      background: rgba(12, 28, 56, 0.85);
+      border: 1px solid rgba(50, 110, 200, 0.4);
+      border-radius: 20px;
+      padding: 2px;
+    }
+
+    .mode-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      padding: 4px 10px;
+      border-radius: 14px;
+      font-size: 10px;
+    }
+
+    .mode-btn.active.ref-mode {
+      background: linear-gradient(135deg, rgba(20, 110, 240, 0.5), rgba(40, 150, 255, 0.35));
+      border: 1px solid rgba(80, 170, 255, 0.6);
+      color: #ffffff;
+      box-shadow: 0 0 12px rgba(30, 130, 255, 0.4);
+    }
+
+    .mode-btn.active.exp-mode {
+      background: linear-gradient(135deg, rgba(160, 60, 230, 0.45), rgba(210, 90, 255, 0.3));
+      border: 1px solid rgba(190, 110, 255, 0.55);
+      color: #ffffff;
+      box-shadow: 0 0 12px rgba(180, 80, 255, 0.35);
+    }
+
+    .mode-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .ref-dot { background: #38bdf8; box-shadow: 0 0 6px #38bdf8; }
+    .exp-dot { background: #c084fc; box-shadow: 0 0 6px #c084fc; }
+
+    /* Mode Status Pill (Under Top Controls) */
+    #mode-status-pill {
+      pointer-events: auto;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+      font-size: 9.5px;
+      letter-spacing: 0.04em;
+      padding: 3px 12px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.3s ease;
+      z-index: 8;
+      white-space: nowrap;
+    }
+
+    .pill-reference {
+      background: rgba(4, 18, 42, 0.75);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #7dd3fc;
+    }
+
+    .pill-explore {
+      background: rgba(28, 10, 48, 0.75);
+      border: 1px solid rgba(192, 132, 252, 0.35);
+      color: #e9d5ff;
+    }
+
+    /* Dropdown Menus */
+    .dropdown-container {
+      position: relative;
+      display: inline-block;
+    }
+
+    .dropdown-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(3, 8, 20, 0.90);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(40, 90, 160, 0.35);
+      border-radius: 8px;
+      padding: 4px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
+      z-index: 100;
+      min-width: 190px;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .dropdown-menu.visible {
+      display: flex;
+    }
+
+    .dropdown-menu button {
+      text-align: left;
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .dropdown-menu button:hover {
+      background: rgba(40, 110, 220, 0.25);
+      color: #e2f0ff;
+    }
+
+    .dropdown-header {
+      font-size: 8.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #5577a3;
+      padding: 4px 6px 2px 6px;
+      border-bottom: 1px solid rgba(40, 80, 140, 0.2);
+      margin-bottom: 2px;
+    }
+
+    /* Action Buttons Highlight */
+    .btn-action-highlight {
+      background: rgba(20, 140, 255, 0.20) !important;
+      border: 1px solid rgba(60, 160, 255, 0.35) !important;
+      color: #e0f2fe !important;
+      font-weight: 500;
+    }
+    .btn-action-highlight:hover {
+      background: rgba(30, 150, 255, 0.35) !important;
+    }
+
+    /* Modals */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(2, 4, 10, 0.75);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+    }
+
+    .modal-backdrop.visible {
+      display: flex;
+    }
+
+    .modal-dialog {
+      background: rgba(5, 12, 28, 0.94);
+      border: 1px solid rgba(60, 120, 210, 0.35);
+      border-radius: 12px;
+      padding: 20px 24px;
+      max-width: 480px;
+      width: 90%;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8);
+      color: #c0daf8;
+      font-family: inherit;
+    }
+
+    .modal-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #e2f0ff;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-sub {
+      font-size: 11px;
+      color: #6482a8;
+      margin-bottom: 14px;
+    }
+
+    .modal-section {
+      margin-bottom: 14px;
+    }
+
+    .modal-section-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #5577a3;
+      margin-bottom: 6px;
+    }
+
+    .progress-bar-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(20, 40, 70, 0.6);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+
+    .progress-bar-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #1e82ff, #38bdf8);
+      transition: width 0.15s ease;
+    }
+
+    /* Toast */
+    #toast-banner {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(30px);
+      opacity: 0;
+      background: rgba(4, 15, 36, 0.90);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(60, 130, 220, 0.35);
+      border-radius: 20px;
+      padding: 6px 16px;
+      font-size: 11px;
+      color: #93c5fd;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+      pointer-events: none;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 300;
+      white-space: nowrap;
+    }
+
+    #toast-banner.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
     }
   </style>
 </head>
@@ -294,59 +544,119 @@
   <canvas id="gl-canvas"></canvas>
 
   <div id="ui-container">
-    <!-- Top Minimal Controls Bar -->
-    <div id="controls-bar">
-      <span class="control-label">Order n</span>
-      <div class="btn-group">
-        <button class="sym-btn" data-n="3">3</button>
-        <button class="sym-btn" data-n="5">5</button>
-        <button class="sym-btn" data-n="8">8</button>
-        <button class="sym-btn" data-n="12">12</button>
-        <button class="sym-btn active" data-n="16">16</button>
-        <button class="sym-btn" data-n="24">24</button>
-        <button class="sym-btn" data-n="32">32</button>
+    <div id="top-bar-container">
+      <!-- Top Minimal Controls Bar -->
+      <div id="controls-bar">
+        <!-- Mode Selection Segment -->
+        <span class="control-label">Mode</span>
+        <div class="mode-btn-group" id="mode-btn-group">
+          <button id="btn-mode-reference" class="mode-btn active ref-mode" title="Faithful Simone Conradi Artwork (Formula Protected)">
+            <span class="mode-dot ref-dot"></span>Reference
+          </button>
+          <button id="btn-mode-explore" class="mode-btn exp-mode" title="Interactive Mathematical Sandbox">
+            <span class="mode-dot exp-dot"></span>Explore
+          </button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Randomization Segment (Mode 3) -->
+        <div class="dropdown-container btn-group" style="padding:1px;">
+          <button id="btn-randomize-action" title="Randomize Organism (Mode 3 • Shortcut: 3)">🎲 Randomize</button>
+          <button id="btn-randomize-toggle" title="Select Morphology Style" style="padding-left:4px; padding-right:4px;">▾</button>
+          <div id="randomize-menu" class="dropdown-menu">
+            <div class="dropdown-header">Curated Morphology Families</div>
+            <button class="rnd-style-btn" data-style="conradi-like">Conradi-like (Rosette Basin)</button>
+            <button class="rnd-style-btn" data-style="subtle">Subtle (Harmonic Mutation)</button>
+            <button class="rnd-style-btn" data-style="organic">Organic (Chambers &amp; Curls)</button>
+            <button class="rnd-style-btn" data-style="dense lace">Dense Lace (32-fold Web)</button>
+            <button class="rnd-style-btn" data-style="symmetric">Symmetric (Harmonic Rosette)</button>
+            <button class="rnd-style-btn" data-style="chaotic">Chaotic (Filament Storm)</button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Symmetry Order n -->
+        <span class="control-label">Order n</span>
+        <div class="btn-group" id="symmetry-btn-group">
+          <button class="sym-btn" data-n="3">3</button>
+          <button class="sym-btn" data-n="5">5</button>
+          <button class="sym-btn" data-n="8">8</button>
+          <button class="sym-btn" data-n="12">12</button>
+          <button class="sym-btn active" data-n="16">16</button>
+          <button class="sym-btn" data-n="24">24</button>
+          <button class="sym-btn" data-n="32">32</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Adaptive Quality Selector (Auto Recommended) -->
+        <span class="control-label">Quality</span>
+        <div class="btn-group" id="quality-btn-group">
+          <button class="quality-btn active" data-tier="auto" title="Auto (Empirical 60 FPS Headroom Ladder)">Auto</button>
+          <button class="quality-btn" data-tier="low" title="Low (75k x 8)">Low</button>
+          <button class="quality-btn" data-tier="standard" title="Standard (150k x 8)">Standard</button>
+          <button class="quality-btn" data-tier="high" title="High (250k x 8)">High</button>
+          <button class="quality-btn" data-tier="ultra" title="Ultra (400k x 10)">Ultra</button>
+          <button class="quality-btn" data-tier="extreme" title="Extreme (589k x 12)">Extreme</button>
+          <button class="quality-btn" data-tier="bruteforce" title="Manual Brute Force (589k x 16, 9.44M deposits/frame)">Brute Force</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Zoom navigation buttons -->
+        <div class="btn-group">
+          <button id="btn-zoom-in" title="Zoom In (+)">+</button>
+          <button id="btn-zoom-out" title="Zoom Out (-)">−</button>
+          <button id="btn-zoom-reset" title="Reset Zoom">1×</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <button id="btn-pause" title="Toggle autonomous coefficient drift">Pause</button>
+        <button id="btn-reset" title="Reset framing and view">Reset</button>
+
+        <div class="divider"></div>
+
+        <!-- Palette Dropdown -->
+        <div class="dropdown-container">
+          <button id="btn-palette-toggle" title="Color Grading Palette">Palette ▾</button>
+          <div id="palette-menu" class="dropdown-menu">
+            <div class="dropdown-header">Color Grading Palettes</div>
+            <button class="palette-select-btn active" data-pal="cobalt">Cobalt (Conradi Reference)</button>
+            <button class="palette-select-btn" data-pal="solar">Solar Amber</button>
+            <button class="palette-select-btn" data-pal="aurora">Aurora Emerald</button>
+            <button class="palette-select-btn" data-pal="amethyst">Amethyst Nebula</button>
+            <button class="palette-select-btn" data-pal="monochrome">Silver Monolith</button>
+          </div>
+        </div>
+
+        <!-- Export & Presets -->
+        <button id="btn-export-trigger" class="btn-action-highlight" title="Export 3840x2160 (4K PNG)">📷 Export 4K</button>
+        <button id="btn-preset-trigger" title="Save &amp; Load Presets">💾 Presets</button>
+
+        <div class="divider"></div>
+
+        <button id="btn-coeff">Coeffs</button>
+        <button id="btn-readout" class="active">Readout</button>
+        <button id="btn-bloom" class="active">Bloom: ON</button>
+        <button id="btn-raw">Raw</button>
+        <button id="btn-debug">Debug [D]</button>
+        <button id="btn-hide">Hide [H]</button>
       </div>
 
-      <div class="divider"></div>
-
-      <!-- Adaptive Quality Selector (Auto Recommended) -->
-      <span class="control-label">Quality</span>
-      <div class="btn-group" id="quality-btn-group">
-        <button class="quality-btn active" data-tier="auto" title="Auto (Empirical 60 FPS Headroom Ladder)">Auto</button>
-        <button class="quality-btn" data-tier="low" title="Low (75k x 8)">Low</button>
-        <button class="quality-btn" data-tier="standard" title="Standard (150k x 8)">Standard</button>
-        <button class="quality-btn" data-tier="high" title="High (250k x 8)">High</button>
-        <button class="quality-btn" data-tier="ultra" title="Ultra (400k x 10)">Ultra</button>
-        <button class="quality-btn" data-tier="extreme" title="Extreme (589k x 12)">Extreme</button>
-        <button class="quality-btn" data-tier="bruteforce" title="Manual Brute Force (589k x 16, 9.44M deposits/frame)">Brute Force</button>
+      <!-- Mode Status Pill -->
+      <div id="mode-status-pill" class="pill-reference">
+        <span class="mode-dot ref-dot"></span><strong>REFERENCE MODE</strong> &bull; Exact Simone Conradi 2026 Artwork (Formula Protected &bull; Drift Paused)
       </div>
-
-      <div class="divider"></div>
-
-      <!-- Zoom navigation buttons -->
-      <div class="btn-group">
-        <button id="btn-zoom-in" title="Zoom In (+)">+</button>
-        <button id="btn-zoom-out" title="Zoom Out (-)">−</button>
-        <button id="btn-zoom-reset" title="Reset Zoom">1×</button>
-      </div>
-
-      <div class="divider"></div>
-
-      <button id="btn-pause">Pause</button>
-      <button id="btn-reset">Reset</button>
-
-      <div class="divider"></div>
-
-      <button id="btn-coeff">Coeffs</button>
-      <button id="btn-readout" class="active">Readout</button>
-      <button id="btn-bloom" class="active">Bloom: ON</button>
-      <button id="btn-raw">Raw</button>
-      <button id="btn-debug">Debug [D]</button>
-      <button id="btn-hide">Hide [H]</button>
     </div>
 
     <!-- Optional Coefficient Controls Drawer -->
     <div id="coeff-drawer">
+      <div id="coeff-lock-notice" style="display:none; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:4px 8px; font-size:10px; margin-bottom:4px;">
+        🔒 Coefficients locked in Reference Mode. Switch to Explore to edit.
+      </div>
       <div style="font-size: 10px; color: #5577a3; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
         Live Mobius Perturbation Controls
       </div>
@@ -413,6 +723,94 @@
       </div>
     </div>
   </div>
+
+  <!-- Export Modal -->
+  <div id="export-modal" class="modal-backdrop">
+    <div class="modal-dialog">
+      <div class="modal-title">
+        <span>High-Resolution Image Export</span>
+        <button id="btn-export-close" style="font-size:14px; padding:2px 6px;">✕</button>
+      </div>
+      <div class="modal-sub">Renders offscreen at pristine resolution with pre-export accumulation passes. Session state is 100% preserved.</div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Resolution</div>
+        <div class="btn-group" id="export-res-group">
+          <button class="export-res-btn active" data-w="3840" data-h="2160">3840 × 2160 (4K UHD)</button>
+          <button class="export-res-btn" data-w="1920" data-h="1080">1920 × 1080 (FHD)</button>
+          <button class="export-res-btn" data-w="viewport" data-h="viewport">Current View</button>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Pre-Export Develop Passes</div>
+        <div class="btn-group" id="export-passes-group">
+          <button class="export-pass-btn" data-passes="30">Fast (30 passes)</button>
+          <button class="export-pass-btn active" data-passes="60">Standard (60 passes)</button>
+          <button class="export-pass-btn" data-passes="120">Deep Caustics (120 passes)</button>
+        </div>
+      </div>
+
+      <div id="export-progress-area" style="display:none; margin: 12px 0;">
+        <div style="display:flex; justify-content:space-between; font-size:10px; color:#93c5fd;">
+          <span id="export-status-label">Initializing...</span>
+          <span id="export-status-pct">0%</span>
+        </div>
+        <div class="progress-bar-track">
+          <div id="export-progress-fill" class="progress-bar-fill"></div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+        <button id="btn-export-cancel">Cancel</button>
+        <button id="btn-export-start" class="btn-action-highlight" style="padding:6px 14px; font-weight:600;">Download PNG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Presets Modal -->
+  <div id="preset-modal" class="modal-backdrop">
+    <div class="modal-dialog" style="max-width:540px;">
+      <div class="modal-title">
+        <span>Attractor Preset Library</span>
+        <button id="btn-preset-close" style="font-size:14px; padding:2px 6px;">✕</button>
+      </div>
+      <div class="modal-sub">Save current organism configuration or load curated mathematical presets.</div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Curated Masterpiece Presets</div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;" id="curated-presets-list">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Save Current Preset</div>
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="preset-name-input" placeholder="Organism Name" style="flex:1; background:rgba(10,24,48,0.7); border:1px solid rgba(40,90,160,0.4); border-radius:6px; color:#c0daf8; padding:4px 8px; font-size:11px; outline:none;">
+          <button id="btn-preset-save" class="btn-action-highlight">Save &amp; Download</button>
+          <button id="btn-preset-copy">Copy JSON</button>
+        </div>
+      </div>
+
+      <div class="modal-section" id="saved-presets-section">
+        <div class="modal-section-title">My Saved Presets</div>
+        <div id="user-presets-list" style="max-height:120px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+          <div style="font-size:10px; color:#5577a3;">No custom presets saved yet.</div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; border-top:1px solid rgba(40,80,140,0.2); padding-top:10px;">
+        <label style="font-size:10px; color:#60a5fa; cursor:pointer;">
+          📁 Import Preset JSON <input type="file" id="preset-file-input" accept=".json" style="display:none;">
+        </label>
+        <button id="btn-preset-done">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Banner -->
+  <div id="toast-banner">Toast Notification</div>
 
   <div id="hint-unhide">Press H to restore controls</div>
   <div id="capture-container" style="display:none;"></div>
