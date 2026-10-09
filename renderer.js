@@ -1183,6 +1183,9 @@ export class MobiusRenderer {
    * Performs an accumulation/develop pass without altering interactive screen state.
    */
   async exportPNG(mathSys, options = {}) {
+    if (options.isReferenceMaster) {
+      return this.exportReferenceMaster(mathSys, options);
+    }
     const width = options.width || 3840;
     const height = options.height || 2160;
     const accumFrames = options.accumFrames || 60;
@@ -1456,6 +1459,361 @@ export class MobiusRenderer {
       this.accumReadIdx = origAccumReadIdx;
       this.accumulationFrames = origAccumFrames;
       mathSys.evolving = origEvolving;
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    }
+  }
+
+  /**
+   * Reference Master Export (4096 x 4096 Square Still Master)
+   * Pristine offline-style develop pass of canonical Simone Conradi 2026 Reference formula.
+   * Workload: 589,824 particles x 16 steps = 9,437,184 deposits per pass.
+   * Isolated offscreen accumulation from black, persistence = 1.0, zero drift/perturbation.
+   */
+  async exportReferenceMaster(mathSys, options = {}) {
+    const width = 4096;
+    const height = 4096;
+    const accumPasses = options.accumPasses || options.accumFrames || 120;
+    const filename = options.filename || 'mobius-reference-master-4096.png';
+    const onProgress = options.onProgress || (() => {});
+
+    const gl = this.gl;
+
+    const maxTexSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    if (maxTexSize < 4096) {
+      throw new Error(`4096×4096 Reference Master is unsupported: GPU MAX_TEXTURE_SIZE is ${maxTexSize}px.`);
+    }
+
+    // 1. Save original renderer state
+    const origAccumWidth = this.accumWidth;
+    const origAccumHeight = this.accumHeight;
+    const origAspect = this.aspect;
+    const origBloomWidth = this.bloomWidth;
+    const origBloomHeight = this.bloomHeight;
+    const origAccumTextures = this.accumTextures;
+    const origAccumFbos = this.accumFbos;
+    const origBloomTextures = this.bloomTextures;
+    const origBloomFbos = this.bloomFbos;
+    const origAccumReadIdx = this.accumReadIdx;
+    const origAccumFrames = this.accumulationFrames;
+    const origNumParticles = this.numParticles;
+    const origStepsPerFrame = this.stepsPerFrame;
+    const origVboCur = this.vboCur;
+
+    let vboBackups = null;
+    let expAccumTex = null;
+    let expAccumFbo = null;
+    let expBloomTex = null;
+    let expBloomFbo = null;
+    let expPostTex = null;
+    let expPostFbo = null;
+
+    try {
+      onProgress(2, 'Allocating 4096×4096 floating-point master framebuffers...');
+
+      // Backup active VBO state so interactive particles are 100% bit-exact on resume
+      vboBackups = [gl.createBuffer(), gl.createBuffer()];
+      for (let i = 0; i < 2; i++) {
+        gl.bindBuffer(gl.COPY_WRITE_BUFFER, vboBackups[i]);
+        gl.bufferData(gl.COPY_WRITE_BUFFER, this.maxParticleCapacity * 16, gl.STATIC_COPY);
+        gl.bindBuffer(gl.COPY_READ_BUFFER, this.simVbos[i]);
+        gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
+      }
+      gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+      gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+
+      // 2. Allocate 4096×4096 offscreen accumulation textures and FBOs
+      expAccumTex = [
+        this.createFloatTexture(width, height, null),
+        this.createFloatTexture(width, height, null)
+      ];
+      expAccumFbo = [
+        this.createFbo(expAccumTex[0]),
+        this.createFbo(expAccumTex[1])
+      ];
+      for (const fbo of expAccumFbo) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+      }
+
+      // Bloom downsample FBOs (1/4 size: 1024x1024)
+      const expBloomW = Math.max(1, Math.floor(width / 4));
+      const expBloomH = Math.max(1, Math.floor(height / 4));
+      expBloomTex = [
+        this.createFloatTexture(expBloomW, expBloomH, null),
+        this.createFloatTexture(expBloomW, expBloomH, null)
+      ];
+      expBloomFbo = [
+        this.createFbo(expBloomTex[0]),
+        this.createFbo(expBloomTex[1])
+      ];
+
+      // RGBA8 output texture & FBO for final tonemapped post composite (4096x4096)
+      expPostTex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, expPostTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      expPostFbo = this.createFbo(expPostTex);
+
+      // Set export dimensions
+      this.accumWidth = width;
+      this.accumHeight = height;
+      this.aspect = 1.0; // Strictly 1:1 square master
+      this.bloomWidth = expBloomW;
+      this.bloomHeight = expBloomH;
+      this.accumTextures = expAccumTex;
+      this.accumFbos = expAccumFbo;
+      this.bloomTextures = expBloomTex;
+      this.bloomFbos = expBloomFbo;
+      this.accumReadIdx = 0;
+
+      // Exact Brute Force workload: 589,824 particles x 16 IFS steps = 9,437,184 deposits/pass
+      const exportParticles = 589824;
+      const exportSteps = 16;
+
+      // Canonical Conradi Reference parameters (isolated from any active session perturbations)
+      const refA = { r: -0.755, i: 0.330 };
+      const refB = { r: -0.376, i: 0.026 };
+      const refC = { r: 6.401, i: 0.803 };
+      const refD = { r: 1.520, i: 0.840 };
+      const refN = 16.0;
+      const refZoom = 1.65;
+      const refCenter = [0.0, 0.0];
+
+      // 3. Warmup simulation pass: 50 transform feedback steps ensure particles converge strictly onto
+      // canonical attractor loops and exceed age >= 50.0 threshold so every accumulation pass deposits photons
+      gl.useProgram(this.simProg);
+      gl.uniform2f(this.simUniforms.a, refA.r, refA.i);
+      gl.uniform2f(this.simUniforms.b, refB.r, refB.i);
+      gl.uniform2f(this.simUniforms.c, refC.r, refC.i);
+      gl.uniform2f(this.simUniforms.d, refD.r, refD.i);
+      gl.uniform1f(this.simUniforms.n, refN);
+      gl.uniform1f(this.simUniforms.time, 0.0);
+      gl.uniform2f(this.simUniforms.viewCenter, refCenter[0], refCenter[1]);
+      gl.uniform1f(this.simUniforms.zoom, refZoom);
+      gl.uniform1f(this.simUniforms.respawnAll, 0.0);
+
+      gl.enable(gl.RASTERIZER_DISCARD);
+      for (let w = 0; w < 50; w++) {
+        gl.bindVertexArray(this.simVaos[this.vboCur]);
+        gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.simVbos[1 - this.vboCur]);
+        gl.beginTransformFeedback(gl.POINTS);
+        gl.drawArrays(gl.POINTS, 0, exportParticles);
+        gl.endTransformFeedback();
+        gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+        this.vboCur = 1 - this.vboCur;
+      }
+      gl.disable(gl.RASTERIZER_DISCARD);
+
+      // 4. Develop accumulation passes
+      const totalPasses = accumPasses;
+      const chunkSize = 2; // Yield periodically to browser for responsive progress updates
+      let passesDone = 0;
+
+      while (passesDone < totalPasses) {
+        const chunk = Math.min(chunkSize, totalPasses - passesDone);
+        for (let c = 0; c < chunk; c++) {
+          const readTex = this.accumTextures[this.accumReadIdx];
+          const writeFbo = this.accumFbos[1 - this.accumReadIdx];
+
+          // Decay pass (persistence strictly 1.0 for stationary integration without decay)
+          gl.bindFramebuffer(gl.FRAMEBUFFER, writeFbo);
+          gl.viewport(0, 0, width, height);
+          gl.useProgram(this.decayProg);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, readTex);
+          gl.uniform1i(this.decayUniforms.accumTex, 0);
+          gl.uniform1f(this.decayUniforms.persistence, 1.0);
+          gl.bindVertexArray(this.quadVao);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+          // Splat & Sim pass
+          gl.enable(gl.BLEND);
+          gl.blendFunc(gl.ONE, gl.ONE);
+
+          gl.useProgram(this.splatProg);
+          gl.uniform2f(this.splatUniforms.viewCenter, refCenter[0], refCenter[1]);
+          gl.uniform1f(this.splatUniforms.zoom, refZoom);
+          gl.uniform1f(this.splatUniforms.aspect, 1.0);
+          gl.uniform1f(this.splatUniforms.photonScale, this.floatCap.photonScale || 1.0);
+
+          gl.useProgram(this.simProg);
+          gl.uniform2f(this.simUniforms.a, refA.r, refA.i);
+          gl.uniform2f(this.simUniforms.b, refB.r, refB.i);
+          gl.uniform2f(this.simUniforms.c, refC.r, refC.i);
+          gl.uniform2f(this.simUniforms.d, refD.r, refD.i);
+          gl.uniform1f(this.simUniforms.n, refN);
+          gl.uniform1f(this.simUniforms.time, 0.0);
+          gl.uniform2f(this.simUniforms.viewCenter, refCenter[0], refCenter[1]);
+          gl.uniform1f(this.simUniforms.zoom, refZoom);
+          gl.uniform1f(this.simUniforms.respawnAll, 0.0);
+
+          for (let s = 0; s < exportSteps; s++) {
+            gl.useProgram(this.simProg);
+            gl.uniform1f(this.simUniforms.step, s);
+            gl.enable(gl.RASTERIZER_DISCARD);
+            gl.bindVertexArray(this.simVaos[this.vboCur]);
+            gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.simVbos[1 - this.vboCur]);
+            gl.beginTransformFeedback(gl.POINTS);
+            gl.drawArrays(gl.POINTS, 0, exportParticles);
+            gl.endTransformFeedback();
+            gl.disable(gl.RASTERIZER_DISCARD);
+            gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+            this.vboCur = 1 - this.vboCur;
+
+            gl.useProgram(this.splatProg);
+            gl.bindVertexArray(this.splatVaos[this.vboCur]);
+            gl.drawArrays(gl.POINTS, 0, exportParticles);
+          }
+          gl.disable(gl.BLEND);
+
+          this.accumReadIdx = 1 - this.accumReadIdx;
+        }
+        passesDone += chunk;
+        const progressPct = 5 + Math.round((passesDone / totalPasses) * 85);
+        onProgress(progressPct, `Developing Reference Master (${passesDone} / ${totalPasses})`);
+        await new Promise(r => requestAnimationFrame(r));
+      }
+
+      // 4. Bloom pass (1024x1024)
+      onProgress(92, 'Filtering master bloom...');
+      const currentAccumTex = this.accumTextures[this.accumReadIdx];
+      if (this.bloomEnabled) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, expBloomFbo[0]);
+        gl.viewport(0, 0, expBloomW, expBloomH);
+        gl.useProgram(this.blurProg);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, currentAccumTex);
+        gl.uniform1i(this.blurUniforms.image, 0);
+        gl.uniform2f(this.blurUniforms.dir, 1.5 / expBloomW, 0.0);
+        gl.bindVertexArray(this.quadVao);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, expBloomFbo[1]);
+        gl.bindTexture(gl.TEXTURE_2D, expBloomTex[0]);
+        gl.uniform2f(this.blurUniforms.dir, 0.0, 1.5 / expBloomH);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      }
+
+      // 5. Tonemapping & composite to output 4096x4096 FBO
+      onProgress(95, 'Tonemapping & composite...');
+      gl.bindFramebuffer(gl.FRAMEBUFFER, expPostFbo);
+      gl.viewport(0, 0, width, height);
+
+      gl.useProgram(this.postProg);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, currentAccumTex);
+      gl.uniform1i(this.postUniforms.accumTex, 0);
+
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, expBloomTex[1]);
+      gl.uniform1i(this.postUniforms.bloomTex, 1);
+
+      // Current Reference tonemapping (zoomMag = 1.0 at reference 1.65 framing)
+      const zoomMag = Math.max(1.0, refZoom / 1.65);
+      const adaptiveGain = this.gain * (1.0 + Math.pow(zoomMag - 1.0, 0.85) * 2.8);
+      gl.uniform1f(this.postUniforms.gain, adaptiveGain);
+      gl.uniform1f(this.postUniforms.bloomEnabled, this.bloomEnabled ? 1.0 : 0.0);
+      gl.uniform1f(this.postUniforms.viewMode, 0.0);
+      gl.uniform1f(this.postUniforms.photonScale, this.floatCap.photonScale || 1.0);
+
+      // Approved cobalt palette for Reference
+      const pal = PALETTES.cobalt;
+      gl.uniform3fv(this.postUniforms.colBg, pal.bg);
+      gl.uniform3fv(this.postUniforms.colMidnight, pal.midnight);
+      gl.uniform3fv(this.postUniforms.colElectric, pal.electric);
+      gl.uniform3fv(this.postUniforms.colIcy, pal.icy);
+      gl.uniform3fv(this.postUniforms.colWhite, pal.white);
+
+      gl.bindVertexArray(this.quadVao);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      // 6. Read 4096x4096 pixels
+      onProgress(97, 'Reading 4096×4096 framebuffer...');
+      const pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+      // 7. Convert to PNG via offscreen 2D canvas with vertical flip
+      onProgress(99, 'Encoding 4096×4096 PNG...');
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = width;
+      offCanvas.height = height;
+      const ctx = offCanvas.getContext('2d');
+      const imgData = ctx.createImageData(width, height);
+      const rowBytes = width * 4;
+      for (let y = 0; y < height; y++) {
+        const srcRow = (height - 1 - y) * rowBytes;
+        const dstRow = y * rowBytes;
+        imgData.data.set(pixels.subarray(srcRow, srcRow + rowBytes), dstRow);
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      // 8. Generate blob & trigger download
+      return new Promise((resolve) => {
+        offCanvas.toBlob((blob) => {
+          onProgress(100, 'Reference Master complete!');
+          if (blob && typeof window !== 'undefined' && typeof document !== 'undefined') {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+          }
+          resolve(blob);
+        }, 'image/png');
+      });
+    } finally {
+      // 9. Clean up temporary 4096 GL resources safely
+      if (expAccumTex) {
+        for (let i = 0; i < 2; i++) {
+          if (expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
+          if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
+        }
+      }
+      if (expBloomTex) {
+        for (let i = 0; i < 2; i++) {
+          if (expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
+          if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
+        }
+      }
+      if (expPostTex) gl.deleteTexture(expPostTex);
+      if (expPostFbo) gl.deleteFramebuffer(expPostFbo);
+
+      // Restore particle VBO data
+      if (vboBackups) {
+        for (let i = 0; i < 2; i++) {
+          if (vboBackups[i]) {
+            gl.bindBuffer(gl.COPY_READ_BUFFER, vboBackups[i]);
+            gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.simVbos[i]);
+            gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
+            gl.deleteBuffer(vboBackups[i]);
+          }
+        }
+        gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+        gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+      }
+
+      // 10. Restore original renderer state
+      this.accumWidth = origAccumWidth;
+      this.accumHeight = origAccumHeight;
+      this.aspect = origAspect;
+      this.bloomWidth = origBloomWidth;
+      this.bloomHeight = origBloomHeight;
+      this.accumTextures = origAccumTextures;
+      this.accumFbos = origAccumFbos;
+      this.bloomTextures = origBloomTextures;
+      this.bloomFbos = origBloomFbos;
+      this.accumReadIdx = origAccumReadIdx;
+      this.accumulationFrames = origAccumFrames;
+      this.numParticles = origNumParticles;
+      this.stepsPerFrame = origStepsPerFrame;
+      this.vboCur = origVboCur;
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);

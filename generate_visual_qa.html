@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Reference Master Visual QA Generator</title></head>
+<body>
+<div id="status">Initializing WebGL renderer...</div>
+<canvas id="c" width="800" height="800"></canvas>
+<script type="module">
+import { MobiusRenderer } from './renderer.js';
+import { MathSystem } from './math.js';
+
+async function runQA() {
+  const canvas = document.getElementById('c');
+  const math = new MathSystem();
+  const renderer = new MobiusRenderer(canvas);
+  const statusEl = document.getElementById('status');
+
+  async function renderMasterPasses(passes, label) {
+    statusEl.innerText = `Rendering ${label} (${passes} passes)...`;
+    console.log(`Starting ${label} (${passes} passes)...`);
+    const t0 = performance.now();
+    const blob = await renderer.exportReferenceMaster(math, {
+      accumPasses: passes,
+      filename: `ref_master_${passes}.png`,
+      onProgress: (pct, msg) => {
+        statusEl.innerText = `${label}: ${pct}% - ${msg}`;
+      }
+    });
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+    console.log(`Completed ${label} in ${elapsed}s, blob size: ${blob.size}`);
+
+    // Convert blob to base64
+    const reader = new FileReader();
+    return new Promise((resolve) => {
+      reader.onloadend = () => {
+        resolve({
+          passes,
+          label,
+          elapsedSec: parseFloat(elapsed),
+          blobSize: blob.size,
+          dataUrl: reader.result
+        });
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  try {
+    // 1. Generate 120 passes
+    const res120 = await renderMasterPasses(120, 'Reference Master 120');
+
+    // 2. Generate 240 passes
+    const res240 = await renderMasterPasses(240, 'Reference Master 240');
+
+    // Send data to python server
+    await fetch('/qa_upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ res120, res240 })
+    });
+    statusEl.innerText = 'QA Complete!';
+  } catch (err) {
+    console.error('QA Error:', err);
+    await fetch('/qa_upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: err.message, stack: err.stack })
+    });
+  }
+}
+
+window.addEventListener('load', runQA);
+</script>
+</body>
+</html>

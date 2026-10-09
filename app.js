@@ -208,9 +208,11 @@ export class App {
 
     // Export state
     this.isExporting = false;
+    this.exportType = 'standard'; // 'standard' | 'reference_master'
     this.exportWidth = 3840;
     this.exportHeight = 2160;
     this.exportPasses = 60;
+    this.refMasterPasses = 120;
 
     // Parse URL parameters for automated testing & direct linking
     const params = new URLSearchParams(window.location.search);
@@ -425,6 +427,14 @@ export class App {
       this.math.userOffsetD = new (this.math.userOffsetD.constructor)(0, 0);
     }
     this.updateSliderInputs();
+  }
+
+  updateReadout() {
+    if (this.valA) this.valA.innerText = this.math.a.format(3);
+    if (this.valB) this.valB.innerText = this.math.b.format(3);
+    if (this.valC) this.valC.innerText = this.math.c.format(3);
+    if (this.valD) this.valD.innerText = this.math.d.format(3);
+    if (this.valN) this.valN.innerText = this.math.n;
   }
 
   randomize(style = null) {
@@ -697,13 +707,17 @@ export class App {
     document.getElementById('btn-coeff')?.addEventListener('click', () => this.toggleCoeffDrawer());
 
     // Export & Presets Triggers
-    document.getElementById('btn-export-trigger')?.addEventListener('click', () => this.openExportModal());
+    document.getElementById('btn-export-trigger')?.addEventListener('click', () => this.openExportModal('standard'));
+    document.getElementById('btn-refmaster-trigger')?.addEventListener('click', () => this.openExportModal('reference_master'));
     document.getElementById('btn-preset-trigger')?.addEventListener('click', () => this.openPresetModal());
 
     // Export Modal Controls
     document.getElementById('btn-export-close')?.addEventListener('click', () => this.closeExportModal());
     document.getElementById('btn-export-cancel')?.addEventListener('click', () => this.closeExportModal());
     document.getElementById('btn-export-start')?.addEventListener('click', () => this.startExport());
+
+    document.getElementById('tab-export-standard')?.addEventListener('click', () => this.setExportType('standard'));
+    document.getElementById('tab-export-refmaster')?.addEventListener('click', () => this.setExportType('reference_master'));
 
     document.querySelectorAll('.export-res-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -726,6 +740,14 @@ export class App {
         document.querySelectorAll('.export-pass-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this.exportPasses = parseInt(btn.dataset.passes, 10);
+      });
+    });
+
+    document.querySelectorAll('.refmaster-pass-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.refmaster-pass-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.refMasterPasses = parseInt(btn.dataset.passes, 10);
       });
     });
 
@@ -788,8 +810,32 @@ export class App {
   }
 
   // --- Export Features ---
-  openExportModal() {
+  openExportModal(type = 'standard') {
+    this.setExportType(type);
     if (this.exportModal) this.exportModal.classList.add('visible');
+  }
+
+  setExportType(type) {
+    this.exportType = type;
+    const tabStd = document.getElementById('tab-export-standard');
+    const tabRef = document.getElementById('tab-export-refmaster');
+    const panelStd = document.getElementById('export-standard-panel');
+    const panelRef = document.getElementById('export-refmaster-panel');
+    const btnStart = document.getElementById('btn-export-start');
+
+    if (type === 'reference_master') {
+      if (tabStd) tabStd.classList.remove('active');
+      if (tabRef) tabRef.classList.add('active');
+      if (panelStd) panelStd.style.display = 'none';
+      if (panelRef) panelRef.style.display = 'block';
+      if (btnStart) btnStart.innerText = 'Develop Reference Master';
+    } else {
+      if (tabStd) tabStd.classList.add('active');
+      if (tabRef) tabRef.classList.remove('active');
+      if (panelStd) panelStd.style.display = 'block';
+      if (panelRef) panelRef.style.display = 'none';
+      if (btnStart) btnStart.innerText = 'Download PNG';
+    }
   }
 
   closeExportModal() {
@@ -814,6 +860,118 @@ export class App {
     if (btnStart) btnStart.disabled = true;
     if (btnCancel) btnCancel.disabled = true;
 
+    // REFERENCE MASTER EXPORT BRANCH
+    if (this.exportType === 'reference_master') {
+      // 1. Snapshot complete session state to guarantee 100% preservation
+      const sessionState = {
+        mode: this.mode,
+        mathMode: this.math.mode,
+        n: this.math.n,
+        activeMorphology: this.math.activeMorphology,
+        evolving: this.math.evolving,
+        time: this.math.time,
+        baseA: this.math.baseA.clone(),
+        baseB: this.math.baseB.clone(),
+        baseC: this.math.baseC.clone(),
+        baseD: this.math.baseD.clone(),
+        userOffsetA: this.math.userOffsetA.clone(),
+        userOffsetB: this.math.userOffsetB.clone(),
+        userOffsetC: this.math.userOffsetC.clone(),
+        userOffsetD: this.math.userOffsetD.clone(),
+        pointerTarget: this.math.pointerTarget.clone(),
+        pointerCurrent: this.math.pointerCurrent.clone(),
+        shockMag: this.math.shockMag,
+        shockPhase: this.math.shockPhase,
+        pointerPerturbationEnabled: this.math.pointerPerturbationEnabled,
+        shockEnabled: this.math.shockEnabled,
+        a: this.math.a.clone(),
+        b: this.math.b.clone(),
+        c: this.math.c.clone(),
+        d: this.math.d.clone(),
+        zoom: this.renderer.zoom,
+        targetZoom: this.renderer.targetZoom,
+        viewCenter: [...this.renderer.viewCenter],
+        targetViewCenter: [...this.renderer.targetViewCenter],
+        activePalette: this.renderer.activePalette,
+        viewMode: this.renderer.viewMode,
+        gain: this.renderer.gain,
+        bloomEnabled: this.renderer.bloomEnabled,
+        tier: this.renderer.adaptive.currentTier,
+        manualTier: this.renderer.adaptive.manualTier
+      };
+
+      const passes = this.refMasterPasses || 120;
+      const filename = 'mobius-reference-master-4096.png';
+
+      try {
+        await this.renderer.exportReferenceMaster(this.math, {
+          accumPasses: passes,
+          filename,
+          onProgress: (pct, msg) => {
+            if (statusLbl) statusLbl.innerText = msg;
+            if (statusPct) statusPct.innerText = `${pct}%`;
+            if (progFill) progFill.style.width = `${pct}%`;
+          }
+        });
+        this.showToast('Reference Master 4096×4096 exported successfully!');
+        setTimeout(() => {
+          if (btnStart) btnStart.disabled = false;
+          if (btnCancel) btnCancel.disabled = false;
+          this.closeExportModal();
+        }, 700);
+      } catch (err) {
+        console.error('Reference Master Export error:', err);
+        if (statusLbl) statusLbl.innerText = 'Export failed: ' + err.message;
+        if (btnStart) btnStart.disabled = false;
+        if (btnCancel) btnCancel.disabled = false;
+      } finally {
+        // Complete session state restoration
+        this.mode = sessionState.mode;
+        this.math.mode = sessionState.mathMode;
+        this.math.n = sessionState.n;
+        this.math.activeMorphology = sessionState.activeMorphology;
+        this.math.evolving = sessionState.evolving;
+        this.math.time = sessionState.time;
+        this.math.baseA = sessionState.baseA;
+        this.math.baseB = sessionState.baseB;
+        this.math.baseC = sessionState.baseC;
+        this.math.baseD = sessionState.baseD;
+        this.math.userOffsetA = sessionState.userOffsetA;
+        this.math.userOffsetB = sessionState.userOffsetB;
+        this.math.userOffsetC = sessionState.userOffsetC;
+        this.math.userOffsetD = sessionState.userOffsetD;
+        this.math.pointerTarget = sessionState.pointerTarget;
+        this.math.pointerCurrent = sessionState.pointerCurrent;
+        this.math.shockMag = sessionState.shockMag;
+        this.math.shockPhase = sessionState.shockPhase;
+        this.math.pointerPerturbationEnabled = sessionState.pointerPerturbationEnabled;
+        this.math.shockEnabled = sessionState.shockEnabled;
+        this.math.a = sessionState.a;
+        this.math.b = sessionState.b;
+        this.math.c = sessionState.c;
+        this.math.d = sessionState.d;
+        this.math.updateRootsOfUnity();
+        this.math.computeTransforms();
+
+        this.renderer.zoom = sessionState.zoom;
+        this.renderer.targetZoom = sessionState.targetZoom;
+        this.renderer.viewCenter = sessionState.viewCenter;
+        this.renderer.targetViewCenter = sessionState.targetViewCenter;
+        this.renderer.activePalette = sessionState.activePalette;
+        this.renderer.viewMode = sessionState.viewMode;
+        this.renderer.gain = sessionState.gain;
+        this.renderer.bloomEnabled = sessionState.bloomEnabled;
+        this.renderer.adaptive.manualTier = sessionState.manualTier;
+        this.renderer.adaptive.currentTier = sessionState.tier;
+
+        this.updateModeUI();
+        this.updateReadout();
+        this.isExporting = false;
+      }
+      return;
+    }
+
+    // STANDARD EXPORT BRANCH
     const width = this.exportWidth || 3840;
     const height = this.exportHeight || 2160;
     const passes = this.exportPasses || 60;
