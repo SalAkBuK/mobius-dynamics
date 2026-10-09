@@ -788,6 +788,7 @@ export class MobiusRenderer {
   }
 
   resize(width, height) {
+    if (this.isExporting) return;
     if (width <= 0 || height <= 0) return;
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
@@ -1176,6 +1177,47 @@ export class MobiusRenderer {
     if (PALETTES[key]) {
       this.activePalette = key;
     }
+  }
+
+  /**
+   * Immediately presents the current accumulated frame onto the canvas default framebuffer.
+   * Does not advance simulation time, mutate formulas, or add decay.
+   */
+  presentCurrentFrame() {
+    const gl = this.gl;
+    if (!gl || !this.canvas || this.canvas.width <= 0 || this.canvas.height <= 0) return;
+    if (!this.accumTextures || !this.accumTextures[this.accumReadIdx]) return;
+
+    const accumCurrentTex = this.accumTextures[this.accumReadIdx];
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+
+    gl.useProgram(this.postProg);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, accumCurrentTex);
+    gl.uniform1i(this.postUniforms.accumTex, 0);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.bloomTextures[1]);
+    gl.uniform1i(this.postUniforms.bloomTex, 1);
+
+    const zoomMag = Math.max(1.0, this.zoom / 1.65);
+    const adaptiveGain = this.gain * (1.0 + Math.pow(zoomMag - 1.0, 0.85) * 2.8);
+    gl.uniform1f(this.postUniforms.gain, adaptiveGain);
+    gl.uniform1f(this.postUniforms.bloomEnabled, this.bloomEnabled ? 1.0 : 0.0);
+    gl.uniform1f(this.postUniforms.viewMode, this.viewMode);
+    gl.uniform1f(this.postUniforms.photonScale, this.floatCap.photonScale || 1.0);
+
+    const pal = PALETTES[this.activePalette] || PALETTES.cobalt;
+    gl.uniform3fv(this.postUniforms.colBg, pal.bg);
+    gl.uniform3fv(this.postUniforms.colMidnight, pal.midnight);
+    gl.uniform3fv(this.postUniforms.colElectric, pal.electric);
+    gl.uniform3fv(this.postUniforms.colIcy, pal.icy);
+    gl.uniform3fv(this.postUniforms.colWhite, pal.white);
+
+    gl.bindVertexArray(this.quadVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    gl.flush();
   }
 
   /**

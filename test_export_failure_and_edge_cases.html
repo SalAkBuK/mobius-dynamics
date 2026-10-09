@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body>
+<iframe id="test-frame" src="http://localhost:8796/index.html" style="width:1200px; height:800px; border:none;"></iframe>
+<script>
+const frame = document.getElementById('test-frame');
+frame.onload = async () => {
+  const frameWin = frame.contentWindow;
+  const frameDoc = frame.contentDocument;
+  const tests = [];
+
+  try {
+    let app = frameWin.__app;
+    for (let i = 0; i < 50 && !app; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      app = frameWin.__app;
+    }
+
+    await new Promise(r => setTimeout(r, 600));
+    const holdCanvas = frameDoc.getElementById('export-display-hold');
+
+    // TEST 1: Simulate Export Error Mid-Pass
+    const origExportPNG = app.renderer.exportPNG.bind(app.renderer);
+    app.renderer.exportPNG = async function() {
+      // Simulate failure mid-export
+      throw new Error("Simulated GPU Out-Of-Memory During Export");
+    };
+
+    app.setExportType('standard');
+    try {
+      await app.startExport();
+    } catch (e) {
+      // Handled internally in startExport
+    }
+
+    // Check overlay removal and state restore on export failure
+    await new Promise(r => setTimeout(r, 300));
+
+    const overlayRemovedOnFailure = holdCanvas && holdCanvas.style.display === 'none';
+    tests.push({
+      name: '1. Export Failure Recovery: Overlay Removed Safely & State Restored',
+      passed: !app.isExporting && !app.renderer.isExporting && overlayRemovedOnFailure,
+      details: `app.isExporting: ${app.isExporting}, overlay display: "${holdCanvas ? holdCanvas.style.display : 'none'}"`
+    });
+
+    // Restore real exportPNG
+    app.renderer.exportPNG = origExportPNG;
+
+    // TEST 2: Rapid consecutive export calls without delay
+    // Test that display hold activation resets _pendingHoldRemoval and properly handles consecutive invocations
+    app.showExportDisplayHold();
+    const holdVisible1 = holdCanvas.style.display === 'block';
+    const pendingFlagReset = (app._pendingHoldRemoval === false);
+    app.scheduleDisplayHoldRemoval();
+    // Immediately re-trigger show before removal timeout
+    app.showExportDisplayHold();
+    const holdVisible2 = holdCanvas.style.display === 'block';
+    const pendingFlagReset2 = (app._pendingHoldRemoval === false);
+    app.hideExportDisplayHold();
+    const holdHidden = holdCanvas.style.display === 'none';
+
+    tests.push({
+      name: '2. Rapid Export Display Hold State Transitions & Race Isolation',
+      passed: holdVisible1 && pendingFlagReset && holdVisible2 && pendingFlagReset2 && holdHidden,
+      details: `holdVisible1: ${holdVisible1}, pendingReset: ${pendingFlagReset}, holdVisible2: ${holdVisible2}, pendingReset2: ${pendingFlagReset2}, holdHidden: ${holdHidden}`
+    });
+
+    // TEST 3: Window resize during display hold does not cause crash or buffer corruption
+    app.showExportDisplayHold();
+    // Simulate window resize event while hold is active
+    app.onResize();
+    const holdAfterResize = holdCanvas.style.display === 'block';
+    app.scheduleDisplayHoldRemoval();
+    await new Promise(r => setTimeout(r, 200));
+    const holdRemovedAfterResize = holdCanvas.style.display === 'none';
+
+    tests.push({
+      name: '3. Resize During Export Display Hold Handled Gracefully',
+      passed: holdAfterResize && holdRemovedAfterResize,
+      details: `holdAfterResize: ${holdAfterResize}, holdRemoved: ${holdRemovedAfterResize}`
+    });
+
+    fetch('/edge_cases_report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tests)
+    });
+  } catch (err) {
+    fetch('/edge_cases_report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify([{ name: 'Edge Case Test Error', passed: false, details: `${err.message} 
+${err.stack}` }])
+    });
+  }
+};
+</script>
+</body>
+</html>

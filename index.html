@@ -32,6 +32,17 @@
       cursor: crosshair;
     }
 
+    #export-display-hold {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      pointer-events: none;
+      z-index: 1;
+    }
+
     /* UI Container */
     #ui-container {
       position: absolute;
@@ -41,6 +52,7 @@
       height: 100%;
       pointer-events: none;
       transition: opacity 0.3s ease;
+      z-index: 5;
     }
 
     #ui-container.hidden {
@@ -591,6 +603,7 @@
     });
   </script>
   <canvas id="gl-canvas"></canvas>
+  <canvas id="export-display-hold"></canvas>
 
   <div id="ui-container">
     <div id="top-bar-container">
@@ -739,10 +752,10 @@
     <div id="equation-readout">
       <div class="eq-title">z → ω_k (az + b) / (cz + d)</div>
       <div class="eq-sub">ω_k = e^(2πik / n)</div>
-      <div class="eq-param"><span class="param-label">a:</span> <span class="param-val" id="val-a">--</span></div>
-      <div class="eq-param"><span class="param-label">b:</span> <span class="param-val" id="val-b">--</span></div>
-      <div class="eq-param"><span class="param-label">c:</span> <span class="param-val" id="val-c">--</span></div>
-      <div class="eq-param"><span class="param-label">d:</span> <span class="param-val" id="val-d">--</span></div>
+      <div class="eq-param"><span class="param-label">a:</span> <span class="param-val" id="val-a">-0.755 + 0.330i</span></div>
+      <div class="eq-param"><span class="param-label">b:</span> <span class="param-val" id="val-b">-0.376 + 0.026i</span></div>
+      <div class="eq-param"><span class="param-label">c:</span> <span class="param-val" id="val-c">6.401 + 0.803i</span></div>
+      <div class="eq-param"><span class="param-label">d:</span> <span class="param-val" id="val-d">1.520 + 0.840i</span></div>
       <div class="eq-param"><span class="param-label">n:</span> <span class="param-val" id="val-n">16</span></div>
     </div>
 

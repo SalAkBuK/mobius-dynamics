@@ -208,6 +208,8 @@ export class App {
 
     // Export state
     this.isExporting = false;
+    this.displayHoldActive = false;
+    this._pendingHoldRemoval = false;
     this.exportType = 'standard'; // 'standard' | 'reference_master'
     this.exportWidth = 3840;
     this.exportHeight = 2160;
@@ -291,6 +293,7 @@ export class App {
     this.setupEvents();
     this.setupUI();
     this.setMode(startMode);
+    this.updateReadout();
     this.onResize();
 
     this.lastTime = performance.now();
@@ -325,6 +328,7 @@ export class App {
     }
 
     this.updateModeUI();
+    this.updateReadout();
   }
 
   updateModeUI() {
@@ -845,9 +849,70 @@ export class App {
     if (progArea) progArea.style.display = 'none';
   }
 
+  showExportDisplayHold() {
+    clearTimeout(this._holdRemovalTimeout);
+    this._holdRemovalTimeout = null;
+    this._pendingHoldRemoval = false;
+    try {
+      if (this.renderer && typeof this.renderer.presentCurrentFrame === 'function') {
+        this.renderer.presentCurrentFrame();
+      }
+      let holdCanvas = document.getElementById('export-display-hold');
+      if (!holdCanvas && this.canvas && this.canvas.parentElement) {
+        holdCanvas = document.createElement('canvas');
+        holdCanvas.id = 'export-display-hold';
+        holdCanvas.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:1; display:none;';
+        this.canvas.parentElement.insertBefore(holdCanvas, this.canvas.nextSibling);
+      }
+      if (holdCanvas && this.canvas && this.canvas.width > 0 && this.canvas.height > 0) {
+        holdCanvas.width = this.canvas.width;
+        holdCanvas.height = this.canvas.height;
+        const ctx = holdCanvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(this.canvas, 0, 0);
+          holdCanvas.style.display = 'block';
+        }
+      }
+      this.displayHoldActive = true;
+    } catch (err) {
+      console.warn('Failed to activate export display hold:', err);
+    }
+  }
+
+  scheduleDisplayHoldRemoval() {
+    this._pendingHoldRemoval = true;
+    clearTimeout(this._holdRemovalTimeout);
+    this._holdRemovalTimeout = setTimeout(() => {
+      if (this.displayHoldActive) {
+        this.hideExportDisplayHold();
+      }
+    }, 500);
+  }
+
+  hideExportDisplayHold() {
+    clearTimeout(this._holdRemovalTimeout);
+    this._holdRemovalTimeout = null;
+    const holdCanvas = document.getElementById('export-display-hold');
+    if (holdCanvas) {
+      holdCanvas.style.display = 'none';
+      const ctx = holdCanvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, holdCanvas.width, holdCanvas.height);
+      }
+    }
+    this.displayHoldActive = false;
+    this._pendingHoldRemoval = false;
+  }
+
   async startExport() {
     if (this.isExporting) return;
     this.isExporting = true;
+
+    // Ensure coefficient readout remains populated with last valid values during export
+    this.updateReadout();
+
+    // 1. Capture current visible artwork and display as temporary visual overlay over WebGL canvas
+    this.showExportDisplayHold();
 
     const progArea = document.getElementById('export-progress-area');
     const statusLbl = document.getElementById('export-status-label');
@@ -998,6 +1063,7 @@ export class App {
         this.updateReadout();
         this.updateSliderInputs();
         this.isExporting = false;
+        this.scheduleDisplayHoldRemoval();
       }
       return;
     }
@@ -1036,7 +1102,9 @@ export class App {
       if (btnStart) btnStart.disabled = false;
       if (btnCancel) btnCancel.disabled = false;
     } finally {
+      this.updateReadout();
       this.isExporting = false;
+      this.scheduleDisplayHoldRemoval();
     }
   }
 
@@ -1384,6 +1452,12 @@ export class App {
 
     // Render WebGL2 frame
     this.renderer.render(this.math, dt, jsTime);
+
+    // If display hold was active during export, remove it after the first valid onscreen render
+    if (this._pendingHoldRemoval) {
+      this._pendingHoldRemoval = false;
+      this.hideExportDisplayHold();
+    }
 
     // Update Live Equation Readout
     if (this.valA) this.valA.innerText = this.math.a.format(3);
