@@ -841,6 +841,7 @@ export class MobiusRenderer {
   }
 
   render(mathSys, dt, jsTime = 0) {
+    if (this.isExporting) return;
     const gl = this.gl;
     if (this.profiler) {
       this.profiler.beginFrame(jsTime);
@@ -1192,6 +1193,7 @@ export class MobiusRenderer {
     const filename = options.filename || 'simone_conradi_reference_4k.png';
     const onProgress = options.onProgress || (() => {});
 
+    this.isExporting = true;
     const gl = this.gl;
 
     // 1. Save original renderer state
@@ -1459,6 +1461,7 @@ export class MobiusRenderer {
       this.accumReadIdx = origAccumReadIdx;
       this.accumulationFrames = origAccumFrames;
       mathSys.evolving = origEvolving;
+      this.isExporting = false;
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -1485,7 +1488,9 @@ export class MobiusRenderer {
       throw new Error(`4096×4096 Reference Master is unsupported: GPU MAX_TEXTURE_SIZE is ${maxTexSize}px.`);
     }
 
-    // 1. Save original renderer state
+    this.isExporting = true;
+
+    // 1. Save original renderer state and math state
     const origAccumWidth = this.accumWidth;
     const origAccumHeight = this.accumHeight;
     const origAspect = this.aspect;
@@ -1501,11 +1506,58 @@ export class MobiusRenderer {
     const origStepsPerFrame = this.stepsPerFrame;
     const origVboCur = this.vboCur;
 
-    let vboBackups = null;
-    let expAccumTex = null;
-    let expAccumFbo = null;
-    let expBloomTex = null;
-    let expBloomFbo = null;
+    let origMathSnapshot = null;
+    if (mathSys) {
+      origMathSnapshot = {
+        mode: mathSys.mode,
+        n: mathSys.n,
+        evolving: mathSys.evolving,
+        time: mathSys.time,
+        pointerTarget: mathSys.pointerTarget ? mathSys.pointerTarget.clone() : null,
+        pointerCurrent: mathSys.pointerCurrent ? mathSys.pointerCurrent.clone() : null,
+        shockMag: mathSys.shockMag,
+        shockPhase: mathSys.shockPhase,
+        userOffsetA: mathSys.userOffsetA ? mathSys.userOffsetA.clone() : null,
+        userOffsetB: mathSys.userOffsetB ? mathSys.userOffsetB.clone() : null,
+        userOffsetC: mathSys.userOffsetC ? mathSys.userOffsetC.clone() : null,
+        userOffsetD: mathSys.userOffsetD ? mathSys.userOffsetD.clone() : null,
+        a: mathSys.a ? mathSys.a.clone() : null,
+        b: mathSys.b ? mathSys.b.clone() : null,
+        c: mathSys.c ? mathSys.c.clone() : null,
+        d: mathSys.d ? mathSys.d.clone() : null
+      };
+
+      // Force canonical reference math on mathSys before export begins
+      mathSys.mode = 'reference';
+      mathSys.n = 16;
+      if (mathSys.pointerTarget) { mathSys.pointerTarget.r = 0; mathSys.pointerTarget.i = 0; }
+      if (mathSys.pointerCurrent) { mathSys.pointerCurrent.r = 0; mathSys.pointerCurrent.i = 0; }
+      mathSys.shockMag = 0.0;
+      mathSys.shockPhase = 0.0;
+      if (mathSys.userOffsetA) { mathSys.userOffsetA.r = 0; mathSys.userOffsetA.i = 0; }
+      if (mathSys.userOffsetB) { mathSys.userOffsetB.r = 0; mathSys.userOffsetB.i = 0; }
+      if (mathSys.userOffsetC) { mathSys.userOffsetC.r = 0; mathSys.userOffsetC.i = 0; }
+      if (mathSys.userOffsetD) { mathSys.userOffsetD.r = 0; mathSys.userOffsetD.i = 0; }
+      mathSys.evolving = false;
+      mathSys.time = 0.0;
+      if (mathSys.baseA) { mathSys.baseA.r = -0.755; mathSys.baseA.i = 0.330; }
+      if (mathSys.baseB) { mathSys.baseB.r = -0.376; mathSys.baseB.i = 0.026; }
+      if (mathSys.baseC) { mathSys.baseC.r = 6.401; mathSys.baseC.i = 0.803; }
+      if (mathSys.baseD) { mathSys.baseD.r = 1.520; mathSys.baseD.i = 0.840; }
+      if (mathSys.a) { mathSys.a.r = -0.755; mathSys.a.i = 0.330; }
+      if (mathSys.b) { mathSys.b.r = -0.376; mathSys.b.i = 0.026; }
+      if (mathSys.c) { mathSys.c.r = 6.401; mathSys.c.i = 0.803; }
+      if (mathSys.d) { mathSys.d.r = 1.520; mathSys.d.i = 0.840; }
+      if (typeof mathSys.updateRootsOfUnity === 'function') mathSys.updateRootsOfUnity();
+      if (typeof mathSys.computeTransforms === 'function') mathSys.computeTransforms();
+    }
+
+    let vboBackups = [null, null];
+    let vboBackedUp = false;
+    let expAccumTex = [null, null];
+    let expAccumFbo = [null, null];
+    let expBloomTex = [null, null];
+    let expBloomFbo = [null, null];
     let expPostTex = null;
     let expPostFbo = null;
 
@@ -1513,7 +1565,8 @@ export class MobiusRenderer {
       onProgress(2, 'Allocating 4096×4096 floating-point master framebuffers...');
 
       // Backup active VBO state so interactive particles are 100% bit-exact on resume
-      vboBackups = [gl.createBuffer(), gl.createBuffer()];
+      vboBackups[0] = gl.createBuffer();
+      vboBackups[1] = gl.createBuffer();
       for (let i = 0; i < 2; i++) {
         gl.bindBuffer(gl.COPY_WRITE_BUFFER, vboBackups[i]);
         gl.bufferData(gl.COPY_WRITE_BUFFER, this.maxParticleCapacity * 16, gl.STATIC_COPY);
@@ -1522,16 +1575,14 @@ export class MobiusRenderer {
       }
       gl.bindBuffer(gl.COPY_READ_BUFFER, null);
       gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+      vboBackedUp = true;
 
-      // 2. Allocate 4096×4096 offscreen accumulation textures and FBOs
-      expAccumTex = [
-        this.createFloatTexture(width, height, null),
-        this.createFloatTexture(width, height, null)
-      ];
-      expAccumFbo = [
-        this.createFbo(expAccumTex[0]),
-        this.createFbo(expAccumTex[1])
-      ];
+      // 2. Allocate 4096×4096 offscreen accumulation textures and FBOs safely
+      expAccumTex[0] = this.createFloatTexture(width, height, null);
+      expAccumTex[1] = this.createFloatTexture(width, height, null);
+      expAccumFbo[0] = this.createFbo(expAccumTex[0]);
+      expAccumFbo[1] = this.createFbo(expAccumTex[1]);
+
       for (const fbo of expAccumFbo) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
         gl.clearColor(0, 0, 0, 0);
@@ -1541,14 +1592,10 @@ export class MobiusRenderer {
       // Bloom downsample FBOs (1/4 size: 1024x1024)
       const expBloomW = Math.max(1, Math.floor(width / 4));
       const expBloomH = Math.max(1, Math.floor(height / 4));
-      expBloomTex = [
-        this.createFloatTexture(expBloomW, expBloomH, null),
-        this.createFloatTexture(expBloomW, expBloomH, null)
-      ];
-      expBloomFbo = [
-        this.createFbo(expBloomTex[0]),
-        this.createFbo(expBloomTex[1])
-      ];
+      expBloomTex[0] = this.createFloatTexture(expBloomW, expBloomH, null);
+      expBloomTex[1] = this.createFloatTexture(expBloomW, expBloomH, null);
+      expBloomFbo[0] = this.createFbo(expBloomTex[0]);
+      expBloomFbo[1] = this.createFbo(expBloomTex[1]);
 
       // RGBA8 output texture & FBO for final tonemapped post composite (4096x4096)
       expPostTex = gl.createTexture();
@@ -1583,8 +1630,9 @@ export class MobiusRenderer {
       const refZoom = 1.65;
       const refCenter = [0.0, 0.0];
 
-      // 3. Warmup simulation pass: 50 transform feedback steps ensure particles converge strictly onto
-      // canonical attractor loops and exceed age >= 50.0 threshold so every accumulation pass deposits photons
+      // 3. Warmup simulation pass:
+      // First respawn all particles cleanly so 100% are freshly initialized, completely wiping any prior Explore geometry.
+      // Then run 60 transform feedback steps so particles converge strictly onto the Conradi attractor and exceed age >= 50.0.
       gl.useProgram(this.simProg);
       gl.uniform2f(this.simUniforms.a, refA.r, refA.i);
       gl.uniform2f(this.simUniforms.b, refB.r, refB.i);
@@ -1594,10 +1642,21 @@ export class MobiusRenderer {
       gl.uniform1f(this.simUniforms.time, 0.0);
       gl.uniform2f(this.simUniforms.viewCenter, refCenter[0], refCenter[1]);
       gl.uniform1f(this.simUniforms.zoom, refZoom);
-      gl.uniform1f(this.simUniforms.respawnAll, 0.0);
 
       gl.enable(gl.RASTERIZER_DISCARD);
-      for (let w = 0; w < 50; w++) {
+      // Clean seed respawn
+      gl.uniform1f(this.simUniforms.respawnAll, 1.0);
+      gl.bindVertexArray(this.simVaos[this.vboCur]);
+      gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.simVbos[1 - this.vboCur]);
+      gl.beginTransformFeedback(gl.POINTS);
+      gl.drawArrays(gl.POINTS, 0, exportParticles);
+      gl.endTransformFeedback();
+      gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+      this.vboCur = 1 - this.vboCur;
+
+      // Attractor convergence
+      gl.uniform1f(this.simUniforms.respawnAll, 0.0);
+      for (let w = 1; w <= 60; w++) {
         gl.bindVertexArray(this.simVaos[this.vboCur]);
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.simVbos[1 - this.vboCur]);
         gl.beginTransformFeedback(gl.POINTS);
@@ -1678,25 +1737,23 @@ export class MobiusRenderer {
         await new Promise(r => requestAnimationFrame(r));
       }
 
-      // 4. Bloom pass (1024x1024)
+      // 4. Bloom pass (1024x1024) - Canonical Reference mode always includes bloom
       onProgress(92, 'Filtering master bloom...');
       const currentAccumTex = this.accumTextures[this.accumReadIdx];
-      if (this.bloomEnabled) {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, expBloomFbo[0]);
-        gl.viewport(0, 0, expBloomW, expBloomH);
-        gl.useProgram(this.blurProg);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, currentAccumTex);
-        gl.uniform1i(this.blurUniforms.image, 0);
-        gl.uniform2f(this.blurUniforms.dir, 1.5 / expBloomW, 0.0);
-        gl.bindVertexArray(this.quadVao);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, expBloomFbo[0]);
+      gl.viewport(0, 0, expBloomW, expBloomH);
+      gl.useProgram(this.blurProg);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, currentAccumTex);
+      gl.uniform1i(this.blurUniforms.image, 0);
+      gl.uniform2f(this.blurUniforms.dir, 1.5 / expBloomW, 0.0);
+      gl.bindVertexArray(this.quadVao);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-        gl.bindFramebuffer(gl.FRAMEBUFFER, expBloomFbo[1]);
-        gl.bindTexture(gl.TEXTURE_2D, expBloomTex[0]);
-        gl.uniform2f(this.blurUniforms.dir, 0.0, 1.5 / expBloomH);
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, expBloomFbo[1]);
+      gl.bindTexture(gl.TEXTURE_2D, expBloomTex[0]);
+      gl.uniform2f(this.blurUniforms.dir, 0.0, 1.5 / expBloomH);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
 
       // 5. Tonemapping & composite to output 4096x4096 FBO
       onProgress(95, 'Tonemapping & composite...');
@@ -1712,11 +1769,10 @@ export class MobiusRenderer {
       gl.bindTexture(gl.TEXTURE_2D, expBloomTex[1]);
       gl.uniform1i(this.postUniforms.bloomTex, 1);
 
-      // Current Reference tonemapping (zoomMag = 1.0 at reference 1.65 framing)
-      const zoomMag = Math.max(1.0, refZoom / 1.65);
-      const adaptiveGain = this.gain * (1.0 + Math.pow(zoomMag - 1.0, 0.85) * 2.8);
-      gl.uniform1f(this.postUniforms.gain, adaptiveGain);
-      gl.uniform1f(this.postUniforms.bloomEnabled, this.bloomEnabled ? 1.0 : 0.0);
+      // Current Reference tonemapping (canonical gain = 4.0, bloom enabled = 1.0)
+      const refGain = 4.0;
+      gl.uniform1f(this.postUniforms.gain, refGain);
+      gl.uniform1f(this.postUniforms.bloomEnabled, 1.0);
       gl.uniform1f(this.postUniforms.viewMode, 0.0);
       gl.uniform1f(this.postUniforms.photonScale, this.floatCap.photonScale || 1.0);
 
@@ -1770,17 +1826,13 @@ export class MobiusRenderer {
       });
     } finally {
       // 9. Clean up temporary 4096 GL resources safely
-      if (expAccumTex) {
-        for (let i = 0; i < 2; i++) {
-          if (expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
-          if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
-        }
+      for (let i = 0; i < 2; i++) {
+        if (expAccumTex && expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
+        if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
       }
-      if (expBloomTex) {
-        for (let i = 0; i < 2; i++) {
-          if (expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
-          if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
-        }
+      for (let i = 0; i < 2; i++) {
+        if (expBloomTex && expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
+        if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
       }
       if (expPostTex) gl.deleteTexture(expPostTex);
       if (expPostFbo) gl.deleteFramebuffer(expPostFbo);
@@ -1789,14 +1841,38 @@ export class MobiusRenderer {
       if (vboBackups) {
         for (let i = 0; i < 2; i++) {
           if (vboBackups[i]) {
-            gl.bindBuffer(gl.COPY_READ_BUFFER, vboBackups[i]);
-            gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.simVbos[i]);
-            gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
+            if (vboBackedUp) {
+              gl.bindBuffer(gl.COPY_READ_BUFFER, vboBackups[i]);
+              gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.simVbos[i]);
+              gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
+            }
             gl.deleteBuffer(vboBackups[i]);
           }
         }
         gl.bindBuffer(gl.COPY_READ_BUFFER, null);
         gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+      }
+
+      // Restore mathSys if it was passed
+      if (mathSys && origMathSnapshot) {
+        mathSys.mode = origMathSnapshot.mode;
+        mathSys.n = origMathSnapshot.n;
+        mathSys.evolving = origMathSnapshot.evolving;
+        mathSys.time = origMathSnapshot.time;
+        if (origMathSnapshot.pointerTarget) mathSys.pointerTarget = origMathSnapshot.pointerTarget;
+        if (origMathSnapshot.pointerCurrent) mathSys.pointerCurrent = origMathSnapshot.pointerCurrent;
+        mathSys.shockMag = origMathSnapshot.shockMag;
+        mathSys.shockPhase = origMathSnapshot.shockPhase;
+        if (origMathSnapshot.userOffsetA) mathSys.userOffsetA = origMathSnapshot.userOffsetA;
+        if (origMathSnapshot.userOffsetB) mathSys.userOffsetB = origMathSnapshot.userOffsetB;
+        if (origMathSnapshot.userOffsetC) mathSys.userOffsetC = origMathSnapshot.userOffsetC;
+        if (origMathSnapshot.userOffsetD) mathSys.userOffsetD = origMathSnapshot.userOffsetD;
+        if (origMathSnapshot.a) mathSys.a = origMathSnapshot.a;
+        if (origMathSnapshot.b) mathSys.b = origMathSnapshot.b;
+        if (origMathSnapshot.c) mathSys.c = origMathSnapshot.c;
+        if (origMathSnapshot.d) mathSys.d = origMathSnapshot.d;
+        if (typeof mathSys.updateRootsOfUnity === 'function') mathSys.updateRootsOfUnity();
+        if (typeof mathSys.computeTransforms === 'function') mathSys.computeTransforms();
       }
 
       // 10. Restore original renderer state
@@ -1814,6 +1890,7 @@ export class MobiusRenderer {
       this.numParticles = origNumParticles;
       this.stepsPerFrame = origStepsPerFrame;
       this.vboCur = origVboCur;
+      this.isExporting = false;
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);

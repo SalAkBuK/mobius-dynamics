@@ -857,6 +857,9 @@ export class App {
     const btnCancel = document.getElementById('btn-export-cancel');
 
     if (progArea) progArea.style.display = 'block';
+    if (statusLbl) statusLbl.innerText = 'Initializing...';
+    if (statusPct) statusPct.innerText = '0%';
+    if (progFill) progFill.style.width = '0%';
     if (btnStart) btnStart.disabled = true;
     if (btnCancel) btnCancel.disabled = true;
 
@@ -900,11 +903,35 @@ export class App {
         manualTier: this.renderer.adaptive.manualTier
       };
 
+      // Explicitly enforce canonical reference math on active math system prior to export
+      this.math.pointerTarget.r = 0; this.math.pointerTarget.i = 0;
+      this.math.pointerCurrent.r = 0; this.math.pointerCurrent.i = 0;
+      this.math.shockMag = 0.0;
+      this.math.shockPhase = 0.0;
+      this.math.userOffsetA.r = 0; this.math.userOffsetA.i = 0;
+      this.math.userOffsetB.r = 0; this.math.userOffsetB.i = 0;
+      this.math.userOffsetC.r = 0; this.math.userOffsetC.i = 0;
+      this.math.userOffsetD.r = 0; this.math.userOffsetD.i = 0;
+      this.math.evolving = false;
+      this.math.time = 0.0;
+      this.math.mode = 'reference';
+      this.math.n = 16;
+      this.math.baseA.r = -0.755; this.math.baseA.i = 0.330;
+      this.math.baseB.r = -0.376; this.math.baseB.i = 0.026;
+      this.math.baseC.r = 6.401; this.math.baseC.i = 0.803;
+      this.math.baseD.r = 1.520; this.math.baseD.i = 0.840;
+      this.math.a.r = -0.755; this.math.a.i = 0.330;
+      this.math.b.r = -0.376; this.math.b.i = 0.026;
+      this.math.c.r = 6.401; this.math.c.i = 0.803;
+      this.math.d.r = 1.520; this.math.d.i = 0.840;
+      this.math.updateRootsOfUnity();
+      this.math.computeTransforms();
+
       const passes = this.refMasterPasses || 120;
       const filename = 'mobius-reference-master-4096.png';
 
       try {
-        await this.renderer.exportReferenceMaster(this.math, {
+        const blob = await this.renderer.exportReferenceMaster(this.math, {
           accumPasses: passes,
           filename,
           onProgress: (pct, msg) => {
@@ -919,9 +946,12 @@ export class App {
           if (btnCancel) btnCancel.disabled = false;
           this.closeExportModal();
         }, 700);
+        return blob;
       } catch (err) {
         console.error('Reference Master Export error:', err);
-        if (statusLbl) statusLbl.innerText = 'Export failed: ' + err.message;
+        const errMsg = err?.message || 'Export failed';
+        if (statusLbl) statusLbl.innerText = 'Export failed: ' + errMsg;
+        this.showToast('Reference Master Export failed: ' + errMsg);
         if (btnStart) btnStart.disabled = false;
         if (btnCancel) btnCancel.disabled = false;
       } finally {
@@ -966,6 +996,7 @@ export class App {
 
         this.updateModeUI();
         this.updateReadout();
+        this.updateSliderInputs();
         this.isExporting = false;
       }
       return;
@@ -979,7 +1010,7 @@ export class App {
     const filename = `${modeTag}_${width}x${height}.png`;
 
     try {
-      await this.renderer.exportPNG(this.math, {
+      const blob = await this.renderer.exportPNG(this.math, {
         width,
         height,
         accumFrames: passes,
@@ -996,9 +1027,12 @@ export class App {
         if (btnCancel) btnCancel.disabled = false;
         this.closeExportModal();
       }, 700);
+      return blob;
     } catch (err) {
       console.error('Export error:', err);
-      if (statusLbl) statusLbl.innerText = 'Export failed: ' + err.message;
+      const errMsg = err?.message || 'Export failed';
+      if (statusLbl) statusLbl.innerText = 'Export failed: ' + errMsg;
+      this.showToast('Export failed: ' + errMsg);
       if (btnStart) btnStart.disabled = false;
       if (btnCancel) btnCancel.disabled = false;
     } finally {

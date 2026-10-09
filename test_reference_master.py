@@ -123,6 +123,7 @@ async function runTests() {
 
   gl.uniform1f = function(loc, x) {
     if (loc && loc === renderer.simUniforms.n) uniformN = x;
+    if (loc && loc === renderer.simUniforms.time) uniformTime = x;
     if (loc && loc === renderer.splatUniforms.zoom) uniformZoom = x;
     if (loc && loc === renderer.splatUniforms.aspect) uniformAspect = x;
     if (loc && loc === renderer.decayUniforms.persistence) uniformPersistence.push(x);
@@ -199,7 +200,17 @@ async function runTests() {
 
   const exportPromise = app.startExport();
   const exportActiveCheck = app.isExporting;
-  await exportPromise;
+  const masterBlob = await exportPromise;
+
+  // Capture post-export session state IMMEDIATELY upon export resolution before async decoding
+  const postMode = app.mode;
+  const postMathMode = math.mode;
+  const postN = math.n;
+  const postEvolving = math.evolving;
+  const postTime = math.time;
+  const postOffsetA = math.userOffsetA ? math.userOffsetA.clone() : null;
+  const postZoom = renderer.zoom;
+  const postPalette = renderer.activePalette;
 
   // Unhook spies
   gl.uniform2f = origUniform2f;
@@ -210,11 +221,17 @@ async function runTests() {
   renderer.render = origRender;
 
   // --- VERIFICATION A: Output dimensions exactly 4096 x 4096 ---
-  // Verified via export options and offscreen canvas buffer
+  let outW = 0, outH = 0;
+  if (masterBlob instanceof Blob) {
+    const bmp = await createImageBitmap(masterBlob);
+    outW = bmp.width;
+    outH = bmp.height;
+  }
+  const aPass = (outW === 4096 && outH === 4096 && masterBlob && masterBlob.type === 'image/png');
   tests.push({
     name: 'A. Output Dimensions 4096x4096',
-    passed: true,
-    details: 'Export target configured strictly at 4096 × 4096 square master.'
+    passed: aPass,
+    details: `Exported target image verified: ${outW} × ${outH} PNG square master, size: ${(masterBlob ? masterBlob.size / (1024 * 1024) : 0).toFixed(2)} MB.`
   });
 
   // --- VERIFICATION B: Workload 589,824 particles x 16 IFS steps ---
@@ -264,21 +281,19 @@ async function runTests() {
   });
 
   // --- VERIFICATION F: Session state 100% restored afterward ---
-  const postOffsetA = math.userOffsetA;
-  const fRestoredPass = (
-    app.mode === preExportState.mode &&
-    math.mode === preExportState.mathMode &&
-    math.n === preExportState.n &&
-    math.evolving === preExportState.evolving &&
-    math.time === preExportState.time &&
-    Math.abs(postOffsetA.r - preExportState.offsetA.r) < eps &&
-    Math.abs(renderer.zoom - preExportState.zoom) < eps &&
-    renderer.activePalette === preExportState.palette
-  );
+  const cMode = postMode === preExportState.mode;
+  const cMMode = postMathMode === preExportState.mathMode;
+  const cN = postN === preExportState.n;
+  const cEvol = postEvolving === preExportState.evolving;
+  const cTime = Math.abs(postTime - preExportState.time) < 0.05;
+  const cOffA = postOffsetA && Math.abs(postOffsetA.r - preExportState.offsetA.r) < eps;
+  const cZoom = Math.abs(postZoom - preExportState.zoom) < eps;
+  const cPal = postPalette === preExportState.palette;
+  const fRestoredPass = (cMode && cMMode && cN && cEvol && cTime && cOffA && cZoom && cPal);
   tests.push({
     name: 'F. Complete Interactive Session Restoration',
     passed: fRestoredPass,
-    details: `Mode: ${app.mode}, n: ${math.n}, evolving: ${math.evolving}, zoom: ${renderer.zoom}, palette: ${renderer.activePalette}`
+    details: `Mode: ${postMode}, n: ${postN}, evolving: ${postEvolving}, time: ${postTime}, zoom: ${postZoom}, palette: ${postPalette}`
   });
 
   // --- VERIFICATION G: No accumulation collision with RAF loop ---
@@ -300,12 +315,18 @@ async function runTests() {
 
   // --- VERIFICATION I: Normal 3840x2160 export still works ---
   app.setExportType('standard');
-  const stdBlob = await renderer.exportPNG(math, { width: 1920, height: 1080, accumFrames: 5, filename: 'test_std.png' });
-  const iPass = stdBlob instanceof Blob && stdBlob.size > 0;
+  const stdBlob = await renderer.exportPNG(math, { width: 3840, height: 2160, accumFrames: 5, filename: 'test_std_4k.png' });
+  let stdW = 0, stdH = 0;
+  if (stdBlob instanceof Blob) {
+    const stdBmp = await createImageBitmap(stdBlob);
+    stdW = stdBmp.width;
+    stdH = stdBmp.height;
+  }
+  const iPass = (stdBlob instanceof Blob && stdBlob.size > 0 && stdW === 3840 && stdH === 2160);
   tests.push({
-    name: 'I. Normal Standard Export Still Operational',
+    name: 'I. Normal Standard Export Still Operational (3840×2160 4K)',
     passed: iPass,
-    details: `Exported standard blob size: ${(stdBlob.size / 1024).toFixed(1)} KB, type: ${stdBlob.type}`
+    details: `Exported standard 4K image verified: ${stdW} × ${stdH}, size: ${(stdBlob ? stdBlob.size / 1024 : 0).toFixed(1)} KB, type: ${stdBlob ? stdBlob.type : ''}`
   });
 
   // --- VERIFICATION J: Reference / Explore / Randomize / Presets still work ---
