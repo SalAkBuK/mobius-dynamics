@@ -59,6 +59,9 @@ export const PALETTES = {
 export class MobiusRenderer {
   constructor(canvas) {
     this.canvas = canvas;
+    this.contextLost = false;
+    this.isExporting = false;
+    this._interruptExport = null;
     this.activePalette = 'cobalt';
     this.gl = canvas.getContext('webgl2', {
       alpha: false,
@@ -128,6 +131,66 @@ export class MobiusRenderer {
     this.profiler = new Profiler(this);
   }
 
+  isContextUnavailable() {
+    return this.contextLost || this.gl.isContextLost();
+  }
+
+  assertContextAvailable() {
+    if (this.isContextUnavailable()) {
+      const error = new Error('Export interrupted because the graphics context was lost. Please try again after recovery.');
+      error.name = 'WebGLContextLostError';
+      throw error;
+    }
+  }
+
+  handleContextLoss() {
+    // This instance is permanently retired, even after gl.isContextLost() turns false.
+    this.contextLost = true;
+    this._interruptExport?.();
+  }
+
+  waitForExport(start) {
+    this.assertContextAvailable();
+    return new Promise((resolve, reject) => {
+      let cleanup;
+      let settled = false;
+      const finish = (value, error) => {
+        if (settled) return;
+        settled = true;
+        this._interruptExport = null;
+        cleanup?.();
+        if (error) reject(error);
+        else {
+          try { this.assertContextAvailable(); resolve(value); }
+          catch (lost) { reject(lost); }
+        }
+      };
+      this._interruptExport = () => {
+        try { this.assertContextAvailable(); }
+        catch (lost) { finish(null, lost); }
+      };
+      try { cleanup = start(value => finish(value)); }
+      catch (error) { finish(null, error); }
+    });
+  }
+
+  async encodeExport(canvas, filename, onProgress, message) {
+    const blob = await this.waitForExport(done => { canvas.toBlob(done, 'image/png'); });
+    this.assertContextAvailable();
+    if (!blob || !blob.size) throw new Error('PNG encoding failed.');
+    onProgress(100, message);
+    this.assertContextAvailable();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return blob;
+  }
+
   detectFloatCapability() {
     const gl = this.gl;
     // 1. Preferred path: Native RGBA32F with 32-bit floating-point blending
@@ -190,6 +253,7 @@ export class MobiusRenderer {
 
   setParticleCount(count, preserveAccumulation = true) {
     this.particlesOverride = count;
+    if (this.isContextUnavailable()) { this.numParticles = count; return; }
     if (this.numParticles === count) return;
 
     const gl = this.gl;
@@ -788,9 +852,13 @@ export class MobiusRenderer {
   }
 
   resize(width, height) {
-    if (this.isExporting) return;
+    if (this.isExporting || this.isContextUnavailable()) return;
     if (width <= 0 || height <= 0) return;
-    if (this.canvas.width !== width || this.canvas.height !== height) {
+    // The canvas size survives context restoration; the newly built targets may differ.
+    if (this.canvas.width !== width || this.canvas.height !== height ||
+        this.aspect !== width / height ||
+        Math.abs(Math.min(2048, width) - this.accumWidth) > 64 ||
+        Math.abs(Math.min(2048, height) - this.accumHeight) > 64) {
       this.canvas.width = width;
       this.canvas.height = height;
       this.aspect = width / height;
@@ -825,6 +893,7 @@ export class MobiusRenderer {
   }
 
   clearAccumulation() {
+    if (this.isContextUnavailable()) return;
     const gl = this.gl;
     for (const fbo of this.accumFbos) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
@@ -842,7 +911,7 @@ export class MobiusRenderer {
   }
 
   render(mathSys, dt, jsTime = 0) {
-    if (this.isExporting) return;
+    if (this.isExporting || this.isContextUnavailable()) return;
     const gl = this.gl;
     if (this.profiler) {
       this.profiler.beginFrame(jsTime);
@@ -1091,6 +1160,7 @@ export class MobiusRenderer {
   }
 
   renderRawTrajectories(mathSys) {
+    if (this.isContextUnavailable()) return;
     const gl = this.gl;
     this.evalRawIFS(mathSys);
 
@@ -1184,6 +1254,7 @@ export class MobiusRenderer {
    * Does not advance simulation time, mutate formulas, or add decay.
    */
   presentCurrentFrame() {
+    if (this.isContextUnavailable()) return;
     const gl = this.gl;
     if (!gl || !this.canvas || this.canvas.width <= 0 || this.canvas.height <= 0) return;
     if (!this.accumTextures || !this.accumTextures[this.accumReadIdx]) return;
@@ -1233,7 +1304,12 @@ export class MobiusRenderer {
     const height = options.height || 2160;
     const accumFrames = options.accumFrames || 60;
     const filename = options.filename || 'simone_conradi_reference_4k.png';
-    const onProgress = options.onProgress || (() => {});
+    this.assertContextAvailable();
+    const onProgress = (pct, message) => {
+      this.assertContextAvailable();
+      options.onProgress?.(pct, message);
+      this.assertContextAvailable();
+    };
 
     this.isExporting = true;
     const gl = this.gl;
@@ -1323,6 +1399,7 @@ export class MobiusRenderer {
       while (framesDone < totalFrames) {
         const chunk = Math.min(chunkSize, totalFrames - framesDone);
         for (let c = 0; c < chunk; c++) {
+          this.assertContextAvailable();
           const readTex = this.accumTextures[this.accumReadIdx];
           const writeFbo = this.accumFbos[1 - this.accumReadIdx];
 
@@ -1359,6 +1436,7 @@ export class MobiusRenderer {
           gl.uniform1f(this.simUniforms.respawnAll, 0.0);
 
           for (let s = 0; s < exportSteps; s++) {
+            this.assertContextAvailable();
             gl.useProgram(this.simProg);
             gl.uniform1f(this.simUniforms.step, s);
             gl.enable(gl.RASTERIZER_DISCARD);
@@ -1382,7 +1460,10 @@ export class MobiusRenderer {
         framesDone += chunk;
         const progressPct = 10 + Math.round((framesDone / totalFrames) * 75);
         onProgress(progressPct, `Developing 4K passes (${framesDone}/${totalFrames})...`);
-        await new Promise(r => requestAnimationFrame(r));
+        await this.waitForExport(done => {
+          const id = requestAnimationFrame(done);
+          return () => cancelAnimationFrame(id);
+        });
       }
 
       // 4. Bloom pass
@@ -1457,38 +1538,26 @@ export class MobiusRenderer {
       ctx.putImageData(imgData, 0, 0);
 
       // 8. Generate blob & trigger download
-      return new Promise((resolve) => {
-        offCanvas.toBlob((blob) => {
-          onProgress(100, 'Export complete!');
-          if (blob && typeof window !== 'undefined' && typeof document !== 'undefined') {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 10000);
-          }
-          resolve(blob);
-        }, 'image/png');
-      });
+      return await this.encodeExport(offCanvas, filename, onProgress, 'Export complete!');
     } finally {
-      // 9. Clean up temporary 4K GL resources safely
-      if (expAccumTex) {
-        for (let i = 0; i < 2; i++) {
-          if (expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
-          if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
+      // Lost resources are released by the browser; never touch retired handles.
+      if (!this.isContextUnavailable()) {
+        // 9. Clean up temporary 4K GL resources safely
+        if (expAccumTex) {
+          for (let i = 0; i < 2; i++) {
+            if (expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
+            if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
+          }
         }
-      }
-      if (expBloomTex) {
-        for (let i = 0; i < 2; i++) {
-          if (expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
-          if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
+        if (expBloomTex) {
+          for (let i = 0; i < 2; i++) {
+            if (expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
+            if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
+          }
         }
+        if (expPostTex) gl.deleteTexture(expPostTex);
+        if (expPostFbo) gl.deleteFramebuffer(expPostFbo);
       }
-      if (expPostTex) gl.deleteTexture(expPostTex);
-      if (expPostFbo) gl.deleteFramebuffer(expPostFbo);
 
       // 10. Restore original renderer state
       this.accumWidth = origAccumWidth;
@@ -1505,8 +1574,10 @@ export class MobiusRenderer {
       mathSys.evolving = origEvolving;
       this.isExporting = false;
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      if (!this.isContextUnavailable()) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      }
     }
   }
 
@@ -1521,7 +1592,12 @@ export class MobiusRenderer {
     const height = 4096;
     const accumPasses = options.accumPasses || options.accumFrames || 120;
     const filename = options.filename || 'mobius-reference-master-4096.png';
-    const onProgress = options.onProgress || (() => {});
+    this.assertContextAvailable();
+    const onProgress = (pct, message) => {
+      this.assertContextAvailable();
+      options.onProgress?.(pct, message);
+      this.assertContextAvailable();
+    };
 
     const gl = this.gl;
 
@@ -1699,6 +1775,7 @@ export class MobiusRenderer {
       // Attractor convergence
       gl.uniform1f(this.simUniforms.respawnAll, 0.0);
       for (let w = 1; w <= 60; w++) {
+        this.assertContextAvailable();
         gl.bindVertexArray(this.simVaos[this.vboCur]);
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.simVbos[1 - this.vboCur]);
         gl.beginTransformFeedback(gl.POINTS);
@@ -1717,6 +1794,7 @@ export class MobiusRenderer {
       while (passesDone < totalPasses) {
         const chunk = Math.min(chunkSize, totalPasses - passesDone);
         for (let c = 0; c < chunk; c++) {
+          this.assertContextAvailable();
           const readTex = this.accumTextures[this.accumReadIdx];
           const writeFbo = this.accumFbos[1 - this.accumReadIdx];
 
@@ -1753,6 +1831,7 @@ export class MobiusRenderer {
           gl.uniform1f(this.simUniforms.respawnAll, 0.0);
 
           for (let s = 0; s < exportSteps; s++) {
+            this.assertContextAvailable();
             gl.useProgram(this.simProg);
             gl.uniform1f(this.simUniforms.step, s);
             gl.enable(gl.RASTERIZER_DISCARD);
@@ -1776,7 +1855,10 @@ export class MobiusRenderer {
         passesDone += chunk;
         const progressPct = 5 + Math.round((passesDone / totalPasses) * 85);
         onProgress(progressPct, `Developing Reference Master (${passesDone} / ${totalPasses})`);
-        await new Promise(r => requestAnimationFrame(r));
+        await this.waitForExport(done => {
+          const id = requestAnimationFrame(done);
+          return () => cancelAnimationFrame(id);
+        });
       }
 
       // 4. Bloom pass (1024x1024) - Canonical Reference mode always includes bloom
@@ -1850,49 +1932,36 @@ export class MobiusRenderer {
       ctx.putImageData(imgData, 0, 0);
 
       // 8. Generate blob & trigger download
-      return new Promise((resolve) => {
-        offCanvas.toBlob((blob) => {
-          onProgress(100, 'Reference Master complete!');
-          if (blob && typeof window !== 'undefined' && typeof document !== 'undefined') {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 10000);
-          }
-          resolve(blob);
-        }, 'image/png');
-      });
+      return await this.encodeExport(offCanvas, filename, onProgress, 'Reference Master complete!');
     } finally {
-      // 9. Clean up temporary 4096 GL resources safely
-      for (let i = 0; i < 2; i++) {
-        if (expAccumTex && expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
-        if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
-      }
-      for (let i = 0; i < 2; i++) {
-        if (expBloomTex && expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
-        if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
-      }
-      if (expPostTex) gl.deleteTexture(expPostTex);
-      if (expPostFbo) gl.deleteFramebuffer(expPostFbo);
-
-      // Restore particle VBO data
-      if (vboBackups) {
+      if (!this.isContextUnavailable()) {
+        // 9. Clean up temporary 4096 GL resources safely
         for (let i = 0; i < 2; i++) {
-          if (vboBackups[i]) {
-            if (vboBackedUp) {
-              gl.bindBuffer(gl.COPY_READ_BUFFER, vboBackups[i]);
-              gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.simVbos[i]);
-              gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
-            }
-            gl.deleteBuffer(vboBackups[i]);
-          }
+          if (expAccumTex && expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
+          if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
         }
-        gl.bindBuffer(gl.COPY_READ_BUFFER, null);
-        gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+        for (let i = 0; i < 2; i++) {
+          if (expBloomTex && expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
+          if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
+        }
+        if (expPostTex) gl.deleteTexture(expPostTex);
+        if (expPostFbo) gl.deleteFramebuffer(expPostFbo);
+
+        // Restore particle VBO data
+        if (vboBackups) {
+          for (let i = 0; i < 2; i++) {
+            if (vboBackups[i]) {
+              if (vboBackedUp) {
+                gl.bindBuffer(gl.COPY_READ_BUFFER, vboBackups[i]);
+                gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.simVbos[i]);
+                gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
+              }
+              gl.deleteBuffer(vboBackups[i]);
+            }
+          }
+          gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+          gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+        }
       }
 
       // Restore mathSys if it was passed
@@ -1934,8 +2003,10 @@ export class MobiusRenderer {
       this.vboCur = origVboCur;
       this.isExporting = false;
 
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      if (!this.isContextUnavailable()) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+      }
     }
   }
 }

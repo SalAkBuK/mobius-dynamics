@@ -1,0 +1,58 @@
+<!doctype html><meta charset="utf-8"><title>Issue 2 baseline reproduction</title>
+<div id="results">Running baseline reproduction...</div>
+<script type="module">
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const results = [];
+try {
+  for (const state of ['reference', 'explore', 'standard', 'reference_master']) {
+    const frame = document.createElement('iframe');
+    frame.width = 640; frame.height = 480;
+    frame.src = './index.html?tier=potato&dpr=0.5';
+    document.body.append(frame);
+    await new Promise(r => frame.onload = r);
+    const w = frame.contentWindow, app = w.__app, renderer = app.renderer, gl = renderer.gl;
+    if (state === 'explore') {
+      app.setMode('explore'); app.math.setSymmetry(24);
+      app.math.userOffsetA.r = 0.12; app.math.update(0, 1.65);
+      renderer.zoom = renderer.targetZoom = 2.7; renderer.setPalette('solar');
+    }
+    let lost = false, prevented = false, restored = false, attempts = 0, rafs = 0;
+    app.canvas.addEventListener('webglcontextlost', e => {
+      lost = true; queueMicrotask(() => prevented = e.defaultPrevented);
+    });
+    app.canvas.addEventListener('webglcontextrestored', () => restored = true);
+    const render = renderer.render.bind(renderer);
+    renderer.render = (...args) => { if (lost) attempts++; return render(...args); };
+    const ext = gl.getExtension('WEBGL_lose_context');
+    if (!ext) throw Error('WEBGL_lose_context unavailable');
+    const oldProgram = renderer.simProg;
+    let exportSettled = null, exportSuccess = false;
+    if (state === 'standard' || state === 'reference_master') {
+      const method = state === 'standard' ? 'exportPNG' : 'exportReferenceMaster';
+      const original = renderer[method].bind(renderer);
+      renderer[method] = (math, options) => original(math, {...options, onProgress(pct, msg) {
+        options.onProgress(pct, msg);
+        if (msg.startsWith('Developing') && !gl.isContextLost()) ext.loseContext();
+        if (pct === 100) exportSuccess = true;
+      }});
+      app.exportType = state; app.exportPasses = 20; app.refMasterPasses = 4;
+      exportSettled = false;
+      app.startExport().then(() => exportSettled = true, () => exportSettled = true);
+    } else ext.loseContext();
+    await sleep(1500);
+    w.requestAnimationFrame(() => rafs++);
+    await sleep(200);
+    const invalidProgram = !gl.isProgram(oldProgram);
+    ext.restoreContext();
+    await sleep(1800);
+    results.push({name: state, passed: true, details: JSON.stringify({lost, prevented, rafs,
+      renderAttemptsAfterLoss: attempts, exportSettled, exportSuccess,
+      appExporting: app.isExporting, rendererExporting: !!renderer.isExporting,
+      restored, contextStillLost: gl.isContextLost(), invalidProgram,
+      reloadNeeded: gl.isContextLost()})});
+    frame.remove();
+  }
+} catch (err) { results.push({name: 'baseline error', passed: false, details: err.stack}); }
+document.querySelector('#results').textContent = JSON.stringify(results, null, 2);
+await fetch('/test_report', {method:'POST', body:JSON.stringify(results)});
+</script>

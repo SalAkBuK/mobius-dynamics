@@ -141,6 +141,11 @@ export class App {
     this.canvas = document.getElementById('gl-canvas');
     this.math = new MathSystem('explore');
     this.renderer = new MobiusRenderer(this.canvas);
+    this.contextLost = false;
+    this._exportTask = null;
+    // These belong to App, not the replaceable renderer. Install exactly once.
+    this.canvas.addEventListener('webglcontextlost', event => this.onContextLost(event));
+    this.canvas.addEventListener('webglcontextrestored', () => this.onContextRestored());
 
     // Primary mode state: 'reference' (default faithful art) | 'explore' (interactive sandbox)
     this.mode = 'reference';
@@ -880,6 +885,10 @@ export class App {
   }
 
   scheduleDisplayHoldRemoval() {
+    if (this.contextLost || this.renderer.isContextUnavailable()) {
+      this.hideExportDisplayHold();
+      return;
+    }
     this._pendingHoldRemoval = true;
     clearTimeout(this._holdRemovalTimeout);
     this._holdRemovalTimeout = setTimeout(() => {
@@ -905,7 +914,12 @@ export class App {
   }
 
   async startExport() {
-    if (this.isExporting) return;
+    if (this.isExporting || this.contextLost || this.renderer.isContextUnavailable()) return;
+    this._exportTask = this.runExport();
+    return this._exportTask;
+  }
+
+  async runExport() {
     this.isExporting = true;
 
     // Ensure coefficient readout remains populated with last valid values during export
@@ -1014,6 +1028,7 @@ export class App {
         return blob;
       } catch (err) {
         console.error('Reference Master Export error:', err);
+        if (err?.name === 'WebGLContextLostError') this._exportInterrupted = true;
         const errMsg = err?.message || 'Export failed';
         if (statusLbl) statusLbl.innerText = 'Export failed: ' + errMsg;
         this.showToast('Reference Master Export failed: ' + errMsg);
@@ -1096,6 +1111,7 @@ export class App {
       return blob;
     } catch (err) {
       console.error('Export error:', err);
+      if (err?.name === 'WebGLContextLostError') this._exportInterrupted = true;
       const errMsg = err?.message || 'Export failed';
       if (statusLbl) statusLbl.innerText = 'Export failed: ' + errMsg;
       this.showToast('Export failed: ' + errMsg);
@@ -1411,7 +1427,69 @@ export class App {
     }
   }
 
+  onContextLost(event) {
+    event.preventDefault();
+    if (this.contextLost) return;
+    this.contextLost = true;
+    this._exportInterrupted = this._exportInterrupted || this.isExporting;
+    this.renderer.handleContextLoss();
+    this.hideExportDisplayHold();
+    this.showToast('Graphics context lost — recovering…');
+  }
+
+  async onContextRestored() {
+    if (!this.contextLost || this._restoringContext) return;
+    this._restoringContext = true;
+    try {
+      // Export finally blocks restore the JS session (especially Master from Explore).
+      // Let them finish before reading state or replacing the retired renderer.
+      await this._exportTask;
+      const old = this.renderer;
+      if (old.gl.isContextLost()) return;
+      const state = {};
+      for (const key of ['zoom', 'targetZoom', 'viewCenter', 'targetViewCenter',
+        'activePalette', 'bloomEnabled', 'viewMode', 'gain', 'showRawTrajectories',
+        'particlesOverride', 'stepsOverride', 'numParticles', 'stepsPerFrame',
+        'persistence', 'currentPersistence']) {
+        state[key] = Array.isArray(old[key]) ? [...old[key]] : old[key];
+      }
+      // Constructor recreates shaders, buffers, VAOs, FBOs, textures and query pool.
+      // Never copy GL handles, timing measurements or accumulation from the old instance.
+      const rebuilt = new MobiusRenderer(this.canvas);
+      rebuilt.setParticleCount(state.numParticles);
+      Object.assign(rebuilt, state);
+      rebuilt.adaptive.setMode(old.adaptive.mode);
+      rebuilt.adaptive.currentTierKey = old.adaptive.currentTierKey;
+      rebuilt.adaptive.currentTier = old.adaptive.currentTier;
+      rebuilt.adaptive.manualTier = old.adaptive.manualTier;
+      this.renderer = rebuilt;
+      window.__renderer = rebuilt;
+      window.__profiler = rebuilt.profiler;
+      if (this.mode === 'reference') this.setMode('reference');
+      this.contextLost = false;
+      this.lastTime = this.lastSimTime = performance.now();
+      this.lastRafTimestamp = 0;
+      this.rafDeltas = [];
+      this.onResize();
+      rebuilt.clearAccumulation();
+      this.hideExportDisplayHold();
+      this.showToast(this._exportInterrupted
+        ? 'Export interrupted because the graphics context was lost. The renderer recovered; please try again.'
+        : 'Graphics context restored.');
+      this._exportInterrupted = false;
+      this._exportTask = null;
+      // animate() already owns the single recursive RAF chain. Do not start another.
+    } catch (error) {
+      console.error('Graphics recovery failed:', error);
+      this.contextLost = true;
+      this.showToast('Graphics recovery failed. Waiting for graphics context restoration.');
+    } finally {
+      this._restoringContext = false;
+    }
+  }
+
   onResize() {
+    if (this.contextLost) return;
     if (typeof window === 'undefined' || window.innerWidth <= 0 || window.innerHeight <= 0) return;
     const dpr = this.customDpr || this.renderer.adaptive.getDpr();
     const w = Math.floor(window.innerWidth * dpr);
@@ -1422,7 +1500,7 @@ export class App {
   animate(currentTime) {
     requestAnimationFrame(this.animate);
 
-    if (this.isTabHidden || this.isExporting) {
+    if (this.contextLost || this.renderer.isContextUnavailable() || this.isTabHidden || this.isExporting) {
       this.lastTime = currentTime;
       return;
     }

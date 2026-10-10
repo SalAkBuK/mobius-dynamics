@@ -1,0 +1,288 @@
+<!doctype html><meta charset="utf-8"><title>Issue 2 WebGL recovery regressions</title>
+<pre id="results">Running WebGL recovery tests...</pre>
+<script type="module">
+const results = [];
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const check = (name, passed, details = '') => {
+  results.push({name, passed: !!passed, details});
+  document.querySelector('#results').textContent = JSON.stringify(results, null, 2);
+};
+async function until(predicate, message, timeout = 20000) {
+  const deadline = performance.now() + timeout;
+  while (!predicate()) {
+    if (performance.now() > deadline) throw Error('Timed out: ' + message);
+    await sleep(30);
+  }
+}
+const instrumentation = `<script>
+window.__audit = {pending: new Map(), timers: new Set(), handlers: {}, lostGL: [], downloads: 0, glCommands: 0};
+const audit = window.__audit;
+const raf = window.requestAnimationFrame.bind(window), cancel = window.cancelAnimationFrame.bind(window);
+window.requestAnimationFrame = fn => {
+  const id = raf(t => { audit.pending.delete(id); fn(t); });
+  audit.pending.set(id, fn); return id;
+};
+window.cancelAnimationFrame = id => { audit.pending.delete(id); cancel(id); };
+const timeout = window.setTimeout.bind(window), clear = window.clearTimeout.bind(window);
+window.setTimeout = (fn,ms,...args) => {
+  const id = timeout(() => { audit.timers.delete(id); fn(...args); },ms);
+  audit.timers.add(id); return id;
+};
+window.clearTimeout = id => { audit.timers.delete(id); clear(id); };
+const add = EventTarget.prototype.addEventListener;
+EventTarget.prototype.addEventListener = function(type, ...args) {
+  if (['webglcontextlost', 'webglcontextrestored', 'resize'].includes(type))
+    audit.handlers[type] = (audit.handlers[type] || 0) + 1;
+  return add.call(this, type, ...args);
+};
+const getContext = HTMLCanvasElement.prototype.getContext;
+HTMLCanvasElement.prototype.getContext = function(...args) {
+  const gl = getContext.apply(this,args);
+  if (args[0] === 'webgl2' && gl && !gl.__instrumented) {
+    gl.__instrumented = true;
+    const isLost = gl.isContextLost.bind(gl);
+    const getError = gl.getError.bind(gl);
+    for (const name in gl) {
+      const original = gl[name];
+      if (typeof original !== 'function' || ['isContextLost','getError'].includes(name)) continue;
+      gl[name] = function(...values) {
+        audit.glCommands++;
+        if (isLost()) audit.lostGL.push(name);
+        const value = original.apply(gl,values);
+        if (audit.traceError && !isLost()) {
+          const error = getError();
+          if (error) audit.errors.push([audit.phase,name,error]);
+        }
+        return value;
+      };
+    }
+  }
+  return gl;
+};
+HTMLAnchorElement.prototype.click = function() { audit.downloads++; };
+<\/script>`;
+let frame;
+try {
+  frame = document.createElement('iframe'); frame.width = 640; frame.height = 480;
+  const html = await (await fetch('./index.html')).text();
+  // The real production page, with test-only instrumentation installed before App boots.
+  frame.srcdoc = html.replace('<head>', '<head>' + instrumentation);
+  document.body.append(frame);
+  await new Promise(resolve => frame.onload = resolve);
+  const w = frame.contentWindow, app = w.__app, math = app.math, audit = w.__audit;
+  app.customDpr = 0.5; app.onResize();
+  await until(() => app.renderer.accumulationFrames > 6, 'initial production workload settled');
+  const originalApp = app;
+  let losses = 0, restores = 0, intercepted = false;
+  app.canvas.addEventListener('webglcontextlost', event => {
+    losses++; intercepted = event.defaultPrevented;
+  });
+  app.canvas.addEventListener('webglcontextrestored', () => restores++);
+  const handlerCounts = JSON.stringify(audit.handlers);
+
+  function snapshot() {
+    const r = app.renderer;
+    const keys = ['mode', 'n', 'activeMorphology', 'evolving', 'time', 'baseA', 'baseB',
+      'baseC', 'baseD', 'a', 'b', 'c', 'd', 'userOffsetA', 'userOffsetB', 'userOffsetC',
+      'userOffsetD', 'pointerTarget', 'pointerCurrent', 'shockMag', 'shockPhase',
+      'pointerPerturbationEnabled', 'shockEnabled'];
+    return JSON.stringify({mode: app.mode, math: Object.fromEntries(keys.map(k => [k, math[k]])),
+      renderer: Object.fromEntries(['zoom', 'targetZoom', 'viewCenter', 'targetViewCenter',
+        'activePalette', 'bloomEnabled', 'viewMode', 'gain', 'particlesOverride', 'stepsOverride']
+        .map(k => [k, r[k]])), quality: [r.adaptive.mode, r.adaptive.currentTierKey]});
+  }
+  function canonical() {
+    const r = app.renderer;
+    return app.mode === 'reference' && math.mode === 'reference' && math.n === 16 &&
+      JSON.stringify([math.a.r,math.a.i,math.b.r,math.b.i,math.c.r,math.c.i,math.d.r,math.d.i]) ===
+      JSON.stringify([-.755,.330,-.376,.026,6.401,.803,1.520,.840]) &&
+      ['userOffsetA','userOffsetB','userOffsetC','userOffsetD','pointerTarget','pointerCurrent']
+        .every(k => math[k].r === 0 && math[k].i === 0) &&
+      math.shockMag === 0 && math.shockPhase === 0 && !math.evolving && math.time === 0 &&
+      !math.pointerPerturbationEnabled && !math.shockEnabled && r.zoom === 1.65 &&
+      r.targetZoom === 1.65 && [...r.viewCenter,...r.targetViewCenter].every(v => v === 0) &&
+      r.activePalette === 'cobalt';
+  }
+  async function lose(label, trigger) {
+    audit.phase = 'loss ' + label;
+    const old = app.renderer, gl = old.gl, ext = gl.getExtension('WEBGL_lose_context');
+    if (!ext) throw Error('WEBGL_lose_context unsupported');
+    const count = losses;
+    if (trigger) await trigger(ext); else ext.loseContext();
+    await until(() => losses > count && app.contextLost, label + ' loss');
+    check(label + ': event intercepted', intercepted);
+    const calls = audit.lostGL.length;
+    let attempts = 0;
+    const render = old.render;
+    old.render = function(...args) { attempts++; return render.apply(this, args); };
+    await sleep(180);
+    check(label + ': RAF stays alive with no normal rendering', audit.pending.size === 1 && attempts === 0,
+      `pending RAF=${audit.pending.size}, render attempts=${attempts}`);
+    // Public render/resize/present/clear entry points must also be safe while lost.
+    render.call(old, math, 0.016); old.resize(600,400); old.presentCurrentFrame(); old.clearAccumulation();
+    check(label + ': no GL commands while lost', audit.lostGL.length === calls && calls === 0,
+      JSON.stringify(audit.lostGL));
+    return {old, gl, ext};
+  }
+  async function restore(label, context) {
+    audit.phase = 'restore ' + label;
+    const {old, gl, ext} = context;
+    const count = restores;
+    ext.restoreContext();
+    await until(() => restores > count && !app.contextLost && app.renderer !== old, label + ' restore');
+    const r = app.renderer;
+    check(label + ': recovered viewport and targets match canvas',
+      r.aspect === app.canvas.width / app.canvas.height &&
+      Math.abs(r.accumWidth - Math.min(2048,app.canvas.width)) <= 64 &&
+      Math.abs(r.accumHeight - Math.min(2048,app.canvas.height)) <= 64);
+    check(label + ': resources rebuilt and old handles invalid',
+      !gl.isProgram(old.simProg) && gl.isProgram(r.simProg) && r.simProg !== old.simProg &&
+      gl.isBuffer(r.simVbos[0]) && r.simVbos[0] !== old.simVbos[0] &&
+      gl.isVertexArray(r.simVaos[0]) && r.simVaos[0] !== old.simVaos[0] &&
+      gl.isTexture(r.accumTextures[0]) && r.accumTextures[0] !== old.accumTextures[0] &&
+      gl.isFramebuffer(r.accumFbos[0]) && r.profiler !== old.profiler &&
+      r.profiler.ring.every((slot,i) => slot.decay !== old.profiler.ring[i]?.decay));
+    check(label + ': single App, RAF and event registrations', w.__app === originalApp &&
+      audit.pending.size === 1 && JSON.stringify(audit.handlers) === handlerCounts &&
+      w.__renderer === r && w.__profiler === r.profiler);
+    const calls = audit.glCommands;
+    old.render(math, 0.016); old.resize(600,400); old.presentCurrentFrame(); old.clearAccumulation();
+    check(label + ': retired renderer remains inert after restore',
+      old.contextLost && audit.glCommands === calls && gl.getError() === gl.NO_ERROR);
+    check(label + ': no accumulated timers or export waiters',
+      audit.timers.size <= 1 && old._interruptExport === null && !app._holdRemovalTimeout,
+      `active timers=${audit.timers.size}`);
+    return r;
+  }
+  async function live(label) {
+    audit.phase = 'live ' + label;
+    app.isTabHidden = false;
+    const r = app.renderer, start = r.accumulationFrames;
+    await until(() => r.accumulationFrames > start + 18, label + ' live rendering');
+    r.presentCurrentFrame();
+    const presentError = r.gl.getError();
+    const pixels = new Uint8Array(4 * app.canvas.width * app.canvas.height);
+    r.gl.readPixels(0,0,app.canvas.width,app.canvas.height,r.gl.RGBA,r.gl.UNSIGNED_BYTE,pixels);
+    let min = 255, max = 0;
+    for (let i=0;i<pixels.length;i+=4) { min=Math.min(min,pixels[i+2]); max=Math.max(max,pixels[i+2]); }
+    const error = r.gl.getError();
+    check(label + ': live artwork renders without reload', max > min && error === r.gl.NO_ERROR && presentError === r.gl.NO_ERROR,
+      `blue range=${min}..${max}, GL error=${error}, present error=${presentError}`);
+    app.isTabHidden = true;
+  }
+
+  app.isTabHidden = true;
+  audit.traceError = true; audit.errors = [];
+  let context = await lose('Reference idle');
+  await restore('Reference idle', context);
+  check('Recovery error trace', audit.errors.length === 0, JSON.stringify(audit.errors));
+  check('Reference invariant after restore', canonical());
+  const r = app.renderer, gl = r.gl;
+  const particles = new Float32Array(64 * 4);
+  gl.bindBuffer(gl.ARRAY_BUFFER,r.simVbos[0]); gl.getBufferSubData(gl.ARRAY_BUFFER,0,particles);
+  gl.bindBuffer(gl.ARRAY_BUFFER,null);
+  check('Seed read GL error', gl.getError() === gl.NO_ERROR);
+  check('Fresh particles reseeded, accumulation reset', r.accumulationFrames === 0 &&
+    particles.every(Number.isFinite) && particles.some(v => v !== 0) &&
+    Array.from({length:64},(_,i) => particles[i*4+2]).every(v => v === 0));
+  await live('Reference idle');
+
+  app.setMode('explore'); math.setSymmetry(24);
+  math.baseA.r = -0.82; math.baseB.i = 0.1;
+  math.userOffsetA.r = 0.035; math.userOffsetD.i = -0.025;
+  math.evolving = true; math.time = 8.25; math.update(0,2.4);
+  Object.assign(app.renderer, {zoom:2.4,targetZoom:2.4,viewCenter:[0.03,-0.02],
+    targetViewCenter:[0.03,-0.02],activePalette:'amethyst',bloomEnabled:false,viewMode:1,gain:3.2});
+  app.renderer.adaptive.setMode('high');
+  let before = snapshot();
+  context = await lose('Explore custom'); await restore('Explore custom',context);
+  check('Complete Explore JS session preserved', snapshot() === before);
+  await live('Explore custom');
+
+  for (const [type, mode] of [['standard','explore'],['reference_master','explore'],
+    ['standard','reference'],['reference_master','reference']]) {
+    if (app.mode !== mode) app.setMode(mode);
+    const label = type + ' from ' + mode;
+    const old = app.renderer, method = type === 'standard' ? 'exportPNG' : 'exportReferenceMaster';
+    const original = old[method].bind(old);
+    let rejected = false, success = false, settled = false, fired = false;
+    before = snapshot();
+    const downloads = audit.downloads;
+    old[method] = async (system, options) => {
+      try { return await original(system, {...options, onProgress(pct,msg) {
+        options.onProgress(pct,msg);
+        if (pct === 100) success = true;
+        if (msg.startsWith('Developing') && !fired) {
+          fired = true;
+          // Standard loses between chunks while waiting for RAF; Master loses synchronously.
+          const ext = old.gl.getExtension('WEBGL_lose_context');
+          if (type === 'standard') w.setTimeout(() => ext.loseContext(), 0);
+          else ext.loseContext();
+        }
+      }}); } catch (error) { rejected = error.name === 'WebGLContextLostError'; throw error; }
+    };
+    app.exportType = type;
+    context = await lose(label, () => { app.startExport().then(() => settled = true); });
+    await until(() => settled, type + ' promise settlement');
+    check(label + ': export fails deterministically', rejected && !success && audit.downloads === downloads &&
+      !app.isExporting && !old.isExporting && !app.displayHoldActive &&
+      !app._holdRemovalTimeout && w.document.querySelector('#export-display-hold').style.display === 'none');
+    await restore(label,context);
+    check(label + ': original session restored', before === snapshot());
+    if (mode === 'reference') check(label + ': Reference canonical',canonical());
+    check(label + ': clear interruption message', app.toastBanner.textContent.includes('please try again'), app.toastBanner.textContent);
+    await live(label);
+  }
+
+  // Loss during an asynchronous encoder must settle immediately even if its callback never runs.
+  const old = app.renderer;
+  const canvasProto = w.HTMLCanvasElement.prototype, toBlob = canvasProto.toBlob;
+  let lateCallback, encodeError, encodeDone = false;
+  canvasProto.toBlob = function(callback) { lateCallback = callback; };
+  const downloads = audit.downloads;
+  const encoding = old.exportPNG(math, {width:64,height:64,accumFrames:1})
+    .catch(e => encodeError = e).finally(() => encodeDone = true);
+  await until(() => lateCallback, 'encoder started');
+  context = await lose('PNG encoding');
+  await until(() => encodeDone, 'encoder interruption');
+  check('Encoder interruption rejects without waiting for toBlob',
+    encodeError?.name === 'WebGLContextLostError' && !old.isExporting);
+  await restore('PNG encoding',context);
+  lateCallback(new w.Blob(['late'], {type:'image/png'}));
+  canvasProto.toBlob = toBlob;
+  check('Late encoder callback cannot download', audit.downloads === downloads);
+  let nullError, nullSuccess = false;
+  canvasProto.toBlob = function(callback) { w.setTimeout(() => callback(null), 0); };
+  try {
+    await app.renderer.exportPNG(math, {width:64,height:64,accumFrames:1,
+      onProgress(pct) { if (pct === 100) nullSuccess = true; }});
+  } catch (error) { nullError = error; }
+  finally { canvasProto.toBlob = toBlob; }
+  check('Null PNG rejected without success or download', nullError?.message === 'PNG encoding failed.' &&
+    !nullSuccess && !app.renderer.isExporting && audit.downloads === downloads);
+
+  app.setMode('reference');
+  for (let cycle=1;cycle<=2;cycle++) {
+    if (cycle === 2) app.renderer.adaptive.setMode('auto');
+    const qualityMode = app.renderer.adaptive.mode;
+    context = await lose('Repeated cycle ' + cycle); await restore('Repeated cycle ' + cycle,context);
+    check('Repeated cycle ' + cycle + ': Reference canonical', canonical());
+    check('Repeated cycle ' + cycle + ': quality selection preserved',app.renderer.adaptive.mode === qualityMode);
+    await live('Repeated cycle ' + cycle);
+  }
+  app.customDpr = 0.75; app.onResize();
+  check('Resize after recovery', app.canvas.width === Math.floor(w.innerWidth*0.75) &&
+    app.canvas.height === Math.floor(w.innerHeight*0.75) && app.renderer.gl.getError() === gl.NO_ERROR);
+  await live('Resize');
+  check('No GL calls during any loss interval', audit.lostGL.length === 0);
+  check('Exactly nine loss/restore pairs', losses === 9 && restores === 9, `${losses}/${restores}`);
+  check('No GL errors across recovery or resumed rendering', audit.errors.length === 0,JSON.stringify(audit.errors));
+  app.exportType = 'standard'; app.exportWidth = 64; app.exportHeight = 64; app.exportPasses = 1;
+  const retried = await app.startExport();
+  const bitmap = retried ? await w.createImageBitmap(retried) : null;
+  check('Explicit export retry succeeds after recovery', bitmap?.width === 64 && bitmap?.height === 64 &&
+    retried.type === 'image/png' && !app.isExporting && !app.renderer.isExporting);
+  bitmap?.close();
+} catch (error) { check('Suite runtime', false, error.stack); }
+await fetch('/test_report', {method:'POST',body:JSON.stringify(results)});
+</script>
