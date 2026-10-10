@@ -299,6 +299,282 @@ async function runTests() {
   });
 
   // =========================================================================
+  // TEST GROUP 4.B: ISSUE 1 — REFERENCE MODE INVARIANT REGRESSION TESTS
+  // =========================================================================
+
+  // 1. Normal Reference preset loads canonical math
+  const normalRefPreset = CURATED_PRESETS.find(p => p.mode === 'reference') || { mode: 'reference' };
+  app.loadPresetObject(normalRefPreset);
+  const test1Pass = (
+    app.mode === 'reference' &&
+    math.mode === 'reference' &&
+    math.n === 16 &&
+    math.omegas.length === 16 &&
+    Math.abs(math.a.r - (-0.755)) < 1e-4 &&
+    Math.abs(math.a.i - 0.330) < 1e-4 &&
+    Math.abs(math.b.r - (-0.376)) < 1e-4 &&
+    Math.abs(math.b.i - 0.026) < 1e-4 &&
+    Math.abs(math.c.r - 6.401) < 1e-4 &&
+    Math.abs(math.c.i - 0.803) < 1e-4 &&
+    Math.abs(math.d.r - 1.520) < 1e-4 &&
+    Math.abs(math.d.i - 0.840) < 1e-4 &&
+    math.userOffsetA.r === 0 && math.userOffsetA.i === 0 &&
+    math.evolving === false && math.time === 0 &&
+    math.pointerPerturbationEnabled === false && math.shockEnabled === false &&
+    renderer.zoom === 1.65 && renderer.activePalette === 'cobalt' &&
+    document.getElementById('lbl-a-re').innerText === '0.00' &&
+    document.getElementById('val-n').innerText === '16'
+  );
+  tests.push({
+    name: "Regression 1: Normal Reference preset loads canonical math",
+    passed: test1Pass,
+    details: `mode=${app.mode}, n=${math.n}, a=${math.a.format()}, offsets=${math.userOffsetA.format()}, evolving=${math.evolving}`
+  });
+
+  // 2. Malicious Reference preset with n=32 still results in n=16 (Adversarial Case B variant)
+  app.loadPresetObject({ mode: 'reference', symmetry: 32 });
+  const test2Pass = (
+    app.mode === 'reference' &&
+    math.mode === 'reference' &&
+    math.n === 16 &&
+    math.omegas.length === 16 &&
+    document.getElementById('val-n').innerText === '16'
+  );
+  tests.push({
+    name: "Regression 2: Malicious Reference preset with n=32 still results in n=16",
+    passed: test2Pass,
+    details: `math.n=${math.n}, omegas.length=${math.omegas.length}, readout=${document.getElementById('val-n').innerText}`
+  });
+
+  // 3. Malicious Reference preset with fake coefficients still results in canonical coefficients (Adversarial Case A)
+  app.loadPresetObject({
+    mode: "reference",
+    symmetry: 32,
+    coefficients: {
+      a: { r: 5, i: 5 },
+      b: { r: 6, i: 6 },
+      c: { r: 7, i: 7 },
+      d: { r: 8, i: 8 }
+    }
+  });
+  const test3Pass = (
+    math.n === 16 &&
+    Math.abs(math.a.r - (-0.755)) < 1e-4 &&
+    Math.abs(math.a.i - 0.330) < 1e-4 &&
+    Math.abs(math.b.r - (-0.376)) < 1e-4 &&
+    Math.abs(math.b.i - 0.026) < 1e-4 &&
+    Math.abs(math.c.r - 6.401) < 1e-4 &&
+    Math.abs(math.c.i - 0.803) < 1e-4 &&
+    Math.abs(math.d.r - 1.520) < 1e-4 &&
+    Math.abs(math.d.i - 0.840) < 1e-4 &&
+    document.getElementById('val-a').innerText.includes('-0.755')
+  );
+  tests.push({
+    name: "Regression 3: Malicious Reference preset with fake coefficients results in canonical coefficients",
+    passed: test3Pass,
+    details: `math.a=${math.a.format()}, math.b=${math.b.format()}, math.c=${math.c.format()}, math.d=${math.d.format()}`
+  });
+
+  // 4. Reference preset with nonzero user offsets results in zero offsets
+  app.loadPresetObject({
+    mode: "reference",
+    userOffsets: {
+      a: { r: 1.25, i: -0.85 },
+      b: { r: 0.5, i: 0.5 },
+      c: { r: -2.0, i: 3.0 },
+      d: { r: 1.0, i: -1.0 }
+    }
+  });
+  const test4Pass = (
+    math.userOffsetA.r === 0 && math.userOffsetA.i === 0 &&
+    math.userOffsetB.r === 0 && math.userOffsetB.i === 0 &&
+    math.userOffsetC.r === 0 && math.userOffsetC.i === 0 &&
+    math.userOffsetD.r === 0 && math.userOffsetD.i === 0 &&
+    document.getElementById('lbl-a-re').innerText === '0.00' &&
+    document.getElementById('lbl-b-im').innerText === '0.00'
+  );
+  tests.push({
+    name: "Regression 4: Reference preset with nonzero user offsets results in zero offsets",
+    passed: test4Pass,
+    details: `offsetA=${math.userOffsetA.format()}, lbl-a-re=${document.getElementById('lbl-a-re').innerText}`
+  });
+
+  // 5. Reference preset requesting drift=true results in drift=false
+  app.loadPresetObject({
+    mode: "reference",
+    drift: { evolving: true, time: 999.0 }
+  });
+  const test5Pass = (
+    math.evolving === false &&
+    math.time === 0 &&
+    document.getElementById('btn-pause').innerText === 'Drift: Off' &&
+    document.getElementById('btn-pause').disabled === true
+  );
+  tests.push({
+    name: "Regression 5: Reference preset requesting drift=true results in drift=false",
+    passed: test5Pass,
+    details: `evolving=${math.evolving}, time=${math.time}, btnPause text=${document.getElementById('btn-pause').innerText}`
+  });
+
+  // 6. Reference preset containing pointer/shock state cannot perturb formula
+  app.loadPresetObject({
+    mode: "reference",
+    pointerTarget: { r: 0.8, i: 0.8 },
+    pointerCurrent: { r: 0.8, i: 0.8 },
+    shockMag: 1.0,
+    shockPhase: 0.5
+  });
+  // Attempt perturbations while in reference mode
+  math.setPointer(0.9, -0.9);
+  math.injectShock(1.0, 1.0);
+  math.update(0.1, 1.65);
+  const test6Pass = (
+    math.pointerTarget.r === 0 && math.pointerTarget.i === 0 &&
+    math.pointerCurrent.r === 0 && math.pointerCurrent.i === 0 &&
+    math.shockMag === 0 &&
+    Math.abs(math.a.r - (-0.755)) < 1e-4 &&
+    Math.abs(math.c.r - 6.401) < 1e-4
+  );
+  tests.push({
+    name: "Regression 6: Reference preset containing pointer/shock state cannot perturb formula",
+    passed: test6Pass,
+    details: `ptrCurrent=${math.pointerCurrent.format()}, shockMag=${math.shockMag}, a=${math.a.format()}`
+  });
+
+  // 7. Explore presets still restore their custom parameters correctly
+  const customExplorePreset = {
+    name: "Explore Custom Preset Verification",
+    mode: "explore",
+    symmetry: 24,
+    coefficients: {
+      a: { r: -0.710, i: 0.420 },
+      b: { r: -0.395, i: 0.010 },
+      c: { r: 7.350, i: 0.650 },
+      d: { r: 1.650, i: 0.820 }
+    },
+    userOffsets: {
+      a: { r: 0.15, i: 0.05 },
+      b: { r: 0, i: 0 },
+      c: { r: 0, i: 0 },
+      d: { r: 0, i: 0 }
+    },
+    drift: { evolving: true, time: 25.0 },
+    palette: "amethyst"
+  };
+  app.loadPresetObject(customExplorePreset);
+  const test7Pass = (
+    app.mode === 'explore' &&
+    math.mode === 'explore' &&
+    math.n === 24 &&
+    Math.abs(math.baseA.r - (-0.710)) < 1e-4 &&
+    Math.abs(math.baseA.i - 0.420) < 1e-4 &&
+    Math.abs(math.userOffsetA.r - 0.15) < 1e-4 &&
+    math.evolving === true &&
+    renderer.activePalette === 'amethyst' &&
+    document.getElementById('lbl-a-re').innerText === '0.15'
+  );
+  tests.push({
+    name: "Regression 7: Explore presets still restore custom parameters correctly",
+    passed: test7Pass,
+    details: `mode=${app.mode}, n=${math.n}, baseA=${math.baseA.format()}, offsetA=${math.userOffsetA.format()}, evolving=${math.evolving}, palette=${renderer.activePalette}`
+  });
+
+  // 8. Saved Explore -> load -> return Reference restores exact canonical math
+  app.setMode('explore');
+  math.setSymmetry(20);
+  math.setCoefficientOffset('a', 0.30, 0.10);
+  const savedExplore = app.getPresetObject('Temporary Explore Session');
+  // Load saved explore
+  app.loadPresetObject(savedExplore);
+  const midPass = (app.mode === 'explore' && math.n === 20 && Math.abs(math.userOffsetA.r - 0.30) < 1e-4);
+  // Return to Reference
+  app.setMode('reference');
+  const test8Pass = (
+    midPass &&
+    app.mode === 'reference' &&
+    math.mode === 'reference' &&
+    math.n === 16 &&
+    Math.abs(math.a.r - (-0.755)) < 1e-4 &&
+    Math.abs(math.a.i - 0.330) < 1e-4 &&
+    Math.abs(math.b.r - (-0.376)) < 1e-4 &&
+    Math.abs(math.b.i - 0.026) < 1e-4 &&
+    Math.abs(math.c.r - 6.401) < 1e-4 &&
+    Math.abs(math.c.i - 0.803) < 1e-4 &&
+    Math.abs(math.d.r - 1.520) < 1e-4 &&
+    Math.abs(math.d.i - 0.840) < 1e-4 &&
+    math.userOffsetA.r === 0 && math.userOffsetA.i === 0 &&
+    math.evolving === false && math.time === 0 &&
+    renderer.zoom === 1.65 && renderer.activePalette === 'cobalt' &&
+    document.getElementById('lbl-a-re').innerText === '0.00'
+  );
+  tests.push({
+    name: "Regression 8: Saved Explore -> load -> return Reference restores exact canonical math",
+    passed: test8Pass,
+    details: `midPass=${midPass}, finalMode=${app.mode}, final_n=${math.n}, a=${math.a.format()}, offsets=${math.userOffsetA.format()}`
+  });
+
+  // 9. UI mode and MathSystem mode cannot disagree after preset loading (Adversarial A, B, C, D)
+  // Adversarial Case B: symmetry: 3
+  app.loadPresetObject({ mode: "reference", symmetry: 3 });
+  const caseBPass = (app.mode === 'reference' && math.mode === 'reference' && math.n === 16);
+
+  // Adversarial Case C: Explore preset with mode manually set to 'reference'
+  const exploreWithRefMode = JSON.parse(JSON.stringify(stormPreset));
+  exploreWithRefMode.mode = "reference";
+  app.loadPresetObject(exploreWithRefMode);
+  const caseCPass = (
+    app.mode === 'reference' &&
+    math.mode === 'reference' &&
+    math.n === 16 &&
+    Math.abs(math.a.r - (-0.755)) < 1e-4 &&
+    renderer.activePalette === 'cobalt'
+  );
+
+  // Adversarial Case D: Saved Reference preset containing stale/modified coefficients
+  const staleRefPreset = {
+    name: "Stale Reference Preset",
+    mode: "reference",
+    symmetry: 28,
+    coefficients: {
+      a: { r: -0.999, i: 0.999 },
+      b: { r: -0.999, i: 0.999 },
+      c: { r: 9.999, i: 9.999 },
+      d: { r: 9.999, i: 9.999 }
+    },
+    userOffsets: { a: { r: 0.5, i: 0.5 } },
+    camera: { zoom: 12.0, center: [1.0, 1.0] },
+    palette: "neon"
+  };
+  app.loadPresetObject(staleRefPreset);
+  const caseDPass = (
+    app.mode === 'reference' &&
+    math.mode === 'reference' &&
+    math.n === 16 &&
+    Math.abs(math.a.r - (-0.755)) < 1e-4 &&
+    renderer.zoom === 1.65 &&
+    renderer.activePalette === 'cobalt' &&
+    document.getElementById('lbl-a-re').innerText === '0.00'
+  );
+
+  // MathSystem.fromJSON direct adversarial test
+  math.fromJSON({ mode: 'reference', symmetry: 40, coefficients: { a: { r: 8, i: 8 } } });
+  const directMathPass = (
+    math.mode === 'reference' &&
+    math.n === 16 &&
+    Math.abs(math.a.r - (-0.755)) < 1e-4
+  );
+
+  const test9Pass = caseBPass && caseCPass && caseDPass && directMathPass &&
+    document.getElementById('btn-mode-reference').classList.contains('active') &&
+    !document.getElementById('btn-mode-explore').classList.contains('active');
+
+  tests.push({
+    name: "Regression 9: UI mode and MathSystem mode cannot disagree after preset loading (Adversarial A-D)",
+    passed: test9Pass,
+    details: `caseB=${caseBPass}, caseC=${caseCPass}, caseD=${caseDPass}, directMath=${directMathPass}`
+  });
+
+  // =========================================================================
   // TEST GROUP 5: 4K OFFSCREEN IMAGE EXPORT & ZERO CONCURRENT COLLISIONS
   // =========================================================================
   // Monitor render() calls during export to guarantee no collision with animate()

@@ -125,17 +125,17 @@ export class MobiusTransform {
   }
 }
 
-export const CONRADI_REFERENCE = {
+export const CONRADI_REFERENCE = Object.freeze({
   name: 'Simone Conradi Reference (Orbital Lace)',
   description: 'Exact published Simone Conradi 2026 Mobius IFS attractor (16-fold rosette)',
   n: 16,
-  a: new Complex(-0.755, 0.330),
-  b: new Complex(-0.376, 0.026),
-  c: new Complex(6.401, 0.803),
-  d: new Complex(1.520, 0.840),
+  a: Object.freeze(new Complex(-0.755, 0.330)),
+  b: Object.freeze(new Complex(-0.376, 0.026)),
+  c: Object.freeze(new Complex(6.401, 0.803)),
+  d: Object.freeze(new Complex(1.520, 0.840)),
   zoom: 1.65,
-  center: [0.0, 0.0]
-};
+  center: Object.freeze([0.0, 0.0])
+});
 
 export const RANDOM_STYLES = [
   'conradi-like',
@@ -255,43 +255,48 @@ export class MathSystem {
     this.shockMag = 0.0;
     this.shockPhase = 0.0;
 
+    if (initialMode === 'reference') {
+      this.resetToReference();
+    }
+  }
+
+  resetToReference() {
+    this.mode = 'reference';
+    this.pointerPerturbationEnabled = false;
+    this.shockEnabled = false;
+    this.evolving = false;
+    this.time = 0;
+
+    // Reset to exact authentic Simone Conradi coefficients & symmetry
+    this.n = CONRADI_REFERENCE.n;
+    this.activeMorphology = 'lace';
+    this.baseA = CONRADI_REFERENCE.a.clone();
+    this.baseB = CONRADI_REFERENCE.b.clone();
+    this.baseC = CONRADI_REFERENCE.c.clone();
+    this.baseD = CONRADI_REFERENCE.d.clone();
+
+    this.userOffsetA = new Complex(0, 0);
+    this.userOffsetB = new Complex(0, 0);
+    this.userOffsetC = new Complex(0, 0);
+    this.userOffsetD = new Complex(0, 0);
+
+    this.pointerTarget = new Complex(0, 0);
+    this.pointerCurrent = new Complex(0, 0);
+    this.shockMag = 0.0;
+    this.shockPhase = 0.0;
+
+    this.a = this.baseA.clone();
+    this.b = this.baseB.clone();
+    this.c = this.baseC.clone();
+    this.d = this.baseD.clone();
+
     this.updateRootsOfUnity();
     this.computeTransforms();
   }
 
   setMode(mode) {
     if (mode === 'reference') {
-      this.mode = 'reference';
-      this.pointerPerturbationEnabled = false;
-      this.shockEnabled = false;
-      this.evolving = false;
-      this.time = 0;
-
-      // Reset to exact authentic Simone Conradi coefficients & symmetry
-      this.n = CONRADI_REFERENCE.n;
-      this.activeMorphology = 'lace';
-      this.baseA = CONRADI_REFERENCE.a.clone();
-      this.baseB = CONRADI_REFERENCE.b.clone();
-      this.baseC = CONRADI_REFERENCE.c.clone();
-      this.baseD = CONRADI_REFERENCE.d.clone();
-
-      this.userOffsetA = new Complex(0, 0);
-      this.userOffsetB = new Complex(0, 0);
-      this.userOffsetC = new Complex(0, 0);
-      this.userOffsetD = new Complex(0, 0);
-
-      this.pointerTarget = new Complex(0, 0);
-      this.pointerCurrent = new Complex(0, 0);
-      this.shockMag = 0.0;
-      this.shockPhase = 0.0;
-
-      this.a = this.baseA.clone();
-      this.b = this.baseB.clone();
-      this.c = this.baseC.clone();
-      this.d = this.baseD.clone();
-
-      this.updateRootsOfUnity();
-      this.computeTransforms();
+      this.resetToReference();
     } else if (mode === 'explore') {
       this.mode = 'explore';
       this.pointerPerturbationEnabled = true;
@@ -453,10 +458,15 @@ export class MathSystem {
   }
 
   reset() {
+    if (this.mode === 'reference') {
+      this.resetToReference();
+      return;
+    }
     this.time = 0;
     this.pointerTarget = new Complex(0, 0);
     this.pointerCurrent = new Complex(0, 0);
     this.shockMag = 0;
+    this.shockPhase = 0;
     this.userOffsetA = new Complex(0, 0);
     this.userOffsetB = new Complex(0, 0);
     this.userOffsetC = new Complex(0, 0);
@@ -617,9 +627,18 @@ export class MathSystem {
 
   fromJSON(data) {
     if (!data) return;
+    const targetMode = data.mode === 'reference' ? 'reference' : (data.mode === 'explore' ? 'explore' : this.mode);
+    if (targetMode === 'reference') {
+      this.resetToReference();
+      return;
+    }
+
+    this.mode = 'explore';
+    this.pointerPerturbationEnabled = true;
+    this.shockEnabled = true;
+
     const sym = data.symmetry !== undefined ? data.symmetry : data.n;
     if (sym !== undefined) this.n = sym;
-    if (data.mode) this.mode = data.mode;
 
     const evolving = data.evolving !== undefined ? data.evolving : (data.drift ? data.drift.evolving : undefined);
     if (evolving !== undefined) this.evolving = !!evolving;
@@ -639,6 +658,11 @@ export class MathSystem {
       if (offsets.b) this.userOffsetB = new Complex(offsets.b.r, offsets.b.i);
       if (offsets.c) this.userOffsetC = new Complex(offsets.c.r, offsets.c.i);
       if (offsets.d) this.userOffsetD = new Complex(offsets.d.r, offsets.d.i);
+    } else {
+      this.userOffsetA = new Complex(0, 0);
+      this.userOffsetB = new Complex(0, 0);
+      this.userOffsetC = new Complex(0, 0);
+      this.userOffsetD = new Complex(0, 0);
     }
     this.a = this.baseA.clone();
     this.b = this.baseB.clone();
@@ -647,6 +671,7 @@ export class MathSystem {
     this.pointerTarget = new Complex(0, 0);
     this.pointerCurrent = new Complex(0, 0);
     this.shockMag = 0.0;
+    this.shockPhase = 0.0;
     this.updateRootsOfUnity();
     this.computeTransforms();
   }

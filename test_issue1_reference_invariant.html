@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Issue 1 Reference Invariant Hardening Suite</title></head>
+<body>
+<div id="results">Running Issue 1 tests...</div>
+<canvas id="gl-canvas" width="800" height="600"></canvas>
+<div id="ui-container">
+  <div id="controls-bar">
+    <button id="btn-mode-reference" class="active"></button>
+    <button id="btn-mode-explore"></button>
+    <button id="btn-randomize-action"></button>
+    <button id="btn-randomize-toggle"></button>
+    <button id="btn-palette-toggle"></button>
+    <button id="btn-zoom-in"></button>
+    <button id="btn-zoom-out"></button>
+    <button id="btn-pause"></button>
+    <button id="btn-reset"></button>
+    <button class="sym-btn" data-n="16"></button>
+    <button class="sym-btn" data-n="24"></button>
+  </div>
+  <div id="mode-status-pill"></div>
+  <div id="randomize-menu"></div>
+  <div id="palette-menu"></div>
+  <div id="equation-readout"></div>
+  <span id="val-a"></span><span id="val-b"></span><span id="val-c"></span><span id="val-d"></span><span id="val-n"></span>
+  <div id="coeff-drawer">
+    <input type="range" class="coeff-slider" id="slider-a-re" value="0">
+    <span class="coeff-val" id="lbl-a-re">0.00</span>
+    <input type="range" class="coeff-slider" id="slider-b-im" value="0">
+    <span class="coeff-val" id="lbl-b-im">0.00</span>
+    <input type="range" class="coeff-slider" id="slider-c-re" value="0">
+    <span class="coeff-val" id="lbl-c-re">0.00</span>
+    <input type="range" class="coeff-slider" id="slider-d-im" value="0">
+    <span class="coeff-val" id="lbl-d-im">0.00</span>
+    <button id="btn-reset-coeffs"></button>
+  </div>
+  <div id="coeff-lock-notice"></div>
+  <div id="export-modal"></div>
+  <div id="preset-modal"></div>
+  <div id="toast-banner"></div>
+  <span id="export-status-label"></span>
+  <span id="export-status-pct"></span>
+  <div id="export-progress-fill"></div>
+  <button id="btn-export-start"></button>
+  <button id="btn-export-cancel"></button>
+  <div id="export-progress-area"></div>
+</div>
+
+<script type="module">
+import { MathSystem, CONRADI_REFERENCE } from './math.js';
+import { MobiusRenderer, PALETTES } from './renderer.js';
+import { CURATED_PRESETS, App } from './app.js';
+
+async function runTests() {
+  const tests = [];
+  await new Promise(r => setTimeout(r, 200));
+  let app = window.app || window.__app;
+  if (!app) {
+    app = new App();
+    window.app = app;
+  }
+  const math = app.math;
+  const renderer = app.renderer;
+
+  function isCanonicalConradi() {
+    return (
+      math.n === 16 &&
+      math.omegas.length === 16 &&
+      Math.abs(math.a.r - (-0.755)) < 1e-4 &&
+      Math.abs(math.a.i - 0.330) < 1e-4 &&
+      Math.abs(math.b.r - (-0.376)) < 1e-4 &&
+      Math.abs(math.b.i - 0.026) < 1e-4 &&
+      Math.abs(math.c.r - 6.401) < 1e-4 &&
+      Math.abs(math.c.i - 0.803) < 1e-4 &&
+      Math.abs(math.d.r - 1.520) < 1e-4 &&
+      Math.abs(math.d.i - 0.840) < 1e-4 &&
+      math.userOffsetA.r === 0 && math.userOffsetA.i === 0 &&
+      math.userOffsetB.r === 0 && math.userOffsetB.i === 0 &&
+      math.userOffsetC.r === 0 && math.userOffsetC.i === 0 &&
+      math.userOffsetD.r === 0 && math.userOffsetD.i === 0 &&
+      math.pointerTarget.r === 0 && math.pointerTarget.i === 0 &&
+      math.pointerCurrent.r === 0 && math.pointerCurrent.i === 0 &&
+      math.shockMag === 0 && math.shockPhase === 0 &&
+      math.evolving === false && math.time === 0 &&
+      math.pointerPerturbationEnabled === false && math.shockEnabled === false
+    );
+  }
+
+  // 1. Normal Reference preset loads canonical math
+  app.loadPresetObject(CURATED_PRESETS[0]);
+  tests.push({
+    name: "1. Normal Reference preset loads canonical math",
+    passed: app.mode === 'reference' && math.mode === 'reference' && isCanonicalConradi(),
+    details: `mode=${app.mode}, n=${math.n}, a=${math.a.format()}, offsets=${math.userOffsetA.format()}`
+  });
+
+  // 2. Malicious Reference preset with n=32 still results in n=16
+  app.loadPresetObject({ mode: "reference", symmetry: 32 });
+  tests.push({
+    name: "2. Malicious Reference preset with n=32 still results in n=16",
+    passed: app.mode === 'reference' && math.mode === 'reference' && math.n === 16 && isCanonicalConradi(),
+    details: `math.n=${math.n}, readout_n=${document.getElementById('val-n').innerText}`
+  });
+
+  // 3. Malicious Reference preset with fake coefficients still results in canonical coefficients
+  app.loadPresetObject({
+    mode: "reference",
+    symmetry: 32,
+    coefficients: {
+      a: { r: 5, i: 5 },
+      b: { r: 6, i: 6 },
+      c: { r: 7, i: 7 },
+      d: { r: 8, i: 8 }
+    }
+  });
+  tests.push({
+    name: "3. Malicious Reference preset with fake coefficients still results in canonical coefficients",
+    passed: isCanonicalConradi() && document.getElementById('val-a').innerText.includes('-0.755'),
+    details: `math.a=${math.a.format()}, math.b=${math.b.format()}, math.c=${math.c.format()}, math.d=${math.d.format()}`
+  });
+
+  // 4. Reference preset with nonzero user offsets results in zero offsets
+  app.loadPresetObject({
+    mode: "reference",
+    userOffsets: {
+      a: { r: 2.5, i: -1.5 },
+      b: { r: 1.0, i: 0.0 },
+      c: { r: 0.5, i: 0.5 },
+      d: { r: -1.0, i: 2.0 }
+    }
+  });
+  tests.push({
+    name: "4. Reference preset with nonzero user offsets results in zero offsets",
+    passed: isCanonicalConradi() && document.getElementById('lbl-a-re').innerText === '0.00',
+    details: `userOffsetA=${math.userOffsetA.format()}, sliderDisplay=${document.getElementById('lbl-a-re').innerText}`
+  });
+
+  // 5. Reference preset requesting drift=true results in drift=false
+  app.loadPresetObject({
+    mode: "reference",
+    drift: { evolving: true, time: 543.21 }
+  });
+  tests.push({
+    name: "5. Reference preset requesting drift=true results in drift=false",
+    passed: math.evolving === false && math.time === 0 && isCanonicalConradi(),
+    details: `evolving=${math.evolving}, time=${math.time}`
+  });
+
+  // 6. Reference preset containing pointer/shock state cannot perturb formula
+  app.loadPresetObject({
+    mode: "reference",
+    pointerTarget: { r: 0.9, i: -0.9 },
+    shockMag: 1.0
+  });
+  math.setPointer(1.0, 1.0);
+  math.injectShock(1.0, 0.0);
+  math.update(0.1, 1.65);
+  tests.push({
+    name: "6. Reference preset containing pointer/shock state cannot perturb formula",
+    passed: isCanonicalConradi(),
+    details: `ptrCurrent=${math.pointerCurrent.format()}, shockMag=${math.shockMag}, a=${math.a.format()}`
+  });
+
+  // 7. Explore presets still restore their custom parameters correctly
+  app.loadPresetObject({
+    name: "Custom Explore",
+    mode: "explore",
+    symmetry: 24,
+    coefficients: {
+      a: { r: -0.710, i: 0.420 },
+      b: { r: -0.395, i: 0.010 },
+      c: { r: 7.350, i: 0.650 },
+      d: { r: 1.650, i: 0.820 }
+    },
+    userOffsets: {
+      a: { r: 0.20, i: -0.10 },
+      b: { r: 0, i: 0 },
+      c: { r: 0, i: 0 },
+      d: { r: 0, i: 0 }
+    },
+    drift: { evolving: true, time: 15.0 },
+    palette: "amethyst"
+  });
+  const expPass = (
+    app.mode === 'explore' &&
+    math.mode === 'explore' &&
+    math.n === 24 &&
+    Math.abs(math.baseA.r - (-0.710)) < 1e-4 &&
+    Math.abs(math.userOffsetA.r - 0.20) < 1e-4 &&
+    math.evolving === true &&
+    renderer.activePalette === 'amethyst' &&
+    document.getElementById('lbl-a-re').innerText === '0.20'
+  );
+  tests.push({
+    name: "7. Explore presets still restore their custom parameters correctly",
+    passed: expPass,
+    details: `mode=${app.mode}, n=${math.n}, a=${math.a.format()}, offsetA=${math.userOffsetA.format()}, evolving=${math.evolving}`
+  });
+
+  // 8. Saved Explore -> load -> return Reference restores exact canonical math
+  app.setMode('explore');
+  math.setSymmetry(20);
+  math.setCoefficientOffset('a', 0.40, -0.20);
+  const userSaved = app.getPresetObject('My Saved Explore');
+  app.loadPresetObject(userSaved);
+  const midOk = (app.mode === 'explore' && math.n === 20 && Math.abs(math.userOffsetA.r - 0.40) < 1e-4);
+  app.setMode('reference');
+  tests.push({
+    name: "8. Saved Explore -> load -> return Reference restores exact canonical math",
+    passed: midOk && isCanonicalConradi() && app.mode === 'reference' && math.mode === 'reference',
+    details: `midOk=${midOk}, finalCanonical=${isCanonicalConradi()}, mode=${app.mode}`
+  });
+
+  // 9. UI mode and MathSystem mode cannot disagree after preset loading (Adversarial A, B, C, D)
+  // Adversarial Case A:
+  app.loadPresetObject({
+    mode: "reference",
+    symmetry: 32,
+    coefficients: { a: {r: 5, i: 5}, b: {r: 6, i: 6}, c: {r: 7, i: 7}, d: {r: 8, i: 8} }
+  });
+  const advA = (app.mode === 'reference' && math.mode === 'reference' && isCanonicalConradi());
+
+  // Adversarial Case B:
+  app.loadPresetObject({ mode: "reference", symmetry: 3 });
+  const advB = (app.mode === 'reference' && math.mode === 'reference' && isCanonicalConradi());
+
+  // Adversarial Case C: Explore preset with mode changed to reference
+  const storm = CURATED_PRESETS.find(p => p.name.includes('Storm'));
+  const advCPreset = JSON.parse(JSON.stringify(storm));
+  advCPreset.mode = "reference";
+  app.loadPresetObject(advCPreset);
+  const advC = (app.mode === 'reference' && math.mode === 'reference' && isCanonicalConradi());
+
+  // Adversarial Case D: Saved Reference with stale coefficients
+  const advDPreset = {
+    mode: "reference",
+    symmetry: 28,
+    coefficients: { a: {r: -0.99, i: 0.99}, b: {r: -0.99, i: 0.99}, c: {r: 9.99, i: 9.99}, d: {r: 9.99, i: 9.99} },
+    userOffsets: { a: {r: 0.8, i: 0.8} }
+  };
+  app.loadPresetObject(advDPreset);
+  const advD = (app.mode === 'reference' && math.mode === 'reference' && isCanonicalConradi());
+
+  const uiConsistent = (
+    document.getElementById('btn-mode-reference').classList.contains('active') &&
+    !document.getElementById('btn-mode-explore').classList.contains('active')
+  );
+
+  tests.push({
+    name: "9. UI mode and MathSystem mode cannot disagree after preset loading",
+    passed: advA && advB && advC && advD && uiConsistent,
+    details: `advA=${advA}, advB=${advB}, advC=${advC}, advD=${advD}, uiConsistent=${uiConsistent}`
+  });
+
+  // Post results
+  fetch('/test_report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tests)
+  }).catch(e => console.error(e));
+}
+
+window.addEventListener('load', runTests);
+</script>
+</body>
+</html>

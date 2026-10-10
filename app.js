@@ -1255,8 +1255,24 @@ export class App {
 
   loadPresetObject(preset) {
     if (!preset) return;
-    const targetMode = preset.mode || 'explore';
-    this.setMode(targetMode);
+    const targetMode = preset.mode === 'reference' ? 'reference' : 'explore';
+
+    if (targetMode === 'reference') {
+      // Reference Mode wins: canonical parameters are inviolable.
+      // Load non-mathematical safe visual state if present
+      if (preset.rendering) {
+        if (preset.rendering.bloom !== undefined) this.renderer.bloomEnabled = !!preset.rendering.bloom;
+        if (preset.rendering.viewMode !== undefined) this.renderer.viewMode = preset.rendering.viewMode;
+        if (preset.rendering.tier) this.renderer.adaptive.setMode(preset.rendering.tier);
+      }
+      // Authoritative Reference reset establishes canonical math, framing, palette, sliders, and UI state LAST
+      this.setMode('reference');
+      this.showToast(`Loaded preset: ${preset.name || 'Simone Conradi (Reference Artwork)'}`);
+      return;
+    }
+
+    // MODE: EXPLORE
+    this.setMode('explore');
 
     // Restore mathematical parameters (coefficients, symmetry, offsets, drift)
     this.math.fromJSON(preset);
@@ -1270,7 +1286,7 @@ export class App {
 
     // Explicitly restore drift state if provided
     if (preset.drift && preset.drift.evolving !== undefined) {
-      this.math.evolving = (targetMode === 'reference') ? false : !!preset.drift.evolving;
+      this.math.evolving = !!preset.drift.evolving;
     }
 
     if (preset.palette) {
@@ -1293,6 +1309,7 @@ export class App {
 
     this.renderer.clearAccumulation();
     this.updateModeUI();
+    this.updateReadout();
     this.showToast(`Loaded preset: ${preset.name || 'Unnamed'}`);
   }
 
