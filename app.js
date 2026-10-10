@@ -142,6 +142,9 @@ export class App {
     this.math = new MathSystem('explore');
     this.renderer = new MobiusRenderer(this.canvas);
     this.contextLost = false;
+    this._contextRecoveryGeneration = 0;
+    this._contextRecoveryAttempts = 0;
+    this._contextRecoveryTimer = null;
     this._exportTask = null;
     // These belong to App, not the replaceable renderer. Install exactly once.
     this.canvas.addEventListener('webglcontextlost', event => this.onContextLost(event));
@@ -1429,6 +1432,10 @@ export class App {
 
   onContextLost(event) {
     event.preventDefault();
+    clearTimeout(this._contextRecoveryTimer);
+    this._contextRecoveryTimer = null;
+    this._contextRecoveryAttempts = 0;
+    this._contextRecoveryGeneration++;
     if (this.contextLost) return;
     this.contextLost = true;
     this._exportInterrupted = this._exportInterrupted || this.isExporting;
@@ -1439,13 +1446,18 @@ export class App {
 
   async onContextRestored() {
     if (!this.contextLost || this._restoringContext) return;
+    clearTimeout(this._contextRecoveryTimer);
+    this._contextRecoveryTimer = null;
+    const generation = this._contextRecoveryGeneration;
+    const attempt = ++this._contextRecoveryAttempts;
+    const old = this.renderer;
+    let rebuilt;
     this._restoringContext = true;
     try {
       // Export finally blocks restore the JS session (especially Master from Explore).
       // Let them finish before reading state or replacing the retired renderer.
       await this._exportTask;
-      const old = this.renderer;
-      if (old.gl.isContextLost()) return;
+      if (generation !== this._contextRecoveryGeneration || old.gl.isContextLost()) return;
       const state = {};
       for (const key of ['zoom', 'targetZoom', 'viewCenter', 'targetViewCenter',
         'activePalette', 'bloomEnabled', 'viewMode', 'gain', 'showRawTrajectories',
@@ -1455,7 +1467,7 @@ export class App {
       }
       // Constructor recreates shaders, buffers, VAOs, FBOs, textures and query pool.
       // Never copy GL handles, timing measurements or accumulation from the old instance.
-      const rebuilt = new MobiusRenderer(this.canvas);
+      rebuilt = new MobiusRenderer(this.canvas, { deferCommit: true });
       rebuilt.setParticleCount(state.numParticles);
       Object.assign(rebuilt, state);
       rebuilt.adaptive.setMode(old.adaptive.mode);
@@ -1472,6 +1484,9 @@ export class App {
       this.rafDeltas = [];
       this.onResize();
       rebuilt.clearAccumulation();
+      rebuilt.assertContextAvailable();
+      rebuilt.commitInitialization();
+      this._contextRecoveryAttempts = 0;
       this.hideExportDisplayHold();
       this.showToast(this._exportInterrupted
         ? 'Export interrupted because the graphics context was lost. The renderer recovered; please try again.'
@@ -1481,8 +1496,25 @@ export class App {
       // animate() already owns the single recursive RAF chain. Do not start another.
     } catch (error) {
       console.error('Graphics recovery failed:', error);
+      rebuilt?.discardInitialization();
+      this.renderer = old;
+      window.__renderer = old;
+      window.__profiler = old.profiler;
       this.contextLost = true;
-      this.showToast('Graphics recovery failed. Waiting for graphics context restoration.');
+      this.hideExportDisplayHold();
+      if (generation !== this._contextRecoveryGeneration || old.gl.isContextLost()) return;
+      const delay = [250, 750, 1500][attempt - 1];
+      if (delay !== undefined) {
+        this.showToast('Graphics recovery failed — retrying…');
+        this._contextRecoveryTimer = setTimeout(() => {
+          this._contextRecoveryTimer = null;
+          if (generation === this._contextRecoveryGeneration && this.contextLost && !old.gl.isContextLost()) {
+            this.onContextRestored();
+          }
+        }, delay);
+      } else {
+        this.showToast('Graphics recovery failed after several attempts.');
+      }
     } finally {
       this._restoringContext = false;
     }

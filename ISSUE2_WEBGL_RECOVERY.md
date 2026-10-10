@@ -117,3 +117,47 @@ errors, one RAF chain, unchanged listeners, and no accumulating timers/waiters.
 
 Hardware/OS-induced GPU resets were not separately simulated; this suite uses the
 browser's actual context loss/restoration extension on the production page.
+
+## Follow-up: failed renderer rebuild after browser restoration
+
+Baseline `4acec06377f5919f84910d9eaff4f2bb65763978` reproduced the additional hole.
+After a real loss/restoration, the first replacement's `initTextures()` was forced
+to throw once. After another 1.5 seconds: browser context lost=false, app context
+lost=true, rebuild attempts=1, restore events=1, old renderer retired=true, normal
+render attempts=0, RAF probe=1. There was no automatic second restoration event.
+
+App now retries a failed rebuild after 250 ms, 750 ms and 1500 ms, for at most four
+attempts per loss/restoration cycle. Each timer verifies the browser context is
+healthy and the recovery generation is current. A new loss cancels the timer,
+resets the bounded budget and defers reconstruction to the next real restoration.
+Exhaustion stops with a failure toast rather than looping. Recovery still owns no
+RAF chain and installs no event handlers.
+
+Each attempt constructs a new renderer. Construction/recovery allocations are
+tracked until initialization commits, including local shader/buffer handles and
+profiler queries. A throwing constructor deletes its partial resources while the
+context is healthy. Failure during subsequent resize/setup also discards the new
+instance and restores the retired renderer reference for the next clean attempt.
+The tracker is dropped after success and never grows with live rendering/exports.
+Session state and export interruption remain intact across attempts; exports do
+not restart and the display hold remains cleared.
+
+Follow-up files: `app.js`, `renderer.js`, `profiler.js` (query allocation tracking
+only), `test_issue2_rebuild_retry.html`, `issue2_test_instrumentation.js`,
+`test_issue2_context_loss.html` (imports shared test instrumentation), and this
+handoff. No quality, mathematical, resolution or UI architecture changes.
+
+The follow-up suite passes **93/93 checks**. In both Reference and Explore it tests
+one failure, two consecutive failures, a new loss during backoff, bounded retry
+exhaustion followed by a new lifecycle, and a failure during recovery resize. It
+checks clean instances, released partial resources, no GL commands or rendering
+while waiting, one RAF chain, unchanged handlers, bounded timers, exact recovered
+session state and visible artwork after recovery.
+
+Run the follow-up alongside the complete original Issue 2 validation:
+
+```powershell
+python run_browser_regressions.py test_issue2_rebuild_retry.html test_issue2_context_loss.html test_issue1_reference_invariant.html test_modes_and_exports.html test_reference_master.html test_export_display_hold.html test_export_failure_and_edge_cases.html --timeout 240
+```
+
+Combined result: **270/270 checks passed** (93 follow-up + 177 original checks).

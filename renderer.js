@@ -57,8 +57,9 @@ export const PALETTES = {
 };
 
 export class MobiusRenderer {
-  constructor(canvas) {
+  constructor(canvas, { deferCommit = false } = {}) {
     this.canvas = canvas;
+    this._initialResources = [];
     this.contextLost = false;
     this.isExporting = false;
     this._interruptExport = null;
@@ -75,60 +76,91 @@ export class MobiusRenderer {
       throw new Error('WebGL2 is not supported by this browser.');
     }
 
-    const gl = this.gl;
-    this.extFloat = gl.getExtension('EXT_color_buffer_float');
-    this.extFloatBlend = gl.getExtension('EXT_float_blend');
-    this.extLinear = gl.getExtension('OES_texture_float_linear');
+    try {
+      const gl = this.gl;
+      this.extFloat = gl.getExtension('EXT_color_buffer_float');
+      this.extFloatBlend = gl.getExtension('EXT_float_blend');
+      this.extLinear = gl.getExtension('OES_texture_float_linear');
 
-    // Robust floating-point format detection (RGBA32F native -> RGBA16F fallback -> RGBA8 fallback)
-    this.floatCap = this.detectFloatCapability();
-    this.floatFormat = this.floatCap.name;
-    this.floatCapability = this.floatCap.label;
+      // Robust floating-point format detection (RGBA32F native -> RGBA16F fallback -> RGBA8 fallback)
+      this.floatCap = this.detectFloatCapability();
+      this.floatFormat = this.floatCap.name;
+      this.floatCapability = this.floatCap.label;
 
-    // Parse URL overrides if any
-    const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
-    this.particlesOverride = params && params.has('particles') ? parseInt(params.get('particles'), 10) : null;
-    this.stepsOverride = params && params.has('steps') ? parseInt(params.get('steps'), 10) : null;
+      // Parse URL overrides if any
+      const params = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+      this.particlesOverride = params && params.has('particles') ? parseInt(params.get('particles'), 10) : null;
+      this.stepsOverride = params && params.has('steps') ? parseInt(params.get('steps'), 10) : null;
 
-    // Adaptive Quality Manager
-    this.adaptive = new AdaptiveManager(this);
+      // Adaptive Quality Manager
+      this.adaptive = new AdaptiveManager(this);
 
-    // Conservative production startup: starts at 75,000 particles x 8 steps (or Low tier)
-    // Preallocate maximum practical VBO capacity once to eliminate per-frame memory churn & black flashes
-    const initialParticles = this.particlesOverride !== null ? this.particlesOverride : 75000;
-    this.maxParticleCapacity = Math.max(600000, initialParticles);
-    this.numParticles = initialParticles;
-    this.stepsPerFrame = this.stepsOverride !== null ? this.stepsOverride : 8;
+      // Conservative production startup: starts at 75,000 particles x 8 steps (or Low tier)
+      // Preallocate maximum practical VBO capacity once to eliminate per-frame memory churn & black flashes
+      const initialParticles = this.particlesOverride !== null ? this.particlesOverride : 75000;
+      this.maxParticleCapacity = Math.max(600000, initialParticles);
+      this.numParticles = initialParticles;
+      this.stepsPerFrame = this.stepsOverride !== null ? this.stepsOverride : 8;
 
-    // View state: zoom 1.65 displays full organism with calm central void and margins
-    this.zoom = 1.65;
-    this.targetZoom = 1.65;
-    this.viewCenter = [0.0, 0.0];
-    this.targetViewCenter = [0.0, 0.0];
-    this.aspect = 1.0;
+      // View state: zoom 1.65 displays full organism with calm central void and margins
+      this.zoom = 1.65;
+      this.targetZoom = 1.65;
+      this.viewCenter = [0.0, 0.0];
+      this.targetViewCenter = [0.0, 0.0];
+      this.aspect = 1.0;
 
-    // Accumulation & Progressive Refinement settings
-    this.accumulationFrames = 0;
-    this.persistence = 0.9985;
-    this.currentPersistence = 0.9985;
-    this.gain = 4.0;
-    this.bloomEnabled = true;
-    this.viewMode = 0; // 0: Final HDR, 1: No-Bloom, 2: Raw Trajectories
-    this.showRawTrajectories = false;
-    this.respawnRequested = false;
+      // Accumulation & Progressive Refinement settings
+      this.accumulationFrames = 0;
+      this.persistence = 0.9985;
+      this.currentPersistence = 0.9985;
+      this.gain = 4.0;
+      this.bloomEnabled = true;
+      this.viewMode = 0; // 0: Final HDR, 1: No-Bloom, 2: Raw Trajectories
+      this.showRawTrajectories = false;
+      this.respawnRequested = false;
 
-    // Frame statistics
-    this.fps = 60;
-    this.frameCount = 0;
-    this.lastTime = performance.now();
-    this.fpsUpdateTime = performance.now();
+      // Frame statistics
+      this.fps = 60;
+      this.frameCount = 0;
+      this.lastTime = performance.now();
+      this.fpsUpdateTime = performance.now();
 
-    this.initShaders();
-    this.initBuffers();
-    this.initTextures();
+      this.initShaders();
+      this.initBuffers();
+      this.initTextures();
 
-    // Development & diagnostic profiler
-    this.profiler = new Profiler(this);
+      // Development & diagnostic profiler
+      this.profiler = new Profiler(this);
+      if (!deferCommit) this.commitInitialization();
+    } catch (error) {
+      this.discardInitialization();
+      throw error;
+    }
+  }
+
+  createResource(kind, ...args) {
+    const resource = this.gl['create' + kind](...args);
+    if (!resource) throw new Error('Unable to allocate WebGL ' + kind);
+    this._initialResources?.push([kind, resource]);
+    return resource;
+  }
+
+  commitInitialization() {
+    // Track only construction/recovery allocations, never a live session's exports.
+    this._initialResources = null;
+  }
+
+  discardInitialization() {
+    this.contextLost = true;
+    if (!this.gl.isContextLost()) {
+      this.gl.useProgram(null);
+      this.gl.bindVertexArray(null);
+      this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+      for (const [kind, resource] of (this._initialResources || []).reverse()) {
+        this.gl['delete' + kind](resource);
+      }
+    }
+    this._initialResources = null;
   }
 
   isContextUnavailable() {
@@ -235,10 +267,10 @@ export class MobiusRenderer {
       if (requireFloatBlend && !this.extFloatBlend) {
         return false;
       }
-      const tex = gl.createTexture();
+      const tex = this.createResource('Texture');
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, 4, 4, 0, gl.RGBA, type, null);
-      const fbo = gl.createFramebuffer();
+      const fbo = this.createResource('Framebuffer');
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
       const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
@@ -618,7 +650,7 @@ export class MobiusRenderer {
     // Compile & link Transform Feedback program
     const simV = this.createShader(gl.VERTEX_SHADER, simVs);
     const simF = this.createShader(gl.FRAGMENT_SHADER, simFs);
-    this.simProg = gl.createProgram();
+    this.simProg = this.createResource('Program');
     gl.attachShader(this.simProg, simV);
     gl.attachShader(this.simProg, simF);
     gl.transformFeedbackVaryings(this.simProg, ['v_state'], gl.SEPARATE_ATTRIBS);
@@ -682,7 +714,7 @@ export class MobiusRenderer {
 
   createShader(type, src) {
     const gl = this.gl;
-    const shader = gl.createShader(type);
+    const shader = this.createResource('Shader', type);
     gl.shaderSource(shader, src);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
@@ -697,7 +729,7 @@ export class MobiusRenderer {
     const gl = this.gl;
     const vs = this.createShader(gl.VERTEX_SHADER, vsSrc);
     const fs = this.createShader(gl.FRAGMENT_SHADER, fsSrc);
-    const prog = gl.createProgram();
+    const prog = this.createResource('Program');
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.linkProgram(prog);
@@ -722,9 +754,9 @@ export class MobiusRenderer {
        1,  1
     ]);
 
-    this.quadVao = gl.createVertexArray();
+    this.quadVao = this.createResource('VertexArray');
     gl.bindVertexArray(this.quadVao);
-    const quadVbo = gl.createBuffer();
+    const quadVbo = this.createResource('Buffer');
     gl.bindBuffer(gl.ARRAY_BUFFER, quadVbo);
     gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
@@ -742,9 +774,9 @@ export class MobiusRenderer {
       initData[i * 4 + 3] = (Math.random() * 0xFFFFFF) >>> 0;
     }
 
-    this.simVbos = [gl.createBuffer(), gl.createBuffer()];
-    this.simVaos = [gl.createVertexArray(), gl.createVertexArray()];
-    this.splatVaos = [gl.createVertexArray(), gl.createVertexArray()];
+    this.simVbos = [this.createResource('Buffer'), this.createResource('Buffer')];
+    this.simVaos = [this.createResource('VertexArray'), this.createResource('VertexArray')];
+    this.splatVaos = [this.createResource('VertexArray'), this.createResource('VertexArray')];
 
     for (let i = 0; i < 2; i++) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.simVbos[i]);
@@ -768,9 +800,9 @@ export class MobiusRenderer {
     this.rawCurveSteps = 64;
     this.rawVerts = new Float32Array(this.numRawCurves * this.rawCurveSteps * 3);
 
-    this.rawVao = gl.createVertexArray();
+    this.rawVao = this.createResource('VertexArray');
     gl.bindVertexArray(this.rawVao);
-    this.rawVbo = gl.createBuffer();
+    this.rawVbo = this.createResource('Buffer');
     gl.bindBuffer(gl.ARRAY_BUFFER, this.rawVbo);
     gl.bufferData(gl.ARRAY_BUFFER, this.rawVerts.byteLength, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(0);
@@ -822,7 +854,7 @@ export class MobiusRenderer {
 
   createFloatTexture(width, height, data) {
     const gl = this.gl;
-    const tex = gl.createTexture();
+    const tex = this.createResource('Texture');
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texImage2D(
       gl.TEXTURE_2D, 0,
@@ -840,7 +872,7 @@ export class MobiusRenderer {
 
   createFbo(tex) {
     const gl = this.gl;
-    const fbo = gl.createFramebuffer();
+    const fbo = this.createResource('Framebuffer');
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);

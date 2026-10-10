@@ -1,0 +1,168 @@
+<!doctype html><meta charset="utf-8"><title>Issue 2 failed rebuild recovery</title>
+<pre id="results">Running...</pre>
+<script type="module">
+const results = [];
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const check = (name, passed, details = '') => results.push({name,passed:!!passed,details});
+async function until(predicate, label, timeout = 15000) {
+  const deadline = performance.now() + timeout;
+  while (!predicate()) {
+    if (performance.now() > deadline) throw Error('Timed out: ' + label);
+    await sleep(20);
+  }
+}
+import { instrumentation } from './issue2_test_instrumentation.js';
+const html = await (await fetch('./index.html')).text();
+try {
+  for (const mode of ['reference','explore']) {
+    for (const scenario of ['one failure','two failures','loss while waiting','bounded exhaustion','resize failure']) {
+      const label = mode + ': ' + scenario;
+      const frame = document.createElement('iframe'); frame.width = 640; frame.height = 480;
+      frame.srcdoc = html.replace('<head>', '<head>' + instrumentation);
+      document.body.append(frame);
+      await new Promise(resolve => frame.onload = resolve);
+      const w = frame.contentWindow, app = w.__app, math = app.math, old = app.renderer, gl = old.gl;
+      await until(() => old.accumulationFrames > 6, label + ' initial frames');
+      app.isTabHidden = true;
+      if (mode === 'explore') {
+        app.setMode('explore'); math.setSymmetry(24);
+        math.baseA.r = -0.82; math.baseB.i = 0.1;
+        math.userOffsetA.r = 0.035; math.userOffsetD.i = -0.025;
+        math.evolving = true; math.time = 8.25; math.update(0,2.4);
+        Object.assign(old,{zoom:2.4,targetZoom:2.4,viewCenter:[0.03,-0.02],
+          targetViewCenter:[0.03,-0.02],activePalette:'amethyst',bloomEnabled:false,viewMode:1,gain:3.2});
+        old.adaptive.setMode('high');
+      }
+      function snapshot() {
+        const r = app.renderer;
+        return JSON.stringify({mode:app.mode, math: Object.fromEntries([
+          'mode','n','baseA','baseB','baseC','baseD','a','b','c','d','userOffsetA','userOffsetB',
+          'userOffsetC','userOffsetD','evolving','time','pointerTarget','pointerCurrent','shockMag',
+          'shockPhase','pointerPerturbationEnabled','shockEnabled'].map(k => [k,math[k]])),
+          renderer: Object.fromEntries(['zoom','targetZoom','viewCenter','targetViewCenter',
+            'activePalette','bloomEnabled','viewMode','gain','particlesOverride','stepsOverride']
+            .map(k => [k,r[k]])),quality:[r.adaptive.mode,r.adaptive.currentTierKey]});
+      }
+      const before = snapshot(), audit = w.__audit;
+      let losses = 0, restores = 0, renderAttempts = 0;
+      app.canvas.addEventListener('webglcontextlost', () => losses++);
+      app.canvas.addEventListener('webglcontextrestored', () => restores++);
+      const handlers = JSON.stringify(audit.handlers);
+      const Renderer = old.constructor;
+      const initTextures = Renderer.prototype.initTextures, resize = Renderer.prototype.resize;
+      const createResource = Renderer.prototype.createResource, render = Renderer.prototype.render;
+      const commitInitialization = Renderer.prototype.commitInitialization;
+      const attempts = [], allocated = new Map();
+      const failures = scenario === 'two failures' ? 2 : scenario === 'bounded exhaustion' ? 4 : 1;
+      Renderer.prototype.createResource = function(...args) {
+        const resource = createResource.apply(this,args);
+        if (!allocated.has(this)) allocated.set(this,[]);
+        allocated.get(this).push([args[0],resource]); return resource;
+      };
+      Renderer.prototype.initTextures = function() {
+        attempts.push({renderer:this,time:performance.now()});
+        initTextures.call(this);
+        if (scenario !== 'resize failure' && attempts.length <= failures) {
+          this.__failed = true; throw Error('Forced renderer reconstruction failure ' + attempts.length);
+        }
+      };
+      Renderer.prototype.resize = function(...args) {
+        resize.apply(this,args);
+        if (scenario === 'resize failure' && attempts.length === 1 && this !== old) {
+          this.__failed = true; throw Error('Forced recovery resize allocation failure');
+        }
+      };
+      Renderer.prototype.render = function(...args) {
+        if (app.contextLost || this.__failed || this === old) renderAttempts++;
+        return render.apply(this,args);
+      };
+      Renderer.prototype.commitInitialization = function() {
+        commitInitialization.call(this);
+        // Observe exact recovered state before the next RAF advances Explore drift.
+        app.isTabHidden = true;
+      };
+      const ext = gl.getExtension('WEBGL_lose_context');
+      if (!ext) throw Error('WEBGL_lose_context unavailable');
+      ext.loseContext();
+      await until(() => losses === 1 && app.contextLost, label + ' loss');
+      // Keep RAF active while recovery is paused, rather than relying on hidden-tab guards.
+      app.isTabHidden = false;
+      ext.restoreContext();
+      await until(() => attempts.length === 1 && !app._restoringContext, label + ' first failure');
+      check(label + ': healthy context schedules retry', !gl.isContextLost() && app.contextLost &&
+        app._contextRecoveryTimer !== null && app.renderer === old && !app.displayHoldActive);
+      const commands = audit.glCommands;
+      await sleep(70);
+      check(label + ': no broken rendering or GL calls while waiting',
+        renderAttempts === 0 && audit.glCommands === commands && audit.pending.size === 1 &&
+        audit.timers.size <= 2 && JSON.stringify(audit.handlers) === handlers);
+
+      if (scenario === 'loss while waiting') {
+        ext.loseContext();
+        await until(() => losses === 2, label + ' second loss');
+        check(label + ': second loss cancels retry', app._contextRecoveryTimer === null);
+        await sleep(400);
+        check(label + ': no reconstruction until browser restores again', attempts.length === 1 && gl.isContextLost());
+        ext.restoreContext();
+      }
+      if (scenario === 'bounded exhaustion') {
+        await until(() => attempts.length === 4 && !app._restoringContext, label + ' retry limit');
+        await sleep(1700);
+        check(label + ': bounded attempts stop without spinning', attempts.length === 4 &&
+          app.contextLost && app._contextRecoveryTimer === null && audit.pending.size === 1 &&
+          audit.timers.size <= 1 && renderAttempts === 0);
+        // A real new loss/restoration starts a new bounded recovery cycle.
+        ext.loseContext();
+        await until(() => losses === 2, label + ' new cycle loss');
+        ext.restoreContext();
+      }
+      // Freeze in the restore handler before the first resumed frame to compare session state.
+      await until(() => !app.contextLost && app.renderer !== old, label + ' recovered');
+      app.isTabHidden = true;
+      const expectedAttempts = failures + 1;
+      check(label + ': clean retry succeeds', attempts.length === expectedAttempts &&
+        new Set(attempts.map(a => a.renderer)).size === expectedAttempts &&
+        app.renderer === attempts.at(-1).renderer && gl.isProgram(app.renderer.simProg) &&
+        app.renderer._initialResources === null && !app.renderer.contextLost);
+      check(label + ': failed attempts release allocations', attempts.filter(a => a.renderer.__failed).every(a =>
+        a.renderer.contextLost && a.renderer._initialResources === null && allocated.get(a.renderer)
+          .every(([kind,resource]) => !gl['is'+kind](resource))));
+      check(label + ': no duplicate lifecycle events', losses === restores && restores ===
+        (['loss while waiting','bounded exhaustion'].includes(scenario) ? 2 : 1));
+      check(label + ': single RAF, handlers and bounded timers', audit.pending.size === 1 &&
+        audit.timers.size <= 1 && JSON.stringify(audit.handlers) === handlers &&
+        app._contextRecoveryTimer === null && app._contextRecoveryAttempts === 0 && renderAttempts === 0);
+      check(label + ': session preserved', snapshot() === before);
+      if (mode === 'reference') {
+        check(label + ': Reference remains canonical', math.mode === 'reference' && math.n === 16 &&
+          math.a.r === -.755 && math.a.i === .330 && math.b.r === -.376 && math.b.i === .026 &&
+          math.c.r === 6.401 && math.c.i === .803 && math.d.r === 1.520 && math.d.i === .840 &&
+          !math.evolving && math.time === 0 && math.shockMag === 0 && math.shockPhase === 0 &&
+          ['userOffsetA','userOffsetB','userOffsetC','userOffsetD','pointerTarget','pointerCurrent']
+            .every(k => math[k].r === 0 && math[k].i === 0) &&
+          app.renderer.zoom === 1.65 && app.renderer.activePalette === 'cobalt');
+      }
+      if (scenario === 'two failures') {
+        check(label + ': retries back off', attempts[1].time-attempts[0].time >= 240 &&
+          attempts[2].time-attempts[1].time >= 740);
+      }
+      app.isTabHidden = false;
+      await until(() => app.renderer.accumulationFrames > 18, label + ' live frames');
+      const r = app.renderer; r.presentCurrentFrame();
+      const pixels = new Uint8Array(app.canvas.width*app.canvas.height*4);
+      gl.readPixels(0,0,app.canvas.width,app.canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+      let min = 255, max = 0;
+      for(let i=2;i<pixels.length;i+=4) { min=Math.min(min,pixels[i]); max=Math.max(max,pixels[i]); }
+      check(label + ': canvas renders without reload', max > min && renderAttempts === 0 &&
+        !app.isExporting && !app.renderer.isExporting && !app.displayHoldActive && audit.downloads === 0 &&
+        audit.pending.size === 1 && audit.lostGL.length === 0);
+      Renderer.prototype.initTextures = initTextures; Renderer.prototype.resize = resize;
+      Renderer.prototype.createResource = createResource; Renderer.prototype.render = render;
+      Renderer.prototype.commitInitialization = commitInitialization;
+      frame.remove();
+    }
+  }
+} catch (error) { check('Runtime',false,error.stack); }
+document.querySelector('#results').textContent = JSON.stringify(results,null,2);
+await fetch('/test_report',{method:'POST',body:JSON.stringify(results)});
+</script>

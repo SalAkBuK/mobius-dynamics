@@ -26,11 +26,11 @@ export class Profiler {
     if (this.supported) {
       for (let i = 0; i < this.ringSize; i++) {
         const slot = {
-          decay: this.gl.createQuery(),
+          decay: renderer.createResource('Query'),
           sim: [],
           splat: [],
-          bloom: this.gl.createQuery(),
-          post: this.gl.createQuery(),
+          bloom: renderer.createResource('Query'),
+          post: renderer.createResource('Query'),
           active: false,
           steps: 0,
           bloomActive: false,
@@ -38,8 +38,8 @@ export class Profiler {
           metrics: {}
         };
         for (let s = 0; s < this.maxSteps; s++) {
-          slot.sim.push(this.gl.createQuery());
-          slot.splat.push(this.gl.createQuery());
+          slot.sim.push(renderer.createResource('Query'));
+          slot.splat.push(renderer.createResource('Query'));
         }
         this.ring.push(slot);
       }
