@@ -1,0 +1,193 @@
+<!doctype html><meta charset="utf-8"><title>Issue 4 Standard export particle isolation</title>
+<pre id="results">Running exact GPU state checks...</pre>
+<script type="module">
+import { instrumentation } from './issue2_test_instrumentation.js';
+import { exportFixtures } from './issue4_export_fixtures.js';
+const baseline=new URLSearchParams(location.search).has('baseline');
+const results=[],sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+let diagnostics;
+const check=(name,passed,details='')=>results.push({name,passed:!!passed,details});
+const equal=(a,b)=>a.length===b.length&&a.every((value,i)=>value===b[i]);
+const bytes=a=>new Uint8Array(a.buffer,a.byteOffset,a.byteLength);
+async function hash(a){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',a))].map(v=>v.toString(16).padStart(2,'0')).join('');}
+async function until(fn,label,timeout=20000){const end=performance.now()+timeout;while(!fn()){if(performance.now()>end)throw Error(label);await sleep(20);}}
+try {
+  const frame=document.createElement('iframe');frame.width=160;frame.height=120;
+  frame.srcdoc=(await(await fetch('./index.html')).text()).replace('<head>','<head>'+instrumentation);
+  document.body.append(frame);await new Promise(resolve=>frame.onload=resolve);
+  const w=frame.contentWindow,app=w.__app,math=app.math,audit=w.__audit;
+  diagnostics=audit;audit.consoleErrors=[];
+  const consoleError=w.console.error.bind(w.console);
+  w.console.error=(...args)=>{audit.consoleErrors.push(args.map(v=>v?.stack||String(v)).join(' '));consoleError(...args);};
+  app.isTabHidden=true;app.customDpr=1;app.onResize();
+  let r=app.renderer;const gl=r.gl;
+  r.profiler.enabled=false;
+  audit.errors=[];audit.traceError=true;audit.phase='issue4';
+  const handlers=JSON.stringify(audit.handlers),resources={};
+  for(const kind of ['Buffer','Texture','Framebuffer','VertexArray']){
+    const live=new Set();resources[kind]=live;
+    const create=gl['create'+kind].bind(gl),remove=gl['delete'+kind].bind(gl);
+    gl['create'+kind]=(...args)=>{const value=create(...args);if(value)live.add(value);return value;};
+    gl['delete'+kind]=value=>{live.delete(value);return remove(value);};
+  }
+  let sim=0,splat=0,program;
+  const begin=gl.beginTransformFeedback.bind(gl),use=gl.useProgram.bind(gl),draw=gl.drawArrays.bind(gl);
+  gl.beginTransformFeedback=(...args)=>{sim++;return begin(...args);};
+  gl.useProgram=value=>{program=value;return use(value);};
+  gl.drawArrays=(...args)=>{if(program===r.splatProg)splat++;return draw(...args);};
+  const fields=['vboCur','respawnRequested','accumReadIdx','accumulationFrames','referenceDeposits',
+    'referenceSettled','referenceAutoDpp','_referenceDevelopmentKey','_referencePresentationKey',
+    'accumWidth','accumHeight','bloomWidth','bloomHeight','aspect','zoom','targetZoom','viewCenter',
+    'targetViewCenter','activePalette','bloomEnabled','viewMode','gain','numParticles','stepsPerFrame',
+    'particlesOverride','stepsOverride','currentPersistence'];
+  function metadata(){return JSON.stringify({appMode:app.mode,math,
+    renderer:Object.fromEntries(fields.map(k=>[k,r[k]])),
+    quality:Object.fromEntries(Object.entries(r.adaptive).filter(([k,v])=>k!=='renderer'&&typeof v!=='function'))});}
+  function vbos(){return r.simVbos.map(buffer=>{const a=new Uint8Array(r.maxParticleCapacity*16);
+    gl.bindBuffer(gl.COPY_READ_BUFFER,buffer);gl.getBufferSubData(gl.COPY_READ_BUFFER,0,a);
+    gl.bindBuffer(gl.COPY_READ_BUFFER,null);return a;});}
+  function textures(fbos,width,height){return fbos.map(fbo=>{const a=new Float32Array(width*height*4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER,fbo);gl.readPixels(0,0,width,height,gl.RGBA,gl.FLOAT,a);return bytes(a);});}
+  function pixels(){r.presentCurrentFrame();const a=new Uint8Array(app.canvas.width*app.canvas.height*4);
+    gl.readPixels(0,0,app.canvas.width,app.canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,a);return a;}
+  function snapshot(){const s={buffers:vbos(),meta:metadata(),accum:textures(r.accumFbos,r.accumWidth,r.accumHeight),
+    bloom:textures(r.bloomFbos,r.bloomWidth,r.bloomHeight),pointers:[...r.simVbos,...r.simVaos,...r.splatVaos,
+      ...r.accumTextures,...r.accumFbos,...r.bloomTextures,...r.bloomFbos],pixels:pixels(),
+    state:JSON.parse(metadata())};return s;}
+  function restore(s){
+    for(let i=0;i<2;i++){
+      gl.bindBuffer(gl.COPY_WRITE_BUFFER,r.simVbos[i]);gl.bufferSubData(gl.COPY_WRITE_BUFFER,0,s.buffers[i]);
+    }
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER,null);
+    Object.assign(r,s.state.renderer);Object.assign(r.adaptive,s.state.quality);
+    for(const [targets,data,width,height] of [[r.accumTextures,s.accum,r.accumWidth,r.accumHeight],
+      [r.bloomTextures,s.bloom,r.bloomWidth,r.bloomHeight]]){
+      for(let i=0;i<2;i++){
+        gl.bindTexture(gl.TEXTURE_2D,targets[i]);
+        gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,width,height,gl.RGBA,gl.FLOAT,
+          new Float32Array(data[i].buffer,data[i].byteOffset,data[i].byteLength/4));
+      }
+    }
+  }
+  function seed(){for(let k=0;k<2;k++){const a=new Float32Array(r.maxParticleCapacity*4);
+    for(let i=0;i<r.maxParticleCapacity;i++){
+      const angle=(i%4096)*Math.PI/2048;
+      a[i*4]=(.25+(i%97)/500)*Math.cos(angle);a[i*4+1]=(.25+(i%97)/500)*Math.sin(angle);
+      a[i*4+2]=60+(i%31);a[i*4+3]=(Math.imul(i+1,1664525)+1013904223+k*97)&0xffffff;
+    }
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER,r.simVbos[k]);gl.bufferSubData(gl.COPY_WRITE_BUFFER,0,a);
+  }gl.bindBuffer(gl.COPY_WRITE_BUFFER,null);r.vboCur=1;r.respawnRequested=true;}
+  function setup(label){r.adaptive.setMode('potato');app.setMode(label.startsWith('explore')?'explore':'reference');
+    if(label.startsWith('explore')){
+      math.setSymmetry(11);math.setCoefficientOffset('a',.13,-.07);math.setCoefficientOffset('c',-.11,.09);
+      math.evolving=false;math.time=7.25;math.update(0,2.1);
+      r.zoom=r.targetZoom=2.1;r.viewCenter=[.07,-.03];r.targetViewCenter=[.07,-.03];r.setPalette('solar');
+    }
+    for(let i=0;i<3;i++)r.render(math,.016);
+    if(label==='reference-settled'){for(let i=0;!r.referenceSettled&&i<2000;i++)r.render(math,.016);}
+    math.evolving=label==='explore-evolving';seed();
+  }
+  async function png(blob){const bitmap=await w.createImageBitmap(blob),canvas=document.createElement('canvas');
+    canvas.width=bitmap.width;canvas.height=bitmap.height;const ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0);
+    const data=ctx.getImageData(0,0,canvas.width,canvas.height).data;bitmap.close();
+    return {width:canvas.width,height:canvas.height,hash:await hash(data),lit:data.some((v,i)=>i%4!==3&&v>30)};}
+  const options={width:96,height:64,accumFrames:3,filename:'issue4.png'};
+  for(const label of ['explore-paused','explore-evolving','reference-developing','reference-settled']){
+    setup(label);const before=snapshot(),startSim=sim,startSplat=splat;
+    const time=math.time;let frozen=false;
+    const blob=await r.exportPNG(math,{...options,onProgress(pct){if(pct===85)frozen=!math.evolving&&math.time===time;}}),after=snapshot();
+    const changed=before.buffers.map((a,k)=>a.reduce((n,v,i)=>n+(v!==after.buffers[k][i]),0));
+    check(label+': '+(baseline?'pre-fix mutation reproduced':'both full VBOs byte-identical'),
+      baseline?changed.every(n=>n>0):changed.every(n=>n===0),JSON.stringify({bytesPerBuffer:r.maxParticleCapacity*16,changedBytes:changed}));
+    check(label+': all live metadata and GPU handles preserved',before.meta===after.meta&&
+      before.pointers.every((value,i)=>value===after.pointers[i]));
+    check(label+': both accumulation and bloom textures preserved',before.accum.every((a,i)=>equal(a,after.accum[i]))&&
+      before.bloom.every((a,i)=>equal(a,after.bloom[i])));
+    check(label+': cached live pixels identical',equal(before.pixels,after.pixels));
+    check(label+': drift frozen during export with no time advancement',frozen&&math.time===time);
+    const output=await png(blob);
+    check(label+': PNG valid, nonempty, unchanged workload',output.width===96&&output.height===64&&output.lit&&sim-startSim===36&&splat-startSplat===36,JSON.stringify(output));
+    if(!baseline)check(label+': decoded PNG matches pre-fix hash',output.hash===exportFixtures[label],output.hash);
+    check(label+': no temporary GPU resources leaked',Object.values(resources).every(set=>set.size===0));
+  }
+  // Additional post-fix failure, continuation and recovery checks follow here.
+  if(!baseline){
+    setup('explore-paused');r.respawnRequested=false;
+    const initial=snapshot();
+    r.render(math,.016);const control=snapshot();restore(initial);
+    check('Control rollback restores exact starting buffers, textures and pixels',metadata()===initial.meta&&
+      vbos().every((a,i)=>equal(a,initial.buffers[i]))&&equal(pixels(),initial.pixels));
+    await r.exportPNG(math,options);r.render(math,.016);const continued=snapshot();
+    check('One live frame after export matches no-export control: both full VBOs',continued.buffers.every((a,i)=>equal(a,control.buffers[i])));
+    check('One live frame after export matches control: accumulation, bloom and pixels',
+      continued.accum.every((a,i)=>equal(a,control.accum[i]))&&continued.bloom.every((a,i)=>equal(a,control.bloom[i]))&&equal(continued.pixels,control.pixels));
+
+    for(const failure of ['ordinary error','PNG encoding failure','second backup allocation','backup storage allocation']){
+      setup('explore-evolving');const before=snapshot();let error;
+      const toBlob=w.HTMLCanvasElement.prototype.toBlob,create=gl.createBuffer,bufferData=gl.bufferData;
+      let allocations=0;
+      if(failure==='PNG encoding failure')w.HTMLCanvasElement.prototype.toBlob=function(callback){w.setTimeout(()=>callback(null),0);};
+      if(failure==='second backup allocation')gl.createBuffer=()=>++allocations===2?null:create();
+      if(failure==='backup storage allocation')gl.bufferData=(target,...args)=>{
+        if(target===gl.COPY_WRITE_BUFFER)return;return bufferData(target,...args);
+      };
+      try{await r.exportPNG(math,{...options,onProgress(pct){
+        if(failure==='ordinary error'&&pct===85)throw Error('Injected ordinary export error');
+      }});}catch(value){error=value;}finally{
+        w.HTMLCanvasElement.prototype.toBlob=toBlob;gl.createBuffer=create;gl.bufferData=bufferData;
+      }
+      const after=snapshot();
+      check(failure+': export rejects and evolving/math/renderer state restores',!!error&&before.meta===after.meta&&math.evolving&&!r.isExporting,error?.message);
+      check(failure+': both full particle VBOs and cached pixels restored',after.buffers.every((a,i)=>equal(a,before.buffers[i]))&&equal(after.pixels,before.pixels));
+      check(failure+': live textures and all temporary GPU resources preserved/cleaned',
+        after.accum.every((a,i)=>equal(a,before.accum[i]))&&after.bloom.every((a,i)=>equal(a,before.bloom[i]))&&Object.values(resources).every(set=>set.size===0));
+    }
+
+    setup('explore-paused');const beforeMaster=snapshot(),masterSim=sim,masterSplat=splat;
+    const master=await r.exportReferenceMaster(math,{accumPasses:1,filename:'issue4-master.png'}),afterMaster=snapshot();
+    check('Reference Master retains existing exact VBO isolation and index',afterMaster.buffers.every((a,i)=>equal(a,beforeMaster.buffers[i]))&&r.vboCur===beforeMaster.state.renderer.vboCur);
+    // Master has its own existing canonical-math restoration semantics; compare the requested session fields.
+    check('Master preserves live Reference budget, camera, palette, evolution and accumulation',
+      fields.every(k=>JSON.stringify(afterMaster.state.renderer[k])===JSON.stringify(beforeMaster.state.renderer[k]))&&
+      afterMaster.accum.every((a,i)=>equal(a,beforeMaster.accum[i]))&&equal(afterMaster.pixels,beforeMaster.pixels)&&
+      math.mode==='explore'&&math.n===11&&!math.evolving&&math.time===7.25);
+    const masterOutput=await png(master);
+    check('Master still produces 4096-square PNG and unchanged warmup/pass workload',
+      masterOutput.width===4096&&masterOutput.height===4096&&sim-masterSim===77&&splat-masterSplat===16);
+    check('Master temporary GPU resources cleaned',Object.values(resources).every(set=>set.size===0));
+
+    // Lose the real browser context after export has modified particles, then rebuild through App.
+    for(const phase of ['develop','encode']){
+      setup('explore-evolving');const old=r,ext=gl.getExtension('WEBGL_lose_context');
+      let lost=false,error,lateCallback;
+      const toBlob=w.HTMLCanvasElement.prototype.toBlob;
+      if(phase==='encode')w.HTMLCanvasElement.prototype.toBlob=function(callback){lateCallback=callback;ext.loseContext();};
+      try{await old.exportPNG(math,{...options,onProgress(pct){if(phase==='develop'&&pct===85){lost=true;ext.loseContext();}}});}
+      catch(value){error=value;}finally{w.HTMLCanvasElement.prototype.toBlob=toBlob;}
+      await until(()=>app.contextLost,phase+' loss notification');
+      const lostCalls=audit.lostGL.length;
+      check(phase+': actual context loss rejects export without invalid GL restore calls',error?.name==='WebGLContextLostError'&&
+        (lost||!!lateCallback)&&lostCalls===0&&!old.isExporting,error?.name);
+      await sleep(200);
+      ext.restoreContext();await until(()=>!app.contextLost&&app.renderer!==old,phase+' clean rebuild');r=app.renderer;
+      r.profiler.enabled=false;
+      check(phase+': fresh renderer/resources restore Explore session through Issue 2',
+        old.contextLost&&r!==old&&r.simVbos.every(buffer=>!old.simVbos.includes(buffer))&&
+        math.mode==='explore'&&math.n===11&&math.evolving&&math.time===7.25&&r.activePalette==='solar');
+      if(lateCallback){const current=r;lateCallback(null);await sleep(30);
+        check('Late encoder callback cannot revive old renderer/export',app.renderer===current&&!r.isExporting&&!app.contextLost);}
+      // Context restoration releases the retired allocations; the rebuilt renderer's live resources are expected.
+      for(const set of Object.values(resources))set.clear();
+      const after=snapshot();await r.exportPNG(math,options);const restored=snapshot();
+      check(phase+': new renderer can export again with exact buffers and no temporary leaks',
+        restored.buffers.every((a,i)=>equal(a,after.buffers[i]))&&Object.values(resources).every(set=>set.size===0)&&audit.lostGL.length===0);
+    }
+  }
+  await until(()=>audit.timers.size===0,'download timers drain',15000);
+  check('One app RAF, unchanged handlers and no remaining timers',audit.pending.size===1&&
+    JSON.stringify(audit.handlers)===handlers&&audit.timers.size===0);
+  check('No invalid GL calls or GL errors',audit.lostGL.length===0&&audit.errors.length===0&&gl.getError()===gl.NO_ERROR,JSON.stringify(audit.errors));
+}catch(error){check('Suite runtime',false,error.stack+'\n'+JSON.stringify(diagnostics?.consoleErrors));}
+document.getElementById('results').textContent=JSON.stringify(results,null,2);
+await fetch('/test_report',{method:'POST',body:JSON.stringify(results)});
+</script>

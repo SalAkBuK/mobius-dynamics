@@ -1469,7 +1469,10 @@ export class MobiusRenderer {
     const origAccumReadIdx = this.accumReadIdx;
     const origAccumFrames = this.accumulationFrames;
     const origEvolving = mathSys ? mathSys.evolving : false;
+    const origVboCur = this.vboCur;
 
+    const vboBackups = [null, null];
+    let vboBackedUp = false;
     let expAccumTex = null;
     let expAccumFbo = null;
     let expBloomTex = null;
@@ -1479,6 +1482,23 @@ export class MobiusRenderer {
 
     try {
       onProgress(5, 'Allocating 4K GPU framebuffers (3840x2160)...');
+
+      // Like Reference Master, preserve both full live particle buffers on-GPU.
+      // Export follows its existing trajectory; finally restores the live state.
+      const particleBytes = this.maxParticleCapacity * 16;
+      for (let i = 0; i < 2; i++) {
+        vboBackups[i] = this.createResource('Buffer');
+        gl.bindBuffer(gl.COPY_WRITE_BUFFER, vboBackups[i]);
+        gl.bufferData(gl.COPY_WRITE_BUFFER, particleBytes, gl.STATIC_COPY);
+        if (gl.getBufferParameter(gl.COPY_WRITE_BUFFER, gl.BUFFER_SIZE) !== particleBytes) {
+          throw new Error('Unable to allocate export particle backup.');
+        }
+        gl.bindBuffer(gl.COPY_READ_BUFFER, this.simVbos[i]);
+        gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, particleBytes);
+      }
+      gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+      gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+      vboBackedUp = true;
 
       // 2. Allocate 4K offscreen accumulation textures and FBOs
       expAccumTex = [
@@ -1684,6 +1704,18 @@ export class MobiusRenderer {
     } finally {
       // Lost resources are released by the browser; never touch retired handles.
       if (!this.isContextUnavailable()) {
+        for (let i = 0; i < 2; i++) {
+          if (!vboBackups[i]) continue;
+          if (vboBackedUp) {
+            gl.bindBuffer(gl.COPY_READ_BUFFER, vboBackups[i]);
+            gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.simVbos[i]);
+            gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
+          }
+          gl.deleteBuffer(vboBackups[i]);
+        }
+        gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+        gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+
         // 9. Clean up temporary 4K GL resources safely
         if (expAccumTex) {
           for (let i = 0; i < 2; i++) {
@@ -1713,6 +1745,7 @@ export class MobiusRenderer {
       this.bloomFbos = origBloomFbos;
       this.accumReadIdx = origAccumReadIdx;
       this.accumulationFrames = origAccumFrames;
+      this.vboCur = origVboCur;
       mathSys.evolving = origEvolving;
       this.isExporting = false;
 
