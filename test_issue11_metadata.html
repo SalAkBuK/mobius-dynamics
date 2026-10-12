@@ -11,6 +11,7 @@ try{const {app,w}=await boot(),d=w.document,name='<img src=x onerror="window.__p
   const toasts=[];const show=app.showToast.bind(app);app.showToast=t=>{toasts.push(t);show(t);};
   app.importPresetFile(new w.File([JSON.stringify(preset)],name+'.json',{type:'application/json'}));await sleep(100);
   check('Imported names/descriptions/filename cannot execute',!w.__presetInjection&&!w.__presetDescriptionInjection&&toasts.some(t=>t.includes(name))&&!d.querySelector('#toast img, #toast svg'));
+  check('Delete retains its original label',d.querySelector('.del-user-preset').textContent===String.fromCharCode(0x2715));
   d.querySelector('.load-user-preset').click();check('Existing Load handler still works',app.math.n===preset.symmetry);
   d.querySelector('.del-user-preset').click();check('Existing Delete handler still works',app.getUserPresets().length===1);
  }

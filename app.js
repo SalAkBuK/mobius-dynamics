@@ -1224,7 +1224,7 @@ export class App {
       const remove = document.createElement('button');
       remove.className = 'del-user-preset';
       remove.style.cssText = 'padding:2px 6px; font-size:9.5px; color:#f87171;';
-      remove.textContent = '?';
+      remove.textContent = '\u2715';
       actions.append(load, remove);
       row.append(label, actions);
       row.querySelector('.load-user-preset')?.addEventListener('click', () => {
