@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,sleep,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter(),baseline=location.search.includes('baseline');
+try{let unsafe=0;
+ for(const fault of ['WebGL2 null','float extension missing','float blend missing','linear extension missing','shader compile','program link','FBO creation','FBO incomplete','particle storage','timer extension missing']){
+ const injection=`<script>window.__startupErrors=[];addEventListener('error',e=>window.__startupErrors.push(e.message));
+ const fault=${JSON.stringify(fault)},get=HTMLCanvasElement.prototype.getContext;window.__resources={};
+ HTMLCanvasElement.prototype.getContext=function(kind,...args){if(kind==='webgl2'&&fault==='WebGL2 null')return null;
+ const gl=get.call(this,kind,...args);if(kind!=='webgl2'||!gl||gl.__startupHook)return gl;gl.__startupHook=true;
+ for(const type of ['Buffer','Texture','Framebuffer','VertexArray','Program','Shader','Query']){const set=window.__resources[type]=new Set(),create=gl['create'+type].bind(gl),remove=gl['delete'+type].bind(gl);gl['create'+type]=(...a)=>{const v=create(...a);if(v)set.add(v);return v;};gl['delete'+type]=v=>{set.delete(v);return remove(v);};}
+ const ext=gl.getExtension.bind(gl);gl.getExtension=name=>
+ (fault==='float extension missing'&&name==='EXT_color_buffer_float'||fault==='float blend missing'&&name==='EXT_float_blend'||fault==='linear extension missing'&&name==='OES_texture_float_linear'||fault==='timer extension missing'&&name==='EXT_disjoint_timer_query_webgl2')?null:ext(name);
+ if(fault==='shader compile'){const get=gl.getShaderParameter.bind(gl);gl.getShaderParameter=(s,p)=>p===gl.COMPILE_STATUS?false:get(s,p);}
+ if(fault==='program link'){const get=gl.getProgramParameter.bind(gl);gl.getProgramParameter=(s,p)=>p===gl.LINK_STATUS?false:get(s,p);}
+ if(fault==='FBO creation')gl.createFramebuffer=()=>null;
+ if(fault==='FBO incomplete')gl.checkFramebufferStatus=()=>gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT;
+ if(fault==='particle storage'){const data=gl.bufferData.bind(gl);gl.bufferData=(target,value,...a)=>{if(value?.byteLength===600000*16)return;return data(target,value,...a);};}
+ return gl;};<\/script>`;
+ const {app,w,frame,audit}=await boot(injection),d=w.document,fatal=['WebGL2 null','shader compile','program link','FBO creation','FBO incomplete','particle storage'].includes(fault);
+ if(fatal){const safe=!app&&!!d.getElementById('graphics-error')&&audit.pending.size===0&&!/REFERENCE MODE/.test(d.getElementById('mode-status-pill').textContent)&&Object.values(w.__resources).every(set=>set.size===0);
+  if(baseline){unsafe+=!safe;check(fault+' baseline',true,JSON.stringify({appExists:!!app,errorPanel:!!d.getElementById('graphics-error'),raf:audit.pending.size,uncaught:w.__startupErrors.length}));}
+  else{check(fault+': explained error, no partial renderer RAF or handles',safe,JSON.stringify({errors:w.__startupErrors,resources:Object.fromEntries(Object.entries(w.__resources).map(([k,v])=>[k,v.size]))}));check(fault+': HTML controls survive and no uncaught exception',!!d.getElementById('btn-mode-explore')&&w.__startupErrors.length===0);}
+ }else{
+  check(fault+': existing fallback remains operational',!!app&&!d.getElementById('graphics-error')&&audit.pending.size===1&&(!fault.startsWith('float')||(fault==='float extension missing'?app.renderer.floatFormat==='RGBA8':app.renderer.floatFormat==='RGBA16F')),app?.renderer.floatFormat);
+ }
+ frame.remove();await sleep(10);
+ }
+ if(baseline)check('Unexplained/partial startup failure reproduced',unsafe>0,'unsafe: '+unsafe);
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

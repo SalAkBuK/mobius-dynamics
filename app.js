@@ -1721,10 +1721,26 @@ export class App {
   }
 }
 
+function startApplication() {
+  if (window.app || document.getElementById('graphics-error')) return;
+  try {
+    window.app = new App();
+  } catch (error) {
+    console.error('Graphics initialization failed:', error);
+    const message = document.createElement('div');
+    message.id = 'graphics-error';
+    message.setAttribute('role', 'alert');
+    message.style.cssText = 'position:fixed;top:40%;left:10%;right:10%;z-index:1000;padding:20px;background:#0a1830;color:#f8c5c5;border:1px solid #943b4b;border-radius:8px;';
+    message.textContent = 'Unable to initialize graphics. ' + (error?.message || 'WebGL initialization failed.') +
+      ' Try enabling hardware acceleration or using a browser with WebGL2 support.';
+    document.body.appendChild(message);
+    const status = document.getElementById('mode-status-pill');
+    if (status) status.textContent = 'Graphics unavailable';
+  }
+}
+
 if (document.readyState === 'loading') {
-  window.addEventListener('DOMContentLoaded', () => {
-    if (!window.app) window.app = new App();
-  });
+  window.addEventListener('DOMContentLoaded', startApplication, { once: true });
 } else {
-  if (!window.app) window.app = new App();
+  startApplication();
 }

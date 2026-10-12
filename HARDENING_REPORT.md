@@ -78,3 +78,11 @@ No functional instability reproduced; production ranges unchanged. test_issue12_
 No cases exceeded 250 ms. Timings include synchronous readback and are not isolated GPU timer measurements. No JS heap/VRAM stability claim. Reference transition is canonical after every family. Previous math, Reference, modes/export, preset validation and metadata suites pass: 6107 assertions total. Files: test_issue12_randomizer.html, test_math_reporting.html (report adapter for existing unchanged five math tests), this report.
 
 Issue 11 pushed and confirmed: `aad0528c2d88b28faecbc16df8be5fb92264a47d`.
+
+## Issue 13 ? startup/capability failures
+
+Reproduced six unsafe startup paths. Missing WebGL2, shader compile, program link, FBO creation and incomplete FBO left an uncaught exception with no explanation. Injected particle storage failure was accepted with a running RAF and unusable buffers. Existing float-extension absence uses RGBA8; missing float blend uses RGBA16F; missing linear/timer-query extensions are already safe.
+
+Fix: bootstrap catches initialization failure once, keeps HTML present, shows a readable role=alert error and marks graphics unavailable instead of a false Reference status. Renderer validates actual initial particle allocation errors and buffer size before VAO use; constructor cleanup releases failed partial initialization. No alternate renderer/reload/retry loop. Files: app.js, renderer.js, test_issue13_startup.html, this report. Six fatal faults and four fallback cases pass (16 assertions), with no uncaught exceptions, no partial RAF, and zero residual tracked handles on fatal paths. Context loss/rebuild retry, canonical Reference, Master and allocation regressions pass (265 total).
+
+Issue 12 pushed and confirmed: `7717876c3cf4bfeff1ae51228d15f8db36db45ea`.

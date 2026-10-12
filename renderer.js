@@ -808,6 +808,10 @@ export class MobiusRenderer {
     for (let i = 0; i < 2; i++) {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.simVbos[i]);
       gl.bufferData(gl.ARRAY_BUFFER, initData, gl.STREAM_COPY);
+      if (gl.getError() !== gl.NO_ERROR ||
+          gl.getBufferParameter(gl.ARRAY_BUFFER, gl.BUFFER_SIZE) !== initData.byteLength) {
+        throw new Error('Unable to allocate graphics particle buffers.');
+      }
 
       // Simulation VAO
       gl.bindVertexArray(this.simVaos[i]);
