@@ -864,8 +864,40 @@
       padding: 4px 2px;
     }
 
+    #controls-panel .panel-note {
+      margin: 4px 0;
+      color: #8aa6cc;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    #controls-panel .panel-warn {
+      margin-top: 6px;
+      padding: 5px 8px;
+      color: #fcd9a0;
+      background: rgba(48, 30, 6, 0.7);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 6px;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    #coeff-drawer .coeff-eff {
+      margin: -4px 0 2px 57px;
+      color: #8aa6cc;
+      font-family: monospace;
+      font-size: 10.5px;
+    }
+
+    #coeff-drawer .coeff-explain {
+      color: #8aa6cc;
+      font-size: 10.5px;
+      line-height: 1.4;
+    }
+
     #palette-container {
-      width: 100%;
+      flex: 1 1 0;
+      min-width: 0;
     }
 
     #palette-menu {
@@ -971,6 +1003,7 @@
               </div>
             </div>
           </div>
+          <p class="panel-note" id="palette-note" hidden>Changing this enters Explore.</p>
           <div class="panel-row">
             <span class="panel-label">Zoom</span>
             <div class="btn-group">
@@ -987,7 +1020,7 @@
             </div>
           </div>
           <div class="panel-row">
-            <button id="btn-reset" title="Reset framing and view">Reset</button>
+            <button id="btn-reset" title="Reset framing and offsets">Reset view</button>
             <button id="btn-hide">Hide [H]</button>
           </div>
         </div>
@@ -996,6 +1029,7 @@
       <section class="panel-section" id="panel-section-math">
         <button class="panel-section-head" type="button" aria-expanded="true" aria-controls="panel-body-math"><span>Mathematics</span><span class="chev" aria-hidden="true">▾</span></button>
         <div class="panel-section-body" id="panel-body-math">
+          <p class="panel-note" id="order-note" hidden>Changing this enters Explore.</p>
           <div class="panel-row">
             <span class="panel-label">Order n</span>
             <div class="btn-group" id="symmetry-btn-group">
@@ -1014,6 +1048,7 @@
           </div>
           <div class="panel-row">
             <button id="btn-coeff" type="button" aria-expanded="false" aria-controls="coeff-drawer">Coefficients</button>
+            <button id="btn-start-fresh" type="button" title="Discard the saved Explore session and restart Explore from the Reference baseline">Start fresh</button>
           </div>
 
           <!-- Coefficient controls (the four existing sliders) -->
@@ -1024,36 +1059,42 @@
             <div style="font-size: 10px; color: #8aa6cc; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
               Live Mobius Perturbation Controls
             </div>
+            <div class="coeff-explain">Offsets are added to the base coefficients. Edits apply live.</div>
             <div class="coeff-row">
               <span class="coeff-name">ΔRe(a)</span>
               <input type="range" class="coeff-slider" id="slider-a-re" min="-0.5" max="0.5" step="0.01" value="0">
               <span class="coeff-val" id="lbl-a-re">0.00</span>
             </div>
+            <div class="coeff-eff" title="Re(a): base value, then the effective value after offset and drift">Re(a) base <span id="coeff-base-a-re">-0.755</span> → <span id="coeff-live-a-re">-0.755</span></div>
             <div class="coeff-row">
               <span class="coeff-name">ΔIm(b)</span>
               <input type="range" class="coeff-slider" id="slider-b-im" min="-0.5" max="0.5" step="0.01" value="0">
               <span class="coeff-val" id="lbl-b-im">0.00</span>
             </div>
+            <div class="coeff-eff" title="Im(b): base value, then the effective value after offset and drift">Im(b) base <span id="coeff-base-b-im">0.026</span> → <span id="coeff-live-b-im">0.026</span></div>
             <div class="coeff-row">
               <span class="coeff-name">ΔRe(c)</span>
               <input type="range" class="coeff-slider" id="slider-c-re" min="-0.5" max="0.5" step="0.01" value="0">
               <span class="coeff-val" id="lbl-c-re">0.00</span>
             </div>
+            <div class="coeff-eff" title="Re(c): base value, then the effective value after offset and drift">Re(c) base <span id="coeff-base-c-re">6.401</span> → <span id="coeff-live-c-re">6.401</span></div>
             <div class="coeff-row">
               <span class="coeff-name">ΔIm(d)</span>
               <input type="range" class="coeff-slider" id="slider-d-im" min="-0.5" max="0.5" step="0.01" value="0">
               <span class="coeff-val" id="lbl-d-im">0.00</span>
             </div>
+            <div class="coeff-eff" title="Im(d): base value, then the effective value after offset and drift">Im(d) base <span id="coeff-base-d-im">0.840</span> → <span id="coeff-live-d-im">0.840</span></div>
             <div style="display:flex; justify-content: flex-end; margin-top: 4px;">
-              <button id="btn-reset-coeffs" style="padding: 3px 8px; font-size: 10px;">Reset Coefficients</button>
+              <button id="btn-reset-coeffs" style="padding: 3px 8px; font-size: 10px;">Reset offsets</button>
             </div>
           </div>
         </div>
       </section>
 
       <section class="panel-section" id="panel-section-quality">
-        <button class="panel-section-head" type="button" aria-expanded="true" aria-controls="panel-body-quality"><span>Quality</span><span class="chev" aria-hidden="true">▾</span></button>
+        <button class="panel-section-head" type="button" aria-expanded="true" aria-controls="panel-body-quality"><span>Live preview quality</span><span class="chev" aria-hidden="true">▾</span></button>
         <div class="panel-section-body" id="panel-body-quality">
+          <p class="panel-note" id="quality-helper">Live preview only. Standard Export and Reference Master use their own settings and are not affected.</p>
           <div class="btn-group" id="quality-btn-group">
             <button class="quality-btn active" data-tier="auto" title="Auto (Empirical 60 FPS Headroom Ladder)">Auto</button>
             <button class="quality-btn" data-tier="low" title="Low (75k x 8)">Low</button>
@@ -1061,8 +1102,10 @@
             <button class="quality-btn" data-tier="high" title="High (250k x 8)">High</button>
             <button class="quality-btn" data-tier="ultra" title="Ultra (400k x 10)">Ultra</button>
             <button class="quality-btn" data-tier="extreme" title="Extreme (589k x 12)">Extreme</button>
-            <button class="quality-btn" data-tier="bruteforce" title="Manual Brute Force (589k x 16, 9.44M deposits/frame)">Brute Force</button>
+            <button class="quality-btn" data-tier="bruteforce" title="Maximum live GPU load — high-end hardware recommended. (589k particles x 16 steps, 9.44M deposits/frame)">Brute Force</button>
           </div>
+          <p class="panel-note" id="quality-current-tier" hidden></p>
+          <div class="panel-warn" id="quality-warning" role="note" hidden>Maximum live GPU load — high-end hardware recommended.</div>
         </div>
       </section>
 

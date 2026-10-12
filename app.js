@@ -517,6 +517,21 @@ export class App {
       btn.title = isRef ? 'Framing is locked in Reference' : btn.dataset.baseTitle;
     }
 
+    // "Changing this enters Explore." only where it is true (Reference).
+    const orderNote = document.getElementById('order-note');
+    if (orderNote) orderNote.hidden = !isRef;
+    const paletteNote = document.getElementById('palette-note');
+    if (paletteNote) paletteNote.hidden = !isRef;
+    const startFresh = document.getElementById('btn-start-fresh');
+    if (startFresh) {
+      startFresh.disabled = isRef;
+      startFresh.classList.toggle('is-unavailable', isRef);
+      if (isRef) startFresh.title = 'Available in Explore';
+      else startFresh.title = 'Discard the saved Explore session and restart Explore from the Reference baseline';
+    }
+    const resetBtn = document.getElementById('btn-reset');
+    if (resetBtn) resetBtn.title = isRef ? 'Restore the canonical Reference framing' : 'Reset framing and offsets';
+
     const rndBtn = document.getElementById('btn-randomize-action');
     if (rndBtn) rndBtn.title = isRef ? 'Randomize — enters Explore (shortcut: 3)' : 'Randomize (shortcut: 3)';
 
@@ -546,6 +561,38 @@ export class App {
   }
 
   /**
+   * Read-only quality information: while Auto is active, which tier it currently runs;
+   * while Brute Force is selected, an inline warning. No confirmation, no behaviour change.
+   */
+  updateQualityInfo() {
+    const adaptive = this.renderer?.adaptive;
+    if (!adaptive) return;
+    const tierLine = document.getElementById('quality-current-tier');
+    if (tierLine) {
+      const isAuto = adaptive.mode === 'auto';
+      tierLine.hidden = !isAuto;
+      if (isAuto) {
+        const text = `Current tier: ${adaptive.currentTier?.label ?? 'Calibrating…'}`;
+        if (tierLine.textContent !== text) tierLine.textContent = text;
+      }
+    }
+    const warning = document.getElementById('quality-warning');
+    if (warning) warning.hidden = adaptive.mode !== 'bruteforce';
+  }
+
+  /** base -> effective value next to each of the four coefficient sliders (display only). */
+  updateCoeffEffective() {
+    const m = this.math;
+    const rows = [['a-re', m.baseA.r, m.a.r], ['b-im', m.baseB.i, m.b.i], ['c-re', m.baseC.r, m.c.r], ['d-im', m.baseD.i, m.d.i]];
+    for (const [id, base, live] of rows) {
+      const baseEl = document.getElementById(`coeff-base-${id}`);
+      const liveEl = document.getElementById(`coeff-live-${id}`);
+      if (baseEl) baseEl.textContent = base.toFixed(3);
+      if (liveEl) liveEl.textContent = live.toFixed(3);
+    }
+  }
+
+  /**
    * Derives the Quality group, Palette menu, Bloom and Raw buttons from the actual
    * renderer state, so presets, mode resets and recovery can never leave them stale.
    */
@@ -561,6 +608,7 @@ export class App {
       bloomBtn.innerText = `Bloom: ${r.bloomEnabled ? 'ON' : 'OFF'}`;
       bloomBtn.classList.toggle('active', !!r.bloomEnabled);
     }
+    this.updateQualityInfo();
     const rawBtn = document.getElementById('btn-raw');
     if (rawBtn) {
       const rawOn = r.viewMode === 2;
@@ -612,6 +660,7 @@ export class App {
     if (this.valN) this.valN.innerText = this.math.n;
     const chip = document.getElementById('eq-n-chip');
     if (chip) chip.innerText = `n=${this.math.n}`;
+    this.updateCoeffEffective();
   }
 
   randomize(style = null) {
@@ -926,6 +975,7 @@ export class App {
         this.renderer.adaptive.setMode(tier);
         qualityBtns.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
+        this.updateQualityInfo();
         this.onResize();
       });
     });
@@ -1100,6 +1150,8 @@ export class App {
       document.getElementById('lbl-d-im').innerText = v.toFixed(2);
       this.math.setCoefficientOffset('d', 0, v);
     });
+
+    document.getElementById('btn-start-fresh')?.addEventListener('click', () => this.startFreshExplore());
 
     document.getElementById('btn-reset-coeffs')?.addEventListener('click', () => {
       if (this.mode === 'reference') return;
@@ -1828,7 +1880,11 @@ export class App {
     btn?.classList.toggle('active', this.coeffDrawerVisible);
     btn?.setAttribute('aria-expanded', String(this.coeffDrawerVisible));
     // Showing the coefficients opens the panel at Mathematics (key P / Coefficients button).
-    if (this.coeffDrawerVisible) this.openPanelSection('math');
+    if (this.coeffDrawerVisible) {
+      this.openPanelSection('math');
+      // The panel scrolls on short viewports: bring the sliders and their reset into view.
+      this.coeffDrawer?.scrollIntoView?.({ block: 'nearest' });
+    }
   }
 
   toggleDebug() {
@@ -2030,6 +2086,10 @@ export class App {
     if (this.valD) this.valD.innerText = this.math.d.format(3);
     if (this.valN) this.valN.innerText = this.math.n;
     if (this.eqChip) this.eqChip.innerText = `n=${this.math.n}`;
+    if (this.panelOpen) {
+      this.updateQualityInfo();
+      if (this.coeffDrawerVisible) this.updateCoeffEffective();
+    }
 
     // Update Profiler Overlay
     if (this.debugMode) {
