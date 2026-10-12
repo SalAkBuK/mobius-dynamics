@@ -1,0 +1,49 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Phase B / B4: help outside Debug (gestures + shortcuts), dialog behaviour, concise mode caption.
+import {boot,sleep,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+try{
+  const {w,app}=await boot(),doc=w.document,$=id=>doc.getElementById(id);
+  const key=(k,extra={})=>w.dispatchEvent(new w.KeyboardEvent('keydown',{key:k,bubbles:true,...extra}));
+  const helpOpen=()=>$('help-modal').classList.contains('visible');
+  const text=()=>$('help-modal').innerText.replace(/\s+/g,' ');
+
+  check('a help button is in the primary bar',$('controls-bar').contains($('btn-help'))&&$('btn-help').getAttribute('aria-label')==='Controls and shortcuts');
+  check('help is closed by default',!helpOpen());
+  $('btn-help').focus();$('btn-help').click();
+  check('the help button opens a labelled modal dialog and moves focus into it',helpOpen()&&$('help-modal').querySelector('.modal-dialog').getAttribute('role')==='dialog'&&
+    $('help-modal').querySelector('.modal-dialog').getAttribute('aria-modal')==='true'&&$('help-modal').querySelector('.modal-dialog').getAttribute('aria-labelledby')==='help-modal-title'&&
+    $('help-modal').querySelector('.modal-dialog').contains(doc.activeElement));
+  const t=text();
+  for(const [needle,label] of [[/hover/i,'hover to bend'],[/click/i,'click shock'],[/shift-drag/i,'shift-drag pan'],[/right-drag/i,'right-drag pan'],[/mouse wheel/i,'wheel zoom'],[/locked/i,'Reference locked']])
+    check('help explains: '+label,needle.test(t));
+  const keyMap={'1':/Reference/,'2':/Explore/,'3':/Randomize/,'Space':/drift/i,'R':/Reset view/,'P':/Coefficient/,'B':/Bloom/,'O':/readout/i,'E':/Export/,'S':/Presets/,'H':/Hide/,'?':/help/i,'Esc':/Close/,'T':/raw/i,'D':/debug/i,'X':/Brute Force/};
+  const kbds=[...$('help-modal').querySelectorAll('kbd')].map(k=>k.textContent.trim());
+  check('help lists every keyboard shortcut the app binds (1 2 3 Space R P B O E S H ? Esc T D X)',Object.keys(keyMap).every(k=>kbds.includes(k)&&keyMap[k].test(t)),JSON.stringify(kbds));
+  check('help does not expose profiler/diagnostic internals',!/(\bEMA\b|deposits|GPU ?ms|RGBA|profiler|frame ?time|calibrat|float|capability|\bDPR\b|transform feedback)/i.test(t),t.slice(0,160));
+  const before=app.mode;key('2');key('h');key('e');key('s');
+  check('no shortcuts fire behind the help dialog',app.mode===before&&!app.uiHidden&&!$('export-modal').classList.contains('visible')&&!$('preset-modal').classList.contains('visible'));
+  key('Escape');
+  check('Esc closes the help dialog and returns focus to the help button',!helpOpen()&&doc.activeElement===$('btn-help'));
+  key('?',{shiftKey:true});
+  check('the ? key opens help',helpOpen());
+  $('btn-help-close').click();
+  check('the close button closes it',!helpOpen());
+  $('btn-preset-trigger').click();key('?');
+  check('? does not stack help on top of another dialog',!helpOpen()&&$('preset-modal').classList.contains('visible'));
+  app.closePresetModal();
+  key('?',{ctrlKey:true});
+  check('Ctrl+? is not an app shortcut',!helpOpen());
+  $('btn-controls').click();
+  check('Developer/debug controls stay collapsed (not part of normal help)',$('panel-body-developer').hidden&&!app.debugMode);
+
+  // ---- caption copy
+  const refCap=$('mode-status-pill').textContent.replace(/\s+/g,' ').trim();
+  check('Reference caption is short and explicit',/^Reference\b/.test(refCap)&&/locked/i.test(refCap)&&!/Formula Protected|REFERENCE MODE/.test(refCap)&&refCap.length<60,refCap);
+  check('Reference caption keeps its dot and class',$('mode-status-pill').classList.contains('pill-reference')&&!!$('mode-status-pill').querySelector('.ref-dot'));
+  $('btn-mode-explore').click();
+  const expCap=$('mode-status-pill').textContent.replace(/\s+/g,' ').trim();
+  check('Explore caption names the mode and teaches the gestures',/^Explore\b/.test(expCap)&&/hover/i.test(expCap)&&/click/i.test(expCap)&&/shift-drag/i.test(expCap)&&!/Pointer Perturbations/.test(expCap),expCap);
+  check('Explore caption keeps its dot and class',$('mode-status-pill').classList.contains('pill-explore')&&!!$('mode-status-pill').querySelector('.exp-dot'));
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

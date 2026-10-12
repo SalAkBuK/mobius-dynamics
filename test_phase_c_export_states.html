@@ -1,0 +1,113 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Phase C / C3: export dialog state UX (UI only; export mechanics are covered by the hardened suites).
+// pre-export clarity -> active (stage + %, Esc ignored, locked) -> canceled -> failed -> success (stays open until dismissed).
+import {boot,explore,sleep,until,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+try{
+  const {app,w,audit}=await boot(),d=w.document,$=id=>d.getElementById(id);
+  const key=(k,extra={})=>w.dispatchEvent(new w.KeyboardEvent('keydown',{key:k,bubbles:true,...extra}));
+  const setup=()=>{explore(app);app.exportType='standard';app.exportWidth=96;app.exportHeight=64;app.exportPasses=1;app.refMasterPasses=1;app.hideExportDisplayHold();app.updateReadout();app.updateModeUI();};
+  const open=()=>app.exportModal.classList.contains('visible');
+  const dialogText=()=>$('export-modal').innerText.replace(/\s+/g,' ');
+  const native=w.HTMLCanvasElement.prototype.toBlob;
+  const snapshotApp=()=>JSON.stringify([app.mode,app.uiHidden,app.debugMode,app.renderer.adaptive.mode,app.panelOpen,app.math.n,$('preset-modal').classList.contains('visible'),$('help-modal').classList.contains('visible')]);
+
+  // ================= PRE-EXPORT =================
+  setup();app.openExportModal();
+  check('dialog distinguishes Image from Reference Master (tab labels) and does not reuse the word "Standard"',$('tab-export-standard').textContent.trim()==='Image'&&$('tab-export-refmaster').textContent.trim()==='Reference Master'&&!/standard/i.test(dialogText()),dialogText().slice(0,120));
+  check('Image: the summary states the real output size and source',/Output: PNG · 96 × 64 · your current Explore view/.test($('export-summary').textContent),$('export-summary').textContent);
+  d.querySelector('.export-res-btn[data-w="1920"]').click();
+  check('changing the size updates the summary (1920 × 1080)',/1920 × 1080/.test($('export-summary').textContent));
+  d.querySelector('.export-res-btn[data-w="viewport"]').click();
+  check('Current View reports the canvas size in the summary',$('export-summary').textContent.includes(app.canvas.width+' × '+app.canvas.height),$('export-summary').textContent);
+  d.querySelector('.export-res-btn[data-w="3840"]').click();
+  check('Image options and pass counts are unchanged (30 / 60 / 120; 3840×2160, 1920×1080, view)',[...d.querySelectorAll('.export-pass-btn')].map(b=>b.dataset.passes).join()==='30,60,120'&&[...d.querySelectorAll('.export-res-btn')].map(b=>b.dataset.w+'x'+b.dataset.h).join()==='3840x2160,1920x1080,viewport'+'xviewport');
+  check('Image: relative cost is explained against Reference Master, with no time estimate',/lighter than a Reference Master/i.test(dialogText())&&!/\b(ETA|remaining|minutes?|seconds?|about \d)/i.test(dialogText()));
+  check('primary button reads "Export PNG"',$('btn-export-start').textContent.trim()==='Export PNG'&&$('btn-export-cancel').textContent.trim()==='Close');
+  $('tab-export-refmaster').click();
+  check('Reference Master: summary says 4096 × 4096 canonical and ignores Explore edits',/4096 × 4096/.test($('export-summary').textContent)&&/canonical/i.test($('export-summary').textContent)&&/ignored/i.test($('export-summary').textContent));
+  check('Reference Master: heavier nature is stated (more work per pass, 120/240 passes, GPU busy, cancel, live quality irrelevant)',
+    /Heavier than an image export/.test(dialogText())&&/16 steps instead of 12/.test(dialogText())&&/120 or 240 passes/.test(dialogText())&&/cancel at any time/i.test(dialogText())&&/does not affect it/i.test(dialogText()));
+  const mp=[...d.querySelectorAll('.refmaster-pass-btn')];
+  check('120 vs 240 are understandable and unchanged (120 recommended; 240 maximum detail = twice the work)',mp.map(b=>b.dataset.passes).join()==='120,240'&&/Recommended/.test(mp[0].textContent)&&/Maximum detail/.test(mp[1].textContent)&&/twice the work/.test(mp[1].textContent)&&mp[0].classList.contains('active'));
+  check('Reference Master: primary button reads "Export Reference Master"; no ETA anywhere',$('btn-export-start').textContent.trim()==='Export Reference Master'&&!/\b(ETA|remaining|minutes?|seconds?)\b/i.test(dialogText()));
+  app.closeExportModal();
+
+  // ================= ACTIVE EXPORT (held at the PNG-encoding stage) + CANCELED =================
+  setup();app.openExportModal();
+  let late,encoding=false;
+  w.HTMLCanvasElement.prototype.toBlob=function(cb){encoding=true;late=cb;};
+  const downloads0=audit.downloads;
+  const run=app.startExport();await until(()=>encoding,'encoding stage');
+  check('active: Start is disabled, Cancel is labelled "Cancel export", close and options are locked',$('btn-export-start').disabled&&$('btn-export-cancel').textContent.trim()==='Cancel export'&&!$('btn-export-cancel').disabled&&$('btn-export-close').disabled&&
+    [...d.querySelectorAll('#export-options button')].every(b=>b.disabled));
+  check('active: stage and percentage are shown (and nothing else - no ETA)',$('export-progress-area').style.display==='block'&&/\S/.test($('export-status-label').innerText)&&/^\d+%$/.test($('export-status-pct').innerText)&&$('export-progress-track').getAttribute('aria-valuenow')===String(parseInt($('export-status-pct').innerText)),$('export-status-label').innerText+' '+$('export-status-pct').innerText);
+  check('active: the export type cannot be switched under the export',(()=>{const t=app.exportType;$('tab-export-refmaster').click();app.setExportType('reference_master');return app.exportType===t;})());
+  const before=snapshotApp();
+  key('Escape');
+  check('active: Esc neither cancels nor dismisses the export',open()&&app.isExporting&&$('export-notice').hidden&&$('export-result').hidden);
+  key('e');key('s');key('1');key('h');key('x');key('d');key('p');key('?');
+  check('active: no shortcut fires behind the dialog',snapshotApp()===before&&app.isExporting);
+  $('btn-export-close').click();
+  check('active: the (disabled) close button does nothing',open()&&app.isExporting);
+  $('btn-export-cancel').click();
+  w.HTMLCanvasElement.prototype.toBlob=native;await run;
+  check('canceled: the notice says so and nothing was downloaded',!$('export-notice').hidden&&/Export canceled/.test($('export-notice').textContent)&&/Nothing was downloaded/.test($('export-notice').textContent)&&audit.downloads===downloads0);
+  check('canceled: stale progress is cleared immediately (no label, no percentage, empty bar, hidden)',$('export-status-label').innerText===''&&$('export-status-pct').innerText===''&&$('export-progress-fill').style.width==='0%'&&$('export-progress-area').style.display==='none');
+  check('canceled: no success state; the user can start another export (Start enabled) or dismiss',$('export-result').hidden&&!$('btn-export-start').disabled&&!$('btn-export-start').hidden&&$('btn-export-cancel').textContent.trim()==='Close'&&[...d.querySelectorAll('#export-options button')].every(b=>!b.disabled)&&$('btn-export-close').disabled===false);
+  late&&late(new w.Blob(['late']));await sleep(30);
+  check('canceled: a late encoder callback cannot turn it into a success',$('export-result').hidden&&!$('export-notice').hidden&&audit.downloads===downloads0);
+  key('Escape');
+  check('canceled: Esc dismisses the dialog and returns it to idle',!open()&&$('export-notice').hidden&&!$('btn-export-start').disabled);
+
+  // ================= FAILED =================
+  setup();app.openExportModal();
+  w.HTMLCanvasElement.prototype.toBlob=function(cb){cb(null);};
+  const toasts=[];const show=app.showToast.bind(app);app.showToast=t=>{toasts.push(t);show(t);};
+  await app.startExport();w.HTMLCanvasElement.prototype.toBlob=native;
+  check('failed: a readable error is shown (alert role) with a plain first line and the technical detail',!$('export-notice').hidden&&$('export-notice').getAttribute('role')==='alert'&&/Export failed — /.test($('export-notice').textContent)&&/PNG encoding failed/.test($('export-notice').textContent)&&$('export-notice').classList.contains('is-error'),$('export-notice').textContent);
+  check('failed: no stale progress or success state; nothing downloaded',$('export-status-pct').innerText!=='100%'&&$('export-status-pct').innerText===''&&$('export-result').hidden&&audit.downloads===downloads0&&toasts.every(t=>!/success/i.test(t)));
+  check('failed: the user can retry ("Try again") or dismiss',!$('btn-export-start').disabled&&$('btn-export-start').textContent.trim()==='Try again'&&$('btn-export-cancel').textContent.trim()==='Close');
+  $('btn-export-start').click();await sleep(60);await until(()=>!app.isExporting,'retry done',20000);
+  check('failed -> retry: a successful retry replaces the error with the success state',$('export-notice').hidden&&!$('export-result').hidden&&audit.downloads===downloads0+1);
+  app.closeExportModal();
+
+  // ================= SUCCESS (Image) =================
+  setup();app.openExportModal();const dl0=audit.downloads;
+  await app.startExport();
+  check('success: the dialog stays open and shows the filename and output resolution',open()&&!$('export-result').hidden&&$('export-result-file').textContent==='mobius_explore_96x64.png'&&$('export-result-size').textContent==='96 × 64 px',$('export-result-file').textContent+' | '+$('export-result-size').textContent);
+  check('success: one download was made, no progress or error remains, options hidden, only Done is offered',audit.downloads===dl0+1&&$('export-notice').hidden&&$('export-progress-area').style.display==='none'&&$('export-options').hidden&&$('btn-export-start').hidden&&$('btn-export-cancel').textContent.trim()==='Done');
+  await sleep(1500);
+  check('success: still open 1.5 s later - no delayed timer closes it',open()&&!$('export-result').hidden&&app._exportCompletionTimeout===undefined);
+  check('success: keyboard focus is on Done',d.activeElement===$('btn-export-cancel'));
+  const beforeS=snapshotApp();
+  for(const k of ['e','s','1','2','3','h','x','d','p','?','r','b','t','o',' '])key(k);
+  check('success left open: keyboard shortcuts do not mutate the app behind the dialog',snapshotApp()===beforeS&&open()&&$('preset-modal').classList.contains('visible')===false&&$('help-modal').classList.contains('visible')===false);
+  $('btn-export-cancel').click();
+  check('Done dismisses it and the dialog is back to idle (options visible and enabled)',!open()&&$('export-result').hidden&&!$('export-options').hidden&&!$('btn-export-start').hidden&&!$('btn-export-start').disabled&&[...d.querySelectorAll('#export-options button')].every(b=>!b.disabled));
+
+  // ================= SUCCESS -> dismiss -> NEXT EXPORT; Esc dismisses; ✕ dismisses =================
+  const dl1=audit.downloads;app.openExportModal();
+  check('reopening after a success starts clean (no stale result)',$('export-result').hidden&&$('export-notice').hidden&&$('export-status-label').innerText==='');
+  await app.startExport();key('Escape');
+  check('success -> Esc dismisses',!open()&&audit.downloads===dl1+1);
+  app.openExportModal();await app.startExport();
+  check('next export after a dismissed success succeeds again',!$('export-result').hidden&&audit.downloads===dl1+2);
+  $('btn-export-close').click();
+  check('success -> the close button dismisses',!open());
+
+  // ================= REFERENCE MASTER success shows its fixed file and resolution =================
+  setup();app.openExportModal('reference_master');
+  const dl2=audit.downloads;await app.startExport();
+  check('Reference Master success: filename and 4096 × 4096 are shown, dialog stays open',open()&&$('export-result-file').textContent==='mobius-reference-master-4096.png'&&$('export-result-size').textContent==='4096 × 4096 px'&&audit.downloads===dl2+1);
+  await sleep(1000);
+  check('Reference Master success is still open after a second',open()&&!$('export-result').hidden);
+  $('btn-export-cancel').click();
+  check('and Done dismisses it',!open());
+
+  // ================= invariants =================
+  app.setMode('reference');
+  check('the session is intact after all of this (Reference canonical)',app.math.n===16&&app.math.a.r===-0.755&&!app.math.evolving&&app.renderer.activePalette==='cobalt');
+  check('no completion timer exists anywhere in the app',app._exportCompletionTimeout===undefined);
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

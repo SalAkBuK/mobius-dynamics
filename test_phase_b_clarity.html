@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Phase B / B3: Controls-panel clarity. Live-preview quality labelling, Auto "Current tier" line,
+// Brute Force inline warning (no confirmation), the four coefficient sliders unchanged with
+// base -> effective values, Start fresh, and Reference-mode helper text.
+import {boot,sleep,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+try{
+  const {w,app}=await boot(),doc=w.document,$=id=>doc.getElementById(id),r=app.renderer,m=app.math;
+  let confirms=0,alerts=0,prompts=0;w.confirm=()=>{confirms++;return true;};w.alert=()=>{alerts++;};w.prompt=()=>{prompts++;return null;};
+  const key=k=>w.dispatchEvent(new w.KeyboardEvent('keydown',{key:k,bubbles:true}));
+  const tier=t=>doc.querySelector(`.quality-btn[data-tier="${t}"]`).click();
+  const slider=(id,v)=>{const s=$(id);s.value=v;s.dispatchEvent(new w.Event('input',{bubbles:true}));};
+  const line=()=>$('quality-current-tier'),warn=()=>$('quality-warning');
+  const WARNING='Maximum live GPU load — high-end hardware recommended.';
+
+  // ---- Live preview quality
+  const head=doc.querySelector('#panel-section-quality .panel-section-head').textContent;
+  check('the quality section is labelled as live preview quality',/live preview quality/i.test(head),head);
+  const helper=$('quality-helper').textContent;
+  check('helper says it does not control Standard Export or Reference Master',/live preview only/i.test(helper)&&/standard export/i.test(helper)&&/reference master/i.test(helper)&&/not affected/i.test(helper),helper);
+  check('the same seven tier buttons remain, in the same order',[...doc.querySelectorAll('.quality-btn')].map(b=>b.dataset.tier).join()==='auto,low,standard,high,ultra,extreme,bruteforce');
+
+  // ---- Auto: Current tier line
+  check('Auto is the default and the Current tier line is visible',r.adaptive.mode==='auto'&&!line().hidden&&/^Current tier: \S+/.test(line().textContent),line().textContent);
+  check('the line reports the tier Auto is actually running',line().textContent==='Current tier: '+r.adaptive.currentTier.label,line().textContent);
+  tier('high');
+  check('the line is hidden for a manual tier',r.adaptive.mode==='high'&&line().hidden);
+  for(const t of ['low','standard','ultra','extreme','bruteforce'])tier(t),check('hidden for manual tier '+t,line().hidden);
+  tier('auto');
+  check('and returns when Auto is selected again',!line().hidden&&/^Current tier: /.test(line().textContent));
+  check('no stale text is shown for a manual tier after preset-style changes',(r.adaptive.setMode('low'),app.syncControlState(),line().hidden));
+  tier('auto');
+
+  // ---- Brute Force warning, no confirmation
+  check('no warning for Auto or other tiers',warn().hidden);
+  tier('bruteforce');
+  check('Brute Force shows the exact inline warning',!warn().hidden&&warn().textContent.trim()===WARNING,warn().textContent);
+  check('...without any confirmation dialog or modal',confirms===0&&alerts===0&&prompts===0&&!app.isModalOpen()&&r.adaptive.mode==='bruteforce');
+  check('Brute Force button tooltip carries the same warning',$('quality-btn-group').querySelector('[data-tier="bruteforce"]').title.includes(WARNING));
+  tier('high');
+  check('the warning disappears when another tier is chosen',warn().hidden);
+  key('x');
+  check('key X (Brute Force) shows the warning too',r.adaptive.mode==='bruteforce'&&!warn().hidden&&confirms===0);
+  key('x');
+  check('and X back to Auto hides it and shows the Current tier line',r.adaptive.mode==='auto'&&warn().hidden&&!line().hidden);
+  const pre=app.getPresetObject('brute');pre.rendering.tier='bruteforce';app.loadPresetObject(pre);
+  check('a preset that selects Brute Force shows the warning',r.adaptive.mode==='bruteforce'&&!warn().hidden&&confirms===0);
+  tier('auto');
+
+  // ---- Coefficients: exactly the four existing sliders, unchanged
+  const sl=[...doc.querySelectorAll('.coeff-slider')];
+  check('exactly the four existing coefficient sliders',sl.length===4&&sl.map(s=>s.id).join()==='slider-a-re,slider-b-im,slider-c-re,slider-d-im');
+  check('slider ranges and steps are unchanged (-0.5..0.5, 0.01)',sl.every(s=>s.min==='-0.5'&&s.max==='0.5'&&s.step==='0.01'&&s.value==='0'));
+  app.setMode('explore');
+  slider('slider-a-re',0.2);slider('slider-b-im',-0.3);slider('slider-c-re',0.4);slider('slider-d-im',-0.1);
+  check('sliders still map to Re(a), Im(b), Re(c), Im(d) offsets exactly as before',
+    m.userOffsetA.r===0.2&&m.userOffsetA.i===0&&m.userOffsetB.r===0&&m.userOffsetB.i===-0.3&&m.userOffsetC.r===0.4&&m.userOffsetC.i===0&&m.userOffsetD.r===0&&m.userOffsetD.i===-0.1);
+  m.evolving=false;m.pointerTarget.r=0;m.pointerTarget.i=0;m.pointerCurrent.r=0;m.pointerCurrent.i=0;m.shockMag=0;m.update(0,1.65);app.updateReadout();
+  const num=id=>parseFloat($(id).textContent);
+  check('base -> effective shows each base value',num('coeff-base-a-re')===+m.baseA.r.toFixed(3)&&num('coeff-base-b-im')===+m.baseB.i.toFixed(3)&&num('coeff-base-c-re')===+m.baseC.r.toFixed(3)&&num('coeff-base-d-im')===+m.baseD.i.toFixed(3));
+  check('...and the effective value = base + offset',Math.abs(num('coeff-live-a-re')-(m.baseA.r+0.2))<1e-3&&Math.abs(num('coeff-live-b-im')-(m.baseB.i-0.3))<1e-3&&Math.abs(num('coeff-live-c-re')-(m.baseC.r+0.4))<1e-3&&Math.abs(num('coeff-live-d-im')-(m.baseD.i-0.1))<1e-3,
+    JSON.stringify(['a-re','b-im','c-re','d-im'].map(i=>[num('coeff-base-'+i),num('coeff-live-'+i)])));
+  check('explainer line and renamed reset are present',/added to the base coefficients/i.test(doc.querySelector('.coeff-explain').textContent)&&$('btn-reset-coeffs').textContent.trim()==='Reset offsets');
+  $('btn-reset-coeffs').click();
+  check('Reset offsets zeroes the four offsets (behaviour unchanged)',[m.userOffsetA,m.userOffsetB,m.userOffsetC,m.userOffsetD].every(o=>o.r===0&&o.i===0)&&$('lbl-a-re').textContent==='0.00');
+
+  // ---- Reference helper text + Start fresh availability
+  $('btn-mode-reference').click();
+  check('in Reference: "Changing this enters Explore." is shown for Order n and the palette',!$('order-note').hidden&&!$('palette-note').hidden&&$('order-note').textContent.trim()==='Changing this enters Explore.');
+  check('in Reference: Start fresh is unavailable and Order n / palette are not disabled',$('btn-start-fresh').disabled===true&&![...doc.querySelectorAll('.sym-btn')].some(b=>b.disabled)&&![...doc.querySelectorAll('.palette-select-btn')].some(b=>b.disabled));
+  $('btn-mode-explore').click();
+  check('in Explore: the notes are hidden and Start fresh is available',$('order-note').hidden&&$('palette-note').hidden&&$('btn-start-fresh').disabled===false);
+
+  // ---- Start fresh through the button
+  slider('slider-a-re',0.33);doc.querySelector('.sym-btn[data-n="24"]').click();
+  $('btn-mode-reference').click();$('btn-mode-explore').click();
+  check('(setup) the edited session is resumed',m.n===24&&m.userOffsetA.r===0.33);
+  $('btn-start-fresh').click();
+  check('Start fresh button restarts Explore from the baseline',app.mode==='explore'&&m.n===16&&m.userOffsetA.r===0&&r.activePalette==='cobalt'&&app._exploreStash===null&&$('lbl-a-re').textContent==='0.00');
+  $('btn-mode-reference').click();$('btn-mode-explore').click();
+  check('and the discarded session does not come back',m.n===16&&m.userOffsetA.r===0);
+  $('btn-mode-reference').click();
+  check('Reference remained canonical throughout',app.mode==='reference'&&m.n===16&&m.a.r===-0.755&&m.c.r===6.401&&!m.evolving);
+  const reset=$('btn-reset');
+  check('Reset button is named "Reset view" and its tooltip is accurate per mode',reset.textContent.trim()==='Reset view'&&/canonical/i.test(reset.title));
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

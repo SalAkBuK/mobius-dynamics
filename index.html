@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Möbius Complex Dynamics Laboratory</title>
   <style>
     * {
@@ -11,6 +11,11 @@
       padding: 0;
       user-select: none;
       -webkit-user-select: none;
+    }
+
+    :root {
+      /* Bottom edge of the top toolbar + status pill; updated from app.js (ResizeObserver). */
+      --chrome-h: 130px;
     }
 
     body, html {
@@ -51,13 +56,16 @@
       width: 100%;
       height: 100%;
       pointer-events: none;
-      transition: opacity 0.3s ease;
+      transition: opacity 0.3s ease, visibility 0s linear 0s;
       z-index: 5;
     }
 
     #ui-container.hidden {
       opacity: 0;
       pointer-events: none;
+      /* Keep hidden controls out of the tab order / accessibility tree. */
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0s linear 0.3s;
     }
 
     /* Live Mathematical Readout (Bottom Left) */
@@ -81,6 +89,44 @@
       transition: opacity 0.25s ease, transform 0.25s ease;
     }
 
+    #equation-readout .eq-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    #equation-readout .eq-chip,
+    #btn-readout-expand {
+      display: none;
+    }
+
+    /* Compact chip on short viewports or while the Controls panel is open; click to expand. */
+    #equation-readout.compact:not(.expanded) .eq-sub,
+    #equation-readout.compact:not(.expanded) #eq-body {
+      display: none;
+    }
+
+    #equation-readout.compact:not(.expanded) {
+      padding: 7px 12px;
+      bottom: 16px;
+    }
+
+    #equation-readout.compact:not(.expanded) .eq-title {
+      margin-bottom: 0;
+    }
+
+    #equation-readout.compact .eq-chip {
+      display: inline;
+      color: #8aa6cc;
+    }
+
+    #equation-readout.compact #btn-readout-expand {
+      display: inline-block;
+      padding: 2px 6px;
+      font-size: 12px;
+    }
+
     #equation-readout.collapsed {
       opacity: 0;
       transform: translateY(12px);
@@ -96,7 +142,7 @@
     }
 
     .eq-sub {
-      color: #6482a8;
+      color: #86a3ca;
       font-size: 10.5px;
       margin-bottom: 6px;
     }
@@ -109,7 +155,7 @@
     }
 
     .param-label {
-      color: #5577a3;
+      color: #86a3ca;
     }
 
     .param-val {
@@ -120,8 +166,12 @@
     #top-bar-container {
       position: absolute;
       top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
+      /* left/right + auto margins centre the bar without the left:50% shrink-to-fit
+         cap, which limited the toolbar to half the viewport width. */
+      left: 0;
+      right: 0;
+      margin: 0 auto;
+      width: max-content;
       pointer-events: auto;
       display: flex;
       flex-direction: column;
@@ -133,6 +183,8 @@
 
     /* Minimal Controls Bar (Top Center) */
     #controls-bar {
+      position: relative;
+      z-index: 9;
       pointer-events: auto;
       display: flex;
       flex-wrap: wrap;
@@ -150,10 +202,10 @@
     }
 
     .control-label {
-      font-size: 9.5px;
+      font-size: 10.5px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #507096;
+      color: #86a3ca;
       margin-right: 2px;
       margin-left: 2px;
     }
@@ -185,6 +237,23 @@
       background: rgba(40, 90, 160, 0.25);
     }
 
+    /* Keyboard focus indicator (the base button rule removes the default outline). */
+    button:focus-visible,
+    input:focus-visible {
+      outline: 2px solid rgba(125, 190, 255, 0.95);
+      outline-offset: 2px;
+    }
+
+    .modal-dialog:focus {
+      outline: none;
+    }
+
+    /* Genuinely unavailable (does not change mode when clicked), e.g. zoom in Reference. */
+    button.is-unavailable {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     button.active {
       background: rgba(30, 120, 255, 0.35);
       color: #f0f7ff;
@@ -199,26 +268,17 @@
       margin: 0 2px;
     }
 
-    /* Optional Coefficient Controls Drawer */
+    /* Coefficient controls, shown inside the Controls panel (Mathematics) */
     #coeff-drawer {
-      position: absolute;
-      top: 68px;
-      left: 50%;
-      transform: translateX(-50%);
-      pointer-events: auto;
-      background: rgba(3, 7, 16, 0.65);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border: 1px solid rgba(40, 80, 140, 0.28);
-      border-radius: 10px;
-      padding: 10px 16px;
       display: none;
       flex-direction: column;
       gap: 8px;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(40, 80, 140, 0.22);
+      border-radius: 8px;
+      background: rgba(10, 20, 38, 0.45);
       font-size: 11px;
-      min-width: 380px;
-      z-index: 9;
     }
 
     #coeff-drawer.visible {
@@ -233,7 +293,7 @@
     }
 
     .coeff-name {
-      color: #6482a8;
+      color: #86a3ca;
       font-family: monospace;
       width: 45px;
     }
@@ -255,8 +315,8 @@
     /* Diagnostic Debug Overlay (Top Right) */
     #debug-overlay {
       position: absolute;
-      top: 68px;
-      right: 24px;
+      top: calc(var(--chrome-h) + 8px);
+      left: 24px;
       pointer-events: auto;
       background: rgba(3, 7, 16, 0.65);
       backdrop-filter: blur(14px);
@@ -290,13 +350,43 @@
     /* Unhide Hint */
     #hint-unhide {
       position: absolute;
-      bottom: 16px;
+      bottom: 52px;
       right: 20px;
-      font-size: 10px;
-      color: rgba(90, 130, 180, 0.45);
+      font-size: 11px;
+      color: rgba(140, 175, 220, 0.8);
       letter-spacing: 0.05em;
       pointer-events: none;
       display: none;
+      z-index: 50;
+    }
+
+    #hint-unhide.visible {
+      display: block;
+    }
+
+    /* Always-available way back after Hide (touch devices have no H key). */
+    #btn-show-ui {
+      display: none;
+      position: fixed;
+      bottom: 16px;
+      right: 20px;
+      z-index: 50;
+      padding: 6px 12px;
+      font-size: 11px;
+      border: 1px solid rgba(60, 130, 220, 0.35);
+      border-radius: 16px;
+      background: rgba(3, 7, 16, 0.55);
+      color: #9cb5db;
+      opacity: 0.55;
+    }
+
+    #btn-show-ui:hover,
+    #btn-show-ui:focus-visible {
+      opacity: 1;
+    }
+
+    body.ui-hidden #btn-show-ui {
+      display: block;
     }
 
     /* Mode Switcher */
@@ -317,7 +407,7 @@
       letter-spacing: 0.05em;
       padding: 4px 10px;
       border-radius: 14px;
-      font-size: 10px;
+      font-size: 10.5px;
     }
 
     .mode-btn.active.ref-mode {
@@ -347,7 +437,7 @@
     #mode-status-pill {
       pointer-events: auto;
       font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
-      font-size: 9.5px;
+      font-size: 10.5px;
       letter-spacing: 0.04em;
       padding: 3px 12px;
       border-radius: 12px;
@@ -405,7 +495,7 @@
       text-align: left;
       padding: 5px 8px;
       border-radius: 6px;
-      font-size: 10px;
+      font-size: 10.5px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -417,10 +507,10 @@
     }
 
     .dropdown-header {
-      font-size: 8.5px;
+      font-size: 10.5px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #5577a3;
+      color: #86a3ca;
       padding: 4px 6px 2px 6px;
       border-bottom: 1px solid rgba(40, 80, 140, 0.2);
       margin-bottom: 2px;
@@ -508,10 +598,13 @@
     }
 
     .modal-dialog {
+      max-height: calc(100vh - 24px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
       background: rgba(5, 12, 28, 0.94);
       border: 1px solid rgba(60, 120, 210, 0.35);
       border-radius: 12px;
-      padding: 20px 24px;
+      padding: 0 24px 20px;
       max-width: 480px;
       width: 90%;
       box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8);
@@ -520,6 +613,11 @@
     }
 
     .modal-title {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      padding: 20px 0 6px;
+      background: rgb(5, 12, 28);
       font-size: 13px;
       font-weight: 600;
       color: #e2f0ff;
@@ -532,7 +630,7 @@
 
     .modal-sub {
       font-size: 11px;
-      color: #6482a8;
+      color: #86a3ca;
       margin-bottom: 14px;
     }
 
@@ -541,10 +639,10 @@
     }
 
     .modal-section-title {
-      font-size: 10px;
+      font-size: 10.5px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #5577a3;
+      color: #86a3ca;
       margin-bottom: 6px;
     }
 
@@ -564,6 +662,45 @@
       transition: width 0.15s ease;
     }
 
+    /* Persistent graphics status (context loss / recovery failure) */
+    #status-banner {
+      display: none;
+      position: fixed;
+      top: calc(var(--chrome-h) + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 150;
+      align-items: center;
+      gap: 12px;
+      width: max-content;
+      max-width: min(92vw, 560px);
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-size: 11.5px;
+      line-height: 1.4;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+      pointer-events: auto;
+    }
+
+    #status-banner.status-warn {
+      color: #fcd9a0;
+      background: rgba(48, 30, 6, 0.94);
+      border: 1px solid rgba(245, 158, 11, 0.5);
+    }
+
+    #status-banner.status-error {
+      color: #fecaca;
+      background: rgba(52, 12, 18, 0.95);
+      border: 1px solid rgba(248, 113, 113, 0.55);
+    }
+
+    #status-banner button {
+      border: 1px solid currentColor;
+      font-size: 11px;
+      padding: 3px 10px;
+      color: inherit;
+    }
+
     /* Toast */
     #toast-banner {
       position: fixed;
@@ -575,7 +712,7 @@
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       border: 1px solid rgba(60, 130, 220, 0.35);
-      border-radius: 20px;
+      border-radius: 16px;
       padding: 6px 16px;
       font-size: 11px;
       color: #93c5fd;
@@ -583,12 +720,483 @@
       pointer-events: none;
       transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       z-index: 300;
-      white-space: nowrap;
+      /* Long messages wrap inside the viewport instead of clipping at both edges. */
+      width: max-content;
+      max-width: min(92vw, 520px);
+      white-space: normal;
+      text-align: center;
+      line-height: 1.4;
     }
 
     #toast-banner.show {
       transform: translateX(-50%) translateY(0);
       opacity: 1;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    /* Mode caption (below the primary bar): short, wraps instead of clipping */
+    #mode-status-pill {
+      max-width: min(94vw, 680px);
+      white-space: normal;
+      text-align: center;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    /* Help sheet */
+    #help-modal .help-grid {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 5px 16px;
+      font-size: 11.5px;
+      line-height: 1.4;
+      color: #9cb5db;
+    }
+
+    #help-modal .help-grid dt {
+      color: #e2f0ff;
+      white-space: nowrap;
+    }
+
+    #help-modal .help-grid dd {
+      margin: 0;
+    }
+
+    #help-modal kbd {
+      display: inline-block;
+      min-width: 20px;
+      padding: 1px 6px;
+      text-align: center;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 11px;
+      color: #e2f0ff;
+      background: rgba(30, 60, 110, 0.45);
+      border: 1px solid rgba(60, 120, 210, 0.4);
+      border-radius: 5px;
+    }
+
+    #help-modal .help-note {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #8aa6cc;
+    }
+
+    /* ---- Primary bar (mode, randomize, presets, export, controls) ---- */
+    #controls-bar {
+      gap: 6px;
+      padding: 3px 10px;
+    }
+
+    #controls-bar .mode-btn {
+      font-size: 12px;
+      padding: 4px 12px;
+    }
+
+    #controls-bar > button,
+    #controls-bar .btn-group > button {
+      font-size: 12px;
+      padding: 4px 10px;
+    }
+
+    #controls-bar #btn-randomize-toggle,
+    #controls-bar #btn-export-toggle {
+      padding-left: 6px;
+      padding-right: 6px;
+    }
+
+    #export-menu {
+      left: auto;
+      right: 0;
+      transform: none;
+      min-width: 220px;
+    }
+
+    #export-menu small {
+      color: #8aa6cc;
+      font-size: 10.5px;
+      margin-left: 12px;
+    }
+
+    /* ---- Controls panel (docked, closed by default) ---- */
+    #controls-panel {
+      position: absolute;
+      top: calc(var(--chrome-h) + 8px);
+      right: 16px;
+      width: 304px;
+      max-height: calc(100vh - var(--chrome-h) - 24px);
+      overflow-y: auto;
+      display: none;
+      pointer-events: auto;
+      padding: 10px 14px 12px;
+      background: rgba(3, 7, 16, 0.80);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(40, 80, 140, 0.28);
+      border-radius: 10px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+      font-size: 11.5px;
+      color: #9cb5db;
+      z-index: 9;
+    }
+
+    #controls-panel.open {
+      display: block;
+    }
+
+    #controls-panel .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    #controls-panel .panel-title {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: #d8ecff;
+    }
+
+    #controls-panel .panel-section + .panel-section {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(40, 80, 140, 0.22);
+    }
+
+    #controls-panel .panel-section-head {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 2px;
+      border-radius: 6px;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #8aa6cc;
+    }
+
+    #controls-panel .panel-section-head .chev {
+      transition: transform 0.15s ease;
+    }
+
+    #controls-panel .panel-section-head[aria-expanded="false"] .chev {
+      transform: rotate(-90deg);
+    }
+
+    #controls-panel .panel-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 6px 0;
+    }
+
+    #controls-panel .panel-label {
+      flex: none;
+      width: 54px;
+      color: #8aa6cc;
+      font-size: 11px;
+    }
+
+    #controls-panel .btn-group {
+      flex-wrap: wrap;
+      border-radius: 12px;
+    }
+
+    #controls-panel button {
+      font-size: 11.5px;
+      padding: 4px 9px;
+    }
+
+    #controls-panel .panel-section-head {
+      font-size: 10.5px;
+      padding: 4px 2px;
+    }
+
+    #controls-panel .panel-note {
+      margin: 4px 0;
+      color: #8aa6cc;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    #controls-panel .panel-warn {
+      margin-top: 6px;
+      padding: 5px 8px;
+      color: #fcd9a0;
+      background: rgba(48, 30, 6, 0.7);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 6px;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    #coeff-drawer .coeff-eff {
+      margin: -4px 0 2px 57px;
+      color: #8aa6cc;
+      font-family: monospace;
+      font-size: 10.5px;
+    }
+
+    #coeff-drawer .coeff-explain {
+      color: #8aa6cc;
+      font-size: 10.5px;
+      line-height: 1.4;
+    }
+
+    #palette-container {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    #palette-menu {
+      position: static;
+      transform: none;
+      width: 100%;
+      min-width: 0;
+      margin-top: 6px;
+      box-shadow: none;
+      background: rgba(10, 20, 38, 0.55);
+    }
+
+    /* ---- Export dialog states (Phase C) ---- */
+    #export-modal .export-summary {
+      margin: 0 0 10px;
+      color: #c0daf8;
+      font-size: 11.5px;
+      line-height: 1.45;
+    }
+
+    #export-modal .export-help {
+      margin: 6px 0 0;
+      color: #86a3ca;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    #export-modal .export-heavy {
+      margin: 0 0 10px;
+      padding: 8px 10px;
+      color: #cbe7fb;
+      background: rgba(14, 116, 144, 0.16);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 8px;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    #export-modal .export-heavy strong {
+      color: #e0f2fe;
+    }
+
+    #export-modal .export-notice,
+    #export-modal .export-result {
+      margin: 12px 0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+
+    #export-modal .export-notice.is-canceled {
+      color: #fcd9a0;
+      background: rgba(48, 30, 6, 0.7);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
+    #export-modal .export-notice.is-error {
+      color: #fecaca;
+      background: rgba(52, 12, 18, 0.85);
+      border: 1px solid rgba(248, 113, 113, 0.55);
+    }
+
+    #export-modal .export-notice .export-detail {
+      margin-top: 4px;
+      font-size: 11px;
+      opacity: 0.9;
+      overflow-wrap: anywhere;
+    }
+
+    #export-modal .export-result {
+      color: #c8f7de;
+      background: rgba(6, 60, 38, 0.55);
+      border: 1px solid rgba(52, 211, 153, 0.5);
+    }
+
+    #export-modal .export-result .export-result-head {
+      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #e8fff3;
+    }
+
+    #export-modal .export-result dl {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 3px 12px;
+      margin: 0;
+    }
+
+    #export-modal .export-result dt {
+      color: #9fe7c2;
+    }
+
+    #export-modal .export-result dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    #export-modal .export-result .export-result-note {
+      margin-top: 6px;
+      color: #9fe7c2;
+      font-size: 11px;
+    }
+
+    /* ---- Accessibility polish (Phase C) ---- */
+    /* Every control is at least 24x24 CSS px (WCAG 2.2 target size minimum). */
+    button {
+      min-height: 24px;
+      min-width: 24px;
+    }
+
+    .coeff-slider {
+      height: 24px;
+      margin: 0;
+    }
+
+    /* Genuinely disabled controls look disabled; enabled ones never do. */
+    button:disabled,
+    input:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    button:disabled:hover {
+      background: transparent;
+      color: #8da4c4;
+    }
+
+    /* Selected state is not conveyed by colour alone: a bar under the selected option. */
+    .sym-btn.active,
+    .quality-btn.active,
+    .palette-select-btn.active,
+    #btn-bloom.active,
+    #btn-readout.active,
+    #btn-raw.active,
+    #btn-debug.active,
+    #btn-pause.active,
+    #btn-controls.active {
+      box-shadow: inset 0 -2px 0 rgba(120, 190, 255, 0.85);
+    }
+
+    #btn-readout-expand {
+      min-width: 24px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+      }
+    }
+
+    /* ---- Small screens / touch (Phase C) ---- */
+    #gl-canvas {
+      touch-action: none;
+    }
+
+    #controls-panel {
+      overscroll-behavior: contain;
+      /* keep focused / scrolled-to controls clear of the sticky header */
+      scroll-padding-top: 56px;
+      scroll-padding-bottom: 12px;
+    }
+
+    .modal-dialog {
+      scroll-padding-top: 64px;
+    }
+
+    /* The panel header (with its close button) stays visible while the panel scrolls. */
+    #controls-panel .panel-head {
+      position: sticky;
+      top: -10px;
+      z-index: 2;
+      margin: -10px -14px 4px;
+      padding: 10px 14px 6px;
+      background: rgba(3, 7, 16, 0.96);
+    }
+
+    .dropdown-menu {
+      max-width: calc(100vw - 16px);
+    }
+
+    /* Dialog option groups wrap instead of overflowing on narrow screens. */
+    .modal-dialog .btn-group {
+      flex-wrap: wrap;
+      border-radius: 14px;
+    }
+
+    /* Narrow windows: Controls becomes a bottom sheet; artwork stays the dominant surface. */
+    @media (max-width: 820px) {
+      #controls-panel {
+        top: auto;
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        width: auto;
+        max-height: min(50vh, calc(100vh - var(--chrome-h) - 24px));
+        border-radius: 14px;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      }
+
+      body.panel-open #equation-readout {
+        display: none;
+      }
+
+      #debug-overlay {
+        left: 8px;
+        right: 8px;
+        width: auto;
+        max-height: 30vh;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      #toast-banner {
+        bottom: 64px;
+      }
+
+      #controls-bar {
+        justify-content: center;
+      }
+
+      #curated-presets-list {
+        grid-template-columns: minmax(0, 1fr) !important;
+      }
+    }
+
+    /* Real touch devices: practical hit targets without enlarging the desktop UI. */
+    @media (pointer: coarse) {
+      #controls-bar button,
+      #controls-panel button,
+      .dropdown-menu button,
+      .modal-dialog button {
+        min-height: 38px;
+        min-width: 38px;
+      }
+
+      #controls-panel .panel-label {
+        width: 60px;
+      }
+
+      .coeff-slider {
+        height: 28px;
+      }
     }
   </style>
 </head>
@@ -607,25 +1215,24 @@
 
   <div id="ui-container">
     <div id="top-bar-container">
-      <!-- Top Minimal Controls Bar -->
-      <div id="controls-bar">
-        <!-- Mode Selection Segment -->
-        <span class="control-label">Mode</span>
+      <!-- Primary bar: only the most important actions -->
+      <div id="controls-bar" role="toolbar" aria-label="Primary controls">
+        <!-- Mode -->
         <div class="mode-btn-group" id="mode-btn-group">
-          <button id="btn-mode-reference" class="mode-btn active ref-mode" title="Faithful Simone Conradi Artwork (Formula Protected)">
+          <button id="btn-mode-reference" class="mode-btn active ref-mode" title="The published Simone Conradi artwork: fixed formula and framing">
             <span class="mode-dot ref-dot"></span>Reference
           </button>
-          <button id="btn-mode-explore" class="mode-btn exp-mode" title="Interactive Mathematical Sandbox">
+          <button id="btn-mode-explore" class="mode-btn exp-mode" title="Change the mathematics: coefficients, order, palette, zoom">
             <span class="mode-dot exp-dot"></span>Explore
           </button>
         </div>
 
         <div class="divider"></div>
 
-        <!-- Randomization Segment (Mode 3) -->
+        <!-- Randomize (an Explore action) -->
         <div class="dropdown-container btn-group" style="padding:1px;">
-          <button id="btn-randomize-action" title="Randomize Organism (Mode 3 • Shortcut: 3)">🎲 Randomize</button>
-          <button id="btn-randomize-toggle" title="Select Morphology Style" style="padding-left:4px; padding-right:4px;">▾</button>
+          <button id="btn-randomize-action" title="Randomize — enters Explore (shortcut: 3)">🎲 Randomize</button>
+          <button id="btn-randomize-toggle" title="Select Morphology Style" aria-label="Select morphology style" aria-haspopup="true" aria-expanded="false">▾</button>
           <div id="randomize-menu" class="dropdown-menu">
             <div class="dropdown-header">Curated Morphology Families</div>
             <button class="rnd-style-btn" data-style="conradi-like">Conradi-like (Rosette Basin)</button>
@@ -637,129 +1244,190 @@
           </div>
         </div>
 
-        <div class="divider"></div>
+        <button id="btn-preset-trigger" title="Presets: save, load, import (S)">💾 Presets</button>
 
-        <!-- Symmetry Order n -->
-        <span class="control-label">Order n</span>
-        <div class="btn-group" id="symmetry-btn-group">
-          <button class="sym-btn" data-n="3">3</button>
-          <button class="sym-btn" data-n="5">5</button>
-          <button class="sym-btn" data-n="8">8</button>
-          <button class="sym-btn" data-n="12">12</button>
-          <button class="sym-btn active" data-n="16">16</button>
-          <button class="sym-btn" data-n="24">24</button>
-          <button class="sym-btn" data-n="32">32</button>
-        </div>
-
-        <div class="divider"></div>
-
-        <!-- Adaptive Quality Selector (Auto Recommended) -->
-        <span class="control-label">Quality</span>
-        <div class="btn-group" id="quality-btn-group">
-          <button class="quality-btn active" data-tier="auto" title="Auto (Empirical 60 FPS Headroom Ladder)">Auto</button>
-          <button class="quality-btn" data-tier="low" title="Low (75k x 8)">Low</button>
-          <button class="quality-btn" data-tier="standard" title="Standard (150k x 8)">Standard</button>
-          <button class="quality-btn" data-tier="high" title="High (250k x 8)">High</button>
-          <button class="quality-btn" data-tier="ultra" title="Ultra (400k x 10)">Ultra</button>
-          <button class="quality-btn" data-tier="extreme" title="Extreme (589k x 12)">Extreme</button>
-          <button class="quality-btn" data-tier="bruteforce" title="Manual Brute Force (589k x 16, 9.44M deposits/frame)">Brute Force</button>
-        </div>
-
-        <div class="divider"></div>
-
-        <!-- Zoom navigation buttons -->
-        <div class="btn-group">
-          <button id="btn-zoom-in" title="Zoom In (+)">+</button>
-          <button id="btn-zoom-out" title="Zoom Out (-)">−</button>
-          <button id="btn-zoom-reset" title="Reset Zoom">1×</button>
-        </div>
-
-        <div class="divider"></div>
-
-        <button id="btn-pause" title="Toggle autonomous coefficient drift">Pause</button>
-        <button id="btn-reset" title="Reset framing and view">Reset</button>
-
-        <div class="divider"></div>
-
-        <!-- Palette Dropdown -->
-        <div class="dropdown-container">
-          <button id="btn-palette-toggle" title="Color Grading Palette">Palette ▾</button>
-          <div id="palette-menu" class="dropdown-menu">
-            <div class="dropdown-header">Color Grading Palettes</div>
-            <button class="palette-select-btn active" data-pal="cobalt">Cobalt (Conradi Reference)</button>
-            <button class="palette-select-btn" data-pal="solar">Solar Amber</button>
-            <button class="palette-select-btn" data-pal="aurora">Aurora Emerald</button>
-            <button class="palette-select-btn" data-pal="amethyst">Amethyst Nebula</button>
-            <button class="palette-select-btn" data-pal="monochrome">Silver Monolith</button>
+        <!-- Export: one primary action; Reference Master lives in the menu -->
+        <div class="dropdown-container btn-group" style="padding:1px;">
+          <button id="btn-export-trigger" class="btn-action-highlight" title="Export image…">📷 Export</button>
+          <button id="btn-export-toggle" title="More export options" aria-label="More export options" aria-haspopup="true" aria-expanded="false">▾</button>
+          <div id="export-menu" class="dropdown-menu">
+            <div class="dropdown-header">Export</div>
+            <button id="btn-export-image">Image…</button>
+            <button id="btn-refmaster-trigger" title="Reference Master Export (4096×4096 Square Master • Maximum Fidelity)">💎 Reference Master… <small>4096×4096</small></button>
           </div>
         </div>
 
-        <!-- Export & Presets -->
-        <button id="btn-export-trigger" class="btn-action-highlight" title="Export 3840x2160 (4K PNG)">📷 Export 4K</button>
-        <button id="btn-refmaster-trigger" class="btn-refmaster-highlight" title="Reference Master Export (4096×4096 Square Master • Maximum Fidelity)">💎 Reference Master</button>
-        <button id="btn-preset-trigger" title="Save &amp; Load Presets">💾 Presets</button>
-
         <div class="divider"></div>
 
-        <button id="btn-coeff">Coeffs</button>
-        <button id="btn-readout" class="active">Readout</button>
-        <button id="btn-bloom" class="active">Bloom: ON</button>
-        <button id="btn-raw">Raw</button>
-        <button id="btn-debug">Debug [D]</button>
-        <button id="btn-hide">Hide [H]</button>
+        <button id="btn-controls" type="button" aria-expanded="false" aria-controls="controls-panel" title="Show or hide the Controls panel">Controls</button>
+        <button id="btn-help" type="button" aria-label="Controls and shortcuts" title="Controls &amp; shortcuts (?)">?</button>
       </div>
 
       <!-- Mode Status Pill -->
       <div id="mode-status-pill" class="pill-reference">
-        <span class="mode-dot ref-dot"></span><strong>REFERENCE MODE</strong> &bull; Exact Simone Conradi 2026 Artwork (Formula Protected &bull; Drift Paused)
+        <span class="mode-dot ref-dot"></span><strong>Reference</strong> &middot; the published artwork, locked
       </div>
     </div>
 
-    <!-- Optional Coefficient Controls Drawer -->
-    <div id="coeff-drawer">
-      <div id="coeff-lock-notice" style="display:none; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:4px 8px; font-size:10px; margin-bottom:4px;">
-        🔒 Coefficients locked in Reference Mode. Switch to Explore to edit.
+    <!-- Controls panel (docked, closed by default) -->
+    <aside id="controls-panel" aria-label="Controls">
+      <div class="panel-head">
+        <span class="panel-title">Controls</span>
+        <button id="btn-controls-close" type="button" aria-label="Close controls panel" title="Close (Esc)">✕</button>
       </div>
-      <div style="font-size: 10px; color: #5577a3; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
-        Live Mobius Perturbation Controls
-      </div>
-      <div class="coeff-row">
-        <span class="coeff-name">ΔRe(a)</span>
-        <input type="range" class="coeff-slider" id="slider-a-re" min="-0.5" max="0.5" step="0.01" value="0">
-        <span class="coeff-val" id="lbl-a-re">0.00</span>
-      </div>
-      <div class="coeff-row">
-        <span class="coeff-name">ΔIm(b)</span>
-        <input type="range" class="coeff-slider" id="slider-b-im" min="-0.5" max="0.5" step="0.01" value="0">
-        <span class="coeff-val" id="lbl-b-im">0.00</span>
-      </div>
-      <div class="coeff-row">
-        <span class="coeff-name">ΔRe(c)</span>
-        <input type="range" class="coeff-slider" id="slider-c-re" min="-0.5" max="0.5" step="0.01" value="0">
-        <span class="coeff-val" id="lbl-c-re">0.00</span>
-      </div>
-      <div class="coeff-row">
-        <span class="coeff-name">ΔIm(d)</span>
-        <input type="range" class="coeff-slider" id="slider-d-im" min="-0.5" max="0.5" step="0.01" value="0">
-        <span class="coeff-val" id="lbl-d-im">0.00</span>
-      </div>
-      <div style="display:flex; justify-content: flex-end; margin-top: 4px;">
-        <button id="btn-reset-coeffs" style="padding: 3px 8px; font-size: 10px;">Reset Coefficients</button>
-      </div>
-    </div>
+
+      <section class="panel-section" id="panel-section-view">
+        <button class="panel-section-head" type="button" aria-expanded="true" aria-controls="panel-body-view"><span>View</span><span class="chev" aria-hidden="true">▾</span></button>
+        <div class="panel-section-body" id="panel-body-view">
+          <div class="panel-row">
+            <span class="panel-label">Palette</span>
+            <div class="dropdown-container" id="palette-container">
+              <button id="btn-palette-toggle" title="Color palette" aria-haspopup="true" aria-expanded="false">Palette ▾</button>
+              <div id="palette-menu" class="dropdown-menu">
+                <div class="dropdown-header">Color palettes</div>
+                <button class="palette-select-btn active" data-pal="cobalt">Cobalt (Conradi Reference)</button>
+                <button class="palette-select-btn" data-pal="solar">Solar Amber</button>
+                <button class="palette-select-btn" data-pal="aurora">Aurora Emerald</button>
+                <button class="palette-select-btn" data-pal="amethyst">Amethyst Nebula</button>
+                <button class="palette-select-btn" data-pal="monochrome">Silver Monolith</button>
+              </div>
+            </div>
+          </div>
+          <p class="panel-note" id="palette-note" hidden>Changing this enters Explore.</p>
+          <div class="panel-row">
+            <span class="panel-label">Zoom</span>
+            <div class="btn-group">
+              <button id="btn-zoom-in" title="Zoom in">+</button>
+              <button id="btn-zoom-out" title="Zoom out">−</button>
+              <button id="btn-zoom-reset" title="Reset zoom">1×</button>
+            </div>
+          </div>
+          <div class="panel-row">
+            <span class="panel-label">Display</span>
+            <div class="btn-group">
+              <button id="btn-bloom" class="active" title="Soft glow around the brightest filaments (B)">Bloom: On</button>
+              <button id="btn-readout" class="active" title="Show the live equation and coefficients (O)">Readout</button>
+            </div>
+          </div>
+          <div class="panel-row">
+            <button id="btn-reset" title="Reset framing and offsets">Reset view</button>
+            <button id="btn-hide" title="Hide all controls; H or the corner button brings them back">Hide controls [H]</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-section" id="panel-section-math">
+        <button class="panel-section-head" type="button" aria-expanded="true" aria-controls="panel-body-math"><span>Mathematics</span><span class="chev" aria-hidden="true">▾</span></button>
+        <div class="panel-section-body" id="panel-body-math">
+          <p class="panel-note" id="order-note" hidden>Changing this enters Explore.</p>
+          <div class="panel-row">
+            <span class="panel-label">Order n</span>
+            <div class="btn-group" id="symmetry-btn-group">
+              <button class="sym-btn" data-n="3">3</button>
+              <button class="sym-btn" data-n="5">5</button>
+              <button class="sym-btn" data-n="8">8</button>
+              <button class="sym-btn" data-n="12">12</button>
+              <button class="sym-btn active" data-n="16">16</button>
+              <button class="sym-btn" data-n="24">24</button>
+              <button class="sym-btn" data-n="32">32</button>
+            </div>
+          </div>
+          <div class="panel-row">
+            <span class="panel-label">Drift</span>
+            <button id="btn-pause" title="Pause or resume the slow autonomous drift of the coefficients (Space)">Pause</button>
+          </div>
+          <div class="panel-row">
+            <button id="btn-coeff" type="button" aria-expanded="false" aria-controls="coeff-drawer">Coefficients</button>
+            <button id="btn-start-fresh" type="button" title="Discard the saved Explore session and restart Explore from the Reference baseline">Start fresh</button>
+          </div>
+
+          <!-- Coefficient controls (the four existing sliders) -->
+          <div id="coeff-drawer">
+            <div id="coeff-lock-notice" style="display:none; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:4px 8px; font-size: 10.5px; margin-bottom:4px;">
+              🔒 Coefficients locked in Reference Mode. Switch to Explore to edit.
+            </div>
+            <div style="font-size: 10.5px; color: #8aa6cc; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
+              Coefficient offsets (live)
+            </div>
+            <div class="coeff-explain">Offsets are added to the base coefficients. Edits apply live.</div>
+            <div class="coeff-row">
+              <span class="coeff-name">ΔRe(a)</span>
+              <input type="range" class="coeff-slider" id="slider-a-re" min="-0.5" max="0.5" step="0.01" value="0">
+              <span class="coeff-val" id="lbl-a-re">0.00</span>
+            </div>
+            <div class="coeff-eff" title="Re(a): base value, then the effective value after offset and drift">Re(a) base <span id="coeff-base-a-re">-0.755</span> → <span id="coeff-live-a-re">-0.755</span></div>
+            <div class="coeff-row">
+              <span class="coeff-name">ΔIm(b)</span>
+              <input type="range" class="coeff-slider" id="slider-b-im" min="-0.5" max="0.5" step="0.01" value="0">
+              <span class="coeff-val" id="lbl-b-im">0.00</span>
+            </div>
+            <div class="coeff-eff" title="Im(b): base value, then the effective value after offset and drift">Im(b) base <span id="coeff-base-b-im">0.026</span> → <span id="coeff-live-b-im">0.026</span></div>
+            <div class="coeff-row">
+              <span class="coeff-name">ΔRe(c)</span>
+              <input type="range" class="coeff-slider" id="slider-c-re" min="-0.5" max="0.5" step="0.01" value="0">
+              <span class="coeff-val" id="lbl-c-re">0.00</span>
+            </div>
+            <div class="coeff-eff" title="Re(c): base value, then the effective value after offset and drift">Re(c) base <span id="coeff-base-c-re">6.401</span> → <span id="coeff-live-c-re">6.401</span></div>
+            <div class="coeff-row">
+              <span class="coeff-name">ΔIm(d)</span>
+              <input type="range" class="coeff-slider" id="slider-d-im" min="-0.5" max="0.5" step="0.01" value="0">
+              <span class="coeff-val" id="lbl-d-im">0.00</span>
+            </div>
+            <div class="coeff-eff" title="Im(d): base value, then the effective value after offset and drift">Im(d) base <span id="coeff-base-d-im">0.840</span> → <span id="coeff-live-d-im">0.840</span></div>
+            <div style="display:flex; justify-content: flex-end; margin-top: 4px;">
+              <button id="btn-reset-coeffs" title="Set the four offsets back to 0" style="padding: 3px 8px; font-size: 10.5px;">Reset offsets</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-section" id="panel-section-quality">
+        <button class="panel-section-head" type="button" aria-expanded="true" aria-controls="panel-body-quality"><span>Live preview quality</span><span class="chev" aria-hidden="true">▾</span></button>
+        <div class="panel-section-body" id="panel-body-quality">
+          <p class="panel-note" id="quality-helper">Live preview only. Standard Export and Reference Master use their own settings and are not affected.</p>
+          <div class="btn-group" id="quality-btn-group">
+            <button class="quality-btn active" data-tier="auto" title="Auto: picks the highest tier that holds 60 FPS">Auto</button>
+            <button class="quality-btn" data-tier="low" title="Low: 75k particles × 8 steps per frame">Low</button>
+            <button class="quality-btn" data-tier="standard" title="Standard: 150k particles × 8 steps per frame">Standard</button>
+            <button class="quality-btn" data-tier="high" title="High: 250k particles × 8 steps per frame">High</button>
+            <button class="quality-btn" data-tier="ultra" title="Ultra: 400k particles × 10 steps per frame">Ultra</button>
+            <button class="quality-btn" data-tier="extreme" title="Extreme: 589k particles × 12 steps per frame">Extreme</button>
+            <button class="quality-btn" data-tier="bruteforce" title="Maximum live GPU load — high-end hardware recommended. (589k particles × 16 steps, 9.44M deposits per frame)">Brute Force</button>
+          </div>
+          <p class="panel-note" id="quality-current-tier" hidden></p>
+          <div class="panel-warn" id="quality-warning" role="note" hidden>Maximum live GPU load — high-end hardware recommended.</div>
+        </div>
+      </section>
+
+      <section class="panel-section" id="panel-section-developer">
+        <button class="panel-section-head" type="button" aria-expanded="false" aria-controls="panel-body-developer"><span>Developer</span><span class="chev" aria-hidden="true">▾</span></button>
+        <div class="panel-section-body" id="panel-body-developer" hidden>
+          <div class="panel-row">
+            <button id="btn-raw" title="Show raw particle trajectories before accumulation (T)">Raw trajectories</button>
+            <button id="btn-debug" title="Show the debug overlay (D)">Debug overlay [D]</button>
+          </div>
+        </div>
+      </section>
+    </aside>
 
     <!-- Live Mathematical Readout (Bottom Left) -->
     <div id="equation-readout">
-      <div class="eq-title">z → ω_k (az + b) / (cz + d)</div>
+      <div class="eq-head">
+        <div class="eq-title">z → ω_k (az + b) / (cz + d)</div>
+        <span class="eq-chip" id="eq-n-chip">n=16</span>
+        <button id="btn-readout-expand" type="button" aria-expanded="false" aria-controls="eq-body" title="Show coefficients" aria-label="Show coefficients">▸</button>
+      </div>
       <div class="eq-sub">ω_k = e^(2πik / n)</div>
-      <div class="eq-param"><span class="param-label">a:</span> <span class="param-val" id="val-a">-0.755 + 0.330i</span></div>
-      <div class="eq-param"><span class="param-label">b:</span> <span class="param-val" id="val-b">-0.376 + 0.026i</span></div>
-      <div class="eq-param"><span class="param-label">c:</span> <span class="param-val" id="val-c">6.401 + 0.803i</span></div>
-      <div class="eq-param"><span class="param-label">d:</span> <span class="param-val" id="val-d">1.520 + 0.840i</span></div>
-      <div class="eq-param"><span class="param-label">n:</span> <span class="param-val" id="val-n">16</span></div>
+      <div id="eq-body">
+        <div class="eq-param"><span class="param-label">a:</span> <span class="param-val" id="val-a">-0.755 + 0.330i</span></div>
+        <div class="eq-param"><span class="param-label">b:</span> <span class="param-val" id="val-b">-0.376 + 0.026i</span></div>
+        <div class="eq-param"><span class="param-label">c:</span> <span class="param-val" id="val-c">6.401 + 0.803i</span></div>
+        <div class="eq-param"><span class="param-label">d:</span> <span class="param-val" id="val-d">1.520 + 0.840i</span></div>
+        <div class="eq-param"><span class="param-label">n:</span> <span class="param-val" id="val-n">16</span></div>
+      </div>
     </div>
 
-    <!-- Diagnostic Debug Overlay (Top Right) -->
+    <!-- Diagnostic Debug Overlay (Top Left) -->
     <div id="debug-overlay">
       <div class="eq-title" style="color: #64f3d5; margin-bottom: 6px;">Adaptive Trajectory Engine Profiler</div>
       <div class="dbg-row" id="dbg-brute-banner" style="display:none; background:rgba(255,40,80,0.22); border:1px solid #ff4466; border-radius:4px; padding:3px 6px; margin-bottom:6px; color:#ffb0c0; font-weight:bold; text-align:center;">
@@ -777,142 +1445,212 @@
       <div class="dbg-row"><span>Display Ratio (DPR):</span> <span class="dbg-val" id="dbg-dpr">1.50</span></div>
       <div class="dbg-row"><span>Accumulation Age:</span> <span class="dbg-val" id="dbg-accum">0.0s (0 frames)</span></div>
       <div class="dbg-row"><span>Float Format:</span> <span class="dbg-val" id="dbg-format">RGBA32F</span></div>
-      <div class="dbg-row"><span>Capability Path:</span> <span class="dbg-val" id="dbg-path" style="font-size:10px;">Native Float Blend</span></div>
-      <div class="dbg-row"><span>Adaptation Event:</span> <span class="dbg-val" id="dbg-event" style="color:#a8d8ff;font-size:9.5px;">Calibrating...</span></div>
+      <div class="dbg-row"><span>Capability Path:</span> <span class="dbg-val" id="dbg-path" style="font-size: 10.5px;">Native Float Blend</span></div>
+      <div class="dbg-row"><span>Adaptation Event:</span> <span class="dbg-val" id="dbg-event" style="color:#a8d8ff;font-size: 10.5px;">Calibrating...</span></div>
       <div class="dbg-row"><span>Zoom Level:</span> <span class="dbg-val" id="dbg-zoom">1.00x</span></div>
       <div class="dbg-row"><span>Render Resolution:</span> <span class="dbg-val" id="dbg-res">--</span></div>
-      <div style="margin-top: 8px; font-size: 9.5px; color: #5879a2; border-top: 1px solid rgba(40, 80, 140, 0.2); padding-top: 4px;">
-        Click to perturb • Drag (Right-click/Shift) to Pan • Scroll to Zoom • [D] Toggle Debug
+      <div style="margin-top: 8px; font-size: 10.5px; color: #86a3ca; border-top: 1px solid rgba(40, 80, 140, 0.2); padding-top: 4px;">
+        Hover to bend • Click for a shock • Shift/right-drag to pan • Wheel to zoom • [D] toggles this overlay
       </div>
     </div>
   </div>
 
   <!-- Export Modal -->
   <div id="export-modal" class="modal-backdrop">
-    <div class="modal-dialog">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="export-modal-title" tabindex="-1">
       <div class="modal-title">
-        <span>Image Export</span>
-        <button id="btn-export-close" style="font-size:14px; padding:2px 6px;">✕</button>
+        <span id="export-modal-title">Export image</span>
+        <button id="btn-export-close" aria-label="Close" title="Close" style="font-size:14px; padding:2px 6px;">✕</button>
       </div>
 
-      <!-- Export Mode Switcher -->
-      <div class="btn-group" id="export-type-group" style="margin-bottom: 12px; width: 100%; display: flex;">
-        <button id="tab-export-standard" class="export-type-btn active" style="flex:1;">STANDARD EXPORT</button>
-        <button id="tab-export-refmaster" class="export-type-btn" style="flex:1;">REFERENCE MASTER</button>
+      <div id="export-options">
+        <!-- Export type -->
+        <div class="btn-group" id="export-type-group" style="margin-bottom: 12px; width: 100%; display: flex;">
+          <button id="tab-export-standard" class="export-type-btn active" style="flex:1;">Image</button>
+          <button id="tab-export-refmaster" class="export-type-btn" style="flex:1;">Reference Master</button>
+        </div>
+
+        <div id="export-summary" class="export-summary" aria-live="polite"></div>
+
+        <!-- Image export -->
+        <div id="export-standard-panel">
+          <div class="modal-sub">Renders your view offscreen at the size you choose. The live session is left exactly as it was.</div>
+
+          <div class="modal-section">
+            <div class="modal-section-title">Resolution</div>
+            <div class="btn-group" id="export-res-group">
+              <button class="export-res-btn active" data-w="3840" data-h="2160">3840 × 2160 (4K UHD)</button>
+              <button class="export-res-btn" data-w="1920" data-h="1080">1920 × 1080 (FHD)</button>
+              <button class="export-res-btn" data-w="viewport" data-h="viewport">Current View</button>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <div class="modal-section-title">Develop passes</div>
+            <div class="btn-group" id="export-passes-group">
+              <button class="export-pass-btn" data-passes="30">Fast · 30 passes</button>
+              <button class="export-pass-btn active" data-passes="60">Default · 60 passes</button>
+              <button class="export-pass-btn" data-passes="120">Deep · 120 passes</button>
+            </div>
+            <p class="export-help">More passes resolve finer filaments and take longer. Relative cost: lighter than a Reference Master &mdash; even Deep does less particle work than a Master&rsquo;s 120 passes.</p>
+          </div>
+        </div>
+
+        <!-- Reference Master -->
+        <div id="export-refmaster-panel" style="display:none;">
+          <div class="modal-sub" style="color: #38bdf8; font-weight: 500; margin-bottom: 10px;">
+            Exact reference formula • Square master • Maximum trajectory density
+          </div>
+
+          <div class="export-heavy">
+            <strong>Heavier than an image export.</strong> A dedicated 4096 × 4096 render of the canonical artwork: more particle work per pass (16 steps instead of 12) and 120 or 240 passes. It keeps the GPU busy until it finishes, and you can cancel at any time. Live preview quality does not affect it.
+          </div>
+
+          <div class="refmaster-info-box" style="background: rgba(8, 22, 48, 0.6); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 10.5px; line-height: 1.6; color: #94a3b8;">
+            <div style="color: #e0f2fe; font-weight: 600; margin-bottom: 4px;">
+              Resolution: 4096 × 4096 (square master, centre [0.0, 0.0])
+            </div>
+            <div>Formula: Canonical Simone Conradi 2026 Reference (n=16)</div>
+            <div>Workload: 589,824 particles × 16 IFS steps = 9,437,184 deposits/pass</div>
+            <div>Rendered offscreen from a blank start, independent of what is on screen.</div>
+            <div style="color: #94a3b8; font-size: 10.5px; margin-top: 4px; border-top: 1px solid rgba(56, 189, 248, 0.15); padding-top: 4px;">
+              Zero drift, pointer perturbation, or user offsets. Your interactive session is restored afterwards.
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <div class="modal-section-title">Develop passes</div>
+            <div class="btn-group" id="refmaster-passes-group">
+              <button class="refmaster-pass-btn active" data-passes="120">120 passes · Recommended</button>
+              <button class="refmaster-pass-btn" data-passes="240">240 passes · Maximum detail, twice the work</button>
+            </div>
+            <p class="export-help">A pass is one accumulation round. More passes resolve finer filaments and cost in proportion; the output size is the same.</p>
+          </div>
+        </div>
       </div>
 
-      <!-- Panel 1: Standard Export -->
-      <div id="export-standard-panel">
-        <div class="modal-sub">Renders offscreen at pristine resolution with pre-export accumulation passes. Session state is 100% preserved.</div>
+      <!-- Canceled / failed -->
+      <div id="export-notice" class="export-notice" hidden></div>
 
-        <div class="modal-section">
-          <div class="modal-section-title">Resolution</div>
-          <div class="btn-group" id="export-res-group">
-            <button class="export-res-btn active" data-w="3840" data-h="2160">3840 × 2160 (4K UHD)</button>
-            <button class="export-res-btn" data-w="1920" data-h="1080">1920 × 1080 (FHD)</button>
-            <button class="export-res-btn" data-w="viewport" data-h="viewport">Current View</button>
-          </div>
-        </div>
-
-        <div class="modal-section">
-          <div class="modal-section-title">Pre-Export Develop Passes</div>
-          <div class="btn-group" id="export-passes-group">
-            <button class="export-pass-btn" data-passes="30">Fast (30 passes)</button>
-            <button class="export-pass-btn active" data-passes="60">Standard (60 passes)</button>
-            <button class="export-pass-btn" data-passes="120">Deep Caustics (120 passes)</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Panel 2: Reference Master -->
-      <div id="export-refmaster-panel" style="display:none;">
-        <div class="modal-sub" style="color: #38bdf8; font-weight: 500; margin-bottom: 10px;">
-          Exact reference formula • Square master • Maximum trajectory density
-        </div>
-
-        <div class="refmaster-info-box" style="background: rgba(8, 22, 48, 0.6); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 10.5px; line-height: 1.6; color: #94a3b8;">
-          <div style="color: #e0f2fe; font-weight: 600; margin-bottom: 4px;">
-            Resolution: 4096 × 4096 (Square Master • Center [0.0, 0.0])
-          </div>
-          <div>Formula: Canonical Simone Conradi 2026 Reference (n=16)</div>
-          <div>Workload: 589,824 particles × 16 IFS steps = 9,437,184 deposits/pass</div>
-          <div>Isolated offscreen accumulation • Starts from black • Persistence = 1.0</div>
-          <div style="color: #64748b; font-size: 9.5px; margin-top: 4px; border-top: 1px solid rgba(56, 189, 248, 0.15); padding-top: 4px;">
-            Zero drift, pointer perturbation, or user offsets. Interactive session is 100% restored afterward.
-          </div>
-        </div>
-
-        <div class="modal-section">
-          <div class="modal-section-title">Develop Quality</div>
-          <div class="btn-group" id="refmaster-passes-group">
-            <button class="refmaster-pass-btn active" data-passes="120">120 — High</button>
-            <button class="refmaster-pass-btn" data-passes="240">240 — Maximum</button>
-          </div>
-        </div>
-      </div>
-
+      <!-- Progress: stage + percentage only -->
       <div id="export-progress-area" style="display:none; margin: 12px 0;">
-        <div style="display:flex; justify-content:space-between; font-size:10px; color:#93c5fd;">
+        <div style="display:flex; justify-content:space-between; font-size: 10.5px; color:#93c5fd;">
           <span id="export-status-label">Initializing...</span>
           <span id="export-status-pct">0%</span>
         </div>
-        <div class="progress-bar-track">
+        <div class="progress-bar-track" id="export-progress-track" role="progressbar" aria-label="Export progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div id="export-progress-fill" class="progress-bar-fill"></div>
         </div>
       </div>
 
+      <!-- Success: stays until dismissed -->
+      <div id="export-result" class="export-result" role="status" hidden>
+        <div class="export-result-head">✓ Export complete</div>
+        <dl>
+          <dt>File</dt><dd id="export-result-file"></dd>
+          <dt>Size</dt><dd id="export-result-size"></dd>
+        </dl>
+        <div class="export-result-note">Your browser saves the PNG to its downloads location.</div>
+      </div>
+
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
-        <button id="btn-export-cancel">Cancel</button>
-        <button id="btn-export-start" class="btn-action-highlight" style="padding:6px 14px; font-weight:600;">Download PNG</button>
+        <button id="btn-export-cancel">Close</button>
+        <button id="btn-export-start" class="btn-action-highlight" style="padding:6px 14px; font-weight:600;">Export PNG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help: gestures and shortcuts -->
+  <div id="help-modal" class="modal-backdrop">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="help-modal-title" tabindex="-1" style="max-width:520px;">
+      <div class="modal-title">
+        <span id="help-modal-title">Controls &amp; shortcuts</span>
+        <button id="btn-help-close" aria-label="Close" style="font-size:14px; padding:2px 6px;">✕</button>
+      </div>
+      <div class="modal-sub">Reference is the fixed published artwork. Explore lets you change the mathematics.</div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">On the artwork (Explore)</div>
+        <dl class="help-grid">
+          <dt>Hover</dt><dd>Bend the coefficients by moving the pointer over the artwork</dd>
+          <dt>Click</dt><dd>Send a shock through the pattern</dd>
+          <dt>Shift-drag / right-drag</dt><dd>Pan</dd>
+          <dt>Mouse wheel</dt><dd>Zoom (the zoom buttons are in Controls &rarr; View)</dd>
+        </dl>
+        <div class="help-note">Moving over the toolbar or panels never affects the artwork. In Reference the formula and framing are locked.</div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Keyboard</div>
+        <dl class="help-grid">
+          <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>Reference &middot; Explore &middot; Randomize</dd>
+          <dt><kbd>Space</kbd></dt><dd>Pause or resume drift (Explore)</dd>
+          <dt><kbd>R</kbd></dt><dd>Reset view</dd>
+          <dt><kbd>P</kbd></dt><dd>Coefficient sliders (opens Controls)</dd>
+          <dt><kbd>B</kbd> <kbd>O</kbd></dt><dd>Bloom &middot; equation readout</dd>
+          <dt><kbd>E</kbd> <kbd>S</kbd></dt><dd>Export &middot; Presets</dd>
+          <dt><kbd>H</kbd></dt><dd>Hide or show the controls</dd>
+          <dt><kbd>?</kbd></dt><dd>This help</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Close a dialog, menu or the Controls panel</dd>
+        </dl>
+        <div class="help-note">Advanced: <kbd>T</kbd> raw trajectories &middot; <kbd>D</kbd> debug overlay &middot; <kbd>X</kbd> Brute Force live quality on/off.</div>
       </div>
     </div>
   </div>
 
   <!-- Presets Modal -->
   <div id="preset-modal" class="modal-backdrop">
-    <div class="modal-dialog" style="max-width:540px;">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-modal-title" tabindex="-1" style="max-width:540px;">
       <div class="modal-title">
-        <span>Attractor Preset Library</span>
-        <button id="btn-preset-close" style="font-size:14px; padding:2px 6px;">✕</button>
+        <span id="preset-modal-title">Presets</span>
+        <button id="btn-preset-close" aria-label="Close" style="font-size:14px; padding:2px 6px;">✕</button>
       </div>
-      <div class="modal-sub">Save current organism configuration or load curated mathematical presets.</div>
+      <div class="modal-sub">Save the current state, or load a curated preset or one saved in this browser.</div>
 
       <div class="modal-section">
-        <div class="modal-section-title">Curated Masterpiece Presets</div>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;" id="curated-presets-list">
+        <div class="modal-section-title">Curated presets</div>
+        <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:6px;" id="curated-presets-list">
           <!-- Populated dynamically -->
         </div>
       </div>
 
       <div class="modal-section">
-        <div class="modal-section-title">Save Current Preset</div>
-        <div style="display:flex; gap:6px;">
-          <input type="text" id="preset-name-input" placeholder="Organism Name" style="flex:1; background:rgba(10,24,48,0.7); border:1px solid rgba(40,90,160,0.4); border-radius:6px; color:#c0daf8; padding:4px 8px; font-size:11px; outline:none;">
+        <div class="modal-section-title">Save current state</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          <input type="text" id="preset-name-input" placeholder="Preset name" style="flex:1; min-width:140px; background:rgba(10,24,48,0.7); border:1px solid rgba(40,90,160,0.4); border-radius:6px; color:#c0daf8; padding:4px 8px; font-size:11px;">
           <button id="btn-preset-save" class="btn-action-highlight">Save &amp; Download</button>
           <button id="btn-preset-copy">Copy JSON</button>
         </div>
       </div>
 
       <div class="modal-section" id="saved-presets-section">
-        <div class="modal-section-title">My Saved Presets</div>
-        <div id="user-presets-list" style="max-height:120px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
-          <div style="font-size:10px; color:#5577a3;">No custom presets saved yet.</div>
+        <div class="modal-section-title">Saved in this browser</div>
+        <div id="user-presets-list" style="max-height:clamp(120px, 26vh, 240px); overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+          <div style="font-size: 10.5px; color:#86a3ca;">Nothing saved in this browser yet.</div>
         </div>
       </div>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; border-top:1px solid rgba(40,80,140,0.2); padding-top:10px;">
-        <label style="font-size:10px; color:#60a5fa; cursor:pointer;">
-          📁 Import Preset JSON <input type="file" id="preset-file-input" accept=".json" style="display:none;">
-        </label>
+        <div>
+          <button type="button" id="btn-preset-import" style="font-size: 10.5px; color:#60a5fa;">📁 Import Preset JSON</button>
+          <input type="file" id="preset-file-input" accept=".json" style="display:none;" tabindex="-1">
+        </div>
         <button id="btn-preset-done">Done</button>
       </div>
     </div>
   </div>
 
+  <!-- Persistent graphics status banner -->
+  <div id="status-banner" role="alert">
+    <span id="status-banner-text"></span>
+    <button id="btn-status-reload" type="button" style="display:none;">Reload</button>
+  </div>
+
   <!-- Toast Banner -->
-  <div id="toast-banner">Toast Notification</div>
+  <div id="toast-banner" role="status" aria-live="polite" aria-atomic="true">Toast Notification</div>
 
   <div id="hint-unhide">Press H to restore controls</div>
+  <button id="btn-show-ui" type="button" title="Show controls (H)">Show controls</button>
   <div id="capture-container" style="display:none;"></div>
 
   <script type="module" src="./app.js"></script>

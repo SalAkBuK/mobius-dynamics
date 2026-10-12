@@ -153,6 +153,9 @@ export class App {
 
     // Primary mode state: 'reference' (default faithful art) | 'explore' (interactive sandbox)
     this.mode = 'reference';
+    // In-memory snapshot of the Explore session, taken when leaving Explore for Reference
+    // and resumed automatically on the way back. Never applied while in Reference.
+    this._exploreStash = null;
 
     // UI elements
     this.uiContainer = document.getElementById('ui-container');
@@ -164,16 +167,21 @@ export class App {
     this.valC = document.getElementById('val-c');
     this.valD = document.getElementById('val-d');
     this.valN = document.getElementById('val-n');
+    this.eqChip = document.getElementById('eq-n-chip');
     this.debugOverlay = document.getElementById('debug-overlay');
     this.coeffDrawer = document.getElementById('coeff-drawer');
     this.coeffLockNotice = document.getElementById('coeff-lock-notice');
     this.btnModeRef = document.getElementById('btn-mode-reference');
     this.btnModeExp = document.getElementById('btn-mode-explore');
     this.randomizeMenu = document.getElementById('randomize-menu');
+    this.exportMenu = document.getElementById('export-menu');
+    this.controlsPanel = document.getElementById('controls-panel');
+    this.panelOpen = false;
     this.paletteMenu = document.getElementById('palette-menu');
     this.btnPaletteToggle = document.getElementById('btn-palette-toggle');
     this.exportModal = document.getElementById('export-modal');
     this.presetModal = document.getElementById('preset-modal');
+    this.helpModal = document.getElementById('help-modal');
     this.toastBanner = document.getElementById('toast-banner');
 
     // Debug fields
@@ -301,6 +309,7 @@ export class App {
 
     this.setupEvents();
     this.setupUI();
+    this.observeChromeHeight();
     this.setMode(startMode);
     this.updateReadout();
     this.onResize();
@@ -314,8 +323,107 @@ export class App {
     }
   }
 
+  /**
+   * Publishes the bottom edge of the top toolbar + status pill as --chrome-h so the
+   * coefficient drawer and debug overlay always start below it, however it wraps.
+   */
+  observeChromeHeight() {
+    const top = document.getElementById('top-bar-container');
+    if (!top || typeof ResizeObserver === 'undefined') return;
+    const apply = () => {
+      document.documentElement.style.setProperty('--chrome-h', `${Math.ceil(top.getBoundingClientRect().bottom)}px`);
+    };
+    this._chromeObserver = new ResizeObserver(apply);
+    this._chromeObserver.observe(top);
+    apply();
+  }
+
+  /** UI entry point for mode buttons/keys: re-selecting the active mode does nothing. */
+  requestMode(mode) {
+    if (mode === this.mode) return;
+    this.setMode(mode);
+  }
+
+  /**
+   * Copies exactly the state that Reference intentionally overwrites (organism, offsets,
+   * order, morphology, drift flag/time, framing, palette). Quality tier, bloom/raw view and
+   * transient pointer/shock state are deliberately not part of an Explore session.
+   */
+  snapshotExploreSession() {
+    const m = this.math;
+    const r = this.renderer;
+    return {
+      n: m.n,
+      activeMorphology: m.activeMorphology,
+      baseA: m.baseA.clone(), baseB: m.baseB.clone(), baseC: m.baseC.clone(), baseD: m.baseD.clone(),
+      userOffsetA: m.userOffsetA.clone(), userOffsetB: m.userOffsetB.clone(),
+      userOffsetC: m.userOffsetC.clone(), userOffsetD: m.userOffsetD.clone(),
+      evolving: m.evolving,
+      time: m.time,
+      zoom: r.zoom,
+      targetZoom: r.targetZoom,
+      viewCenter: [...r.viewCenter],
+      targetViewCenter: [...r.targetViewCenter],
+      activePalette: r.activePalette
+    };
+  }
+
+  restoreExploreSession(s) {
+    const m = this.math;
+    const r = this.renderer;
+    const previousN = m.n;
+    m.n = s.n;
+    m.activeMorphology = s.activeMorphology;
+    m.baseA = s.baseA.clone(); m.baseB = s.baseB.clone(); m.baseC = s.baseC.clone(); m.baseD = s.baseD.clone();
+    m.userOffsetA = s.userOffsetA.clone(); m.userOffsetB = s.userOffsetB.clone();
+    m.userOffsetC = s.userOffsetC.clone(); m.userOffsetD = s.userOffsetD.clone();
+    m.evolving = s.evolving;
+    m.time = s.time;
+    m.updateRootsOfUnity();
+    m.computeTransforms();
+    r.zoom = s.zoom;
+    r.targetZoom = s.targetZoom;
+    r.viewCenter = [...s.viewCenter];
+    r.targetViewCenter = [...s.targetViewCenter];
+    r.setPalette(s.activePalette);
+    r.clearAccumulation();
+    if (m.n !== previousN) r.startSymmetryTransition();
+    this.updateSliderInputs();
+  }
+
+  /**
+   * Explicitly discards the saved Explore session and restarts Explore from the same
+   * baseline it has on first entry (canonical coefficients, zero offsets, drift off,
+   * cobalt, default framing). Only acts while in Explore; Reference is never touched.
+   */
+  startFreshExplore() {
+    if (this.isExporting || this.renderer?.isExporting) return;
+    this._exploreStash = null;
+    if (this.mode !== 'explore') return;
+    const m = this.math;
+    const r = this.renderer;
+    const previousN = m.n;
+    m.resetToReference();
+    m.setMode('explore');
+    r.zoom = 1.65;
+    r.targetZoom = 1.65;
+    r.viewCenter = [0.0, 0.0];
+    r.targetViewCenter = [0.0, 0.0];
+    r.setPalette('cobalt');
+    r.clearAccumulation();
+    if (m.n !== previousN) r.startSymmetryTransition();
+    this.updateSliderInputs();
+    this.updateModeUI();
+    this.updateReadout();
+    this.showToast('Explore restarted from the Reference baseline.');
+  }
+
   setMode(mode) {
     if (this.isExporting || this.renderer?.isExporting) return;
+    if (mode === 'reference' && this.mode === 'explore') {
+      this._exploreStash = this.snapshotExploreSession();
+    }
+    const resumeStash = (mode === 'explore' && this.mode === 'reference') ? this._exploreStash : null;
     this.mode = mode;
     this.math.setMode(mode);
 
@@ -333,8 +441,13 @@ export class App {
       this.resetSliderDisplay();
       this.showToast('Reference Mode activated • Exact Conradi artwork restored');
     } else {
-      // MODE 2 — EXPLORE:
-      this.showToast('Explore Mode activated • Interactive sandbox unlocked');
+      // MODE 2 — EXPLORE: resume the previous Explore session if one was saved.
+      if (resumeStash) {
+        this.restoreExploreSession(resumeStash);
+        this.showToast('Explore Mode • previous session resumed');
+      } else {
+        this.showToast('Explore Mode activated • Interactive sandbox unlocked');
+      }
     }
 
     this.updateModeUI();
@@ -354,13 +467,13 @@ export class App {
         this.modeStatusPill.className = 'pill-reference';
         this.modeStatusPill.innerHTML = `
           <span class="mode-dot ref-dot"></span>
-          <strong>REFERENCE MODE</strong> &bull; Exact Simone Conradi 2026 Artwork (Formula Protected &bull; Drift Paused)
+          <strong>Reference</strong> &middot; the published artwork, locked
         `;
       } else {
         this.modeStatusPill.className = 'pill-explore';
         this.modeStatusPill.innerHTML = `
           <span class="mode-dot exp-dot"></span>
-          <strong>EXPLORE MODE</strong> &bull; Interactive Sandbox (Pointer Perturbations &amp; Sliders Active)
+          <strong>Explore</strong> &middot; change the mathematics &mdash; hover to bend, click to shock, Shift-drag to pan
         `;
       }
     }
@@ -376,14 +489,52 @@ export class App {
     const resetCoeffBtn = document.getElementById('btn-reset-coeffs');
     if (resetCoeffBtn) resetCoeffBtn.disabled = isRef;
 
-    // Symmetry buttons: in Reference mode, locked to 16
+    // Order-n buttons stay fully usable. In Reference, picking anything but 16 enters
+    // Explore, and the tooltip says so (they are not presented as disabled).
     const symBtns = document.querySelectorAll('.sym-btn');
     symBtns.forEach(btn => {
       const n = parseInt(btn.dataset.n, 10);
       btn.classList.toggle('active', isRef ? n === 16 : n === this.math.n);
-      btn.style.opacity = isRef && n !== 16 ? '0.4' : '1.0';
-      btn.title = isRef ? 'Locked to n=16 in Reference mode' : `Order n = ${n}`;
+      btn.style.opacity = '';
+      btn.title = isRef
+        ? (n === 16 ? 'Order n = 16 (Reference)' : 'Changing this enters Explore.')
+        : `Order n = ${n}`;
     });
+
+    // Non-Reference palettes enter Explore as well.
+    document.querySelectorAll('.palette-select-btn').forEach(btn => {
+      if (isRef && btn.dataset.pal !== 'cobalt') btn.title = 'Changing this enters Explore.';
+      else btn.removeAttribute('title');
+    });
+
+    // Zoom +/- never change mode; in Reference the framing is locked, so they are
+    // genuinely unavailable (the existing "Framing locked" toast is kept on click).
+    for (const id of ['btn-zoom-in', 'btn-zoom-out']) {
+      const btn = document.getElementById(id);
+      if (!btn) continue;
+      if (btn.dataset.baseTitle === undefined) btn.dataset.baseTitle = btn.title;
+      btn.classList.toggle('is-unavailable', isRef);
+      if (isRef) btn.setAttribute('aria-disabled', 'true'); else btn.removeAttribute('aria-disabled');
+      btn.title = isRef ? 'Framing is locked in Reference' : btn.dataset.baseTitle;
+    }
+
+    // "Changing this enters Explore." only where it is true (Reference).
+    const orderNote = document.getElementById('order-note');
+    if (orderNote) orderNote.hidden = !isRef;
+    const paletteNote = document.getElementById('palette-note');
+    if (paletteNote) paletteNote.hidden = !isRef;
+    const startFresh = document.getElementById('btn-start-fresh');
+    if (startFresh) {
+      startFresh.disabled = isRef;
+      startFresh.classList.toggle('is-unavailable', isRef);
+      if (isRef) startFresh.title = 'Available in Explore';
+      else startFresh.title = 'Discard the saved Explore session and restart Explore from the Reference baseline';
+    }
+    const resetBtn = document.getElementById('btn-reset');
+    if (resetBtn) resetBtn.title = isRef ? 'Restore the canonical Reference framing' : 'Reset framing and offsets';
+
+    const rndBtn = document.getElementById('btn-randomize-action');
+    if (rndBtn) rndBtn.title = isRef ? 'Randomize — enters Explore (shortcut: 3)' : 'Randomize (shortcut: 3)';
 
     // Pause/Resume button
     const btnPause = document.getElementById('btn-pause');
@@ -397,14 +548,75 @@ export class App {
         btnPause.disabled = false;
         btnPause.innerText = this.math.evolving ? 'Pause' : 'Resume';
         btnPause.classList.toggle('active', !this.math.evolving);
-        btnPause.title = 'Toggle autonomous coefficient drift';
+        btnPause.title = 'Pause or resume the slow autonomous drift of the coefficients (Space)';
       }
     }
 
     // Palette button: update active item
     if (this.btnPaletteToggle) {
       const curPal = PALETTES[this.renderer.activePalette] || PALETTES.cobalt;
-      this.btnPaletteToggle.innerText = `Palette: ${curPal.name.split(' ')[0]} ▾`;
+      const shortName = { cobalt: 'Cobalt', solar: 'Solar', aurora: 'Aurora', amethyst: 'Amethyst', monochrome: 'Silver' }[this.renderer.activePalette] || curPal.name.split(' ')[0];
+      this.btnPaletteToggle.innerText = `Palette: ${shortName} ▾`;
+    }
+
+    this.syncControlState();
+  }
+
+  /**
+   * Read-only quality information: while Auto is active, which tier it currently runs;
+   * while Brute Force is selected, an inline warning. No confirmation, no behaviour change.
+   */
+  updateQualityInfo() {
+    const adaptive = this.renderer?.adaptive;
+    if (!adaptive) return;
+    const tierLine = document.getElementById('quality-current-tier');
+    if (tierLine) {
+      const isAuto = adaptive.mode === 'auto';
+      tierLine.hidden = !isAuto;
+      if (isAuto) {
+        const text = `Current tier: ${adaptive.currentTier?.label ?? 'Calibrating…'}`;
+        if (tierLine.textContent !== text) tierLine.textContent = text;
+      }
+    }
+    const warning = document.getElementById('quality-warning');
+    if (warning) warning.hidden = adaptive.mode !== 'bruteforce';
+  }
+
+  /** base -> effective value next to each of the four coefficient sliders (display only). */
+  updateCoeffEffective() {
+    const m = this.math;
+    const rows = [['a-re', m.baseA.r, m.a.r], ['b-im', m.baseB.i, m.b.i], ['c-re', m.baseC.r, m.c.r], ['d-im', m.baseD.i, m.d.i]];
+    for (const [id, base, live] of rows) {
+      const baseEl = document.getElementById(`coeff-base-${id}`);
+      const liveEl = document.getElementById(`coeff-live-${id}`);
+      if (baseEl) baseEl.textContent = base.toFixed(3);
+      if (liveEl) liveEl.textContent = live.toFixed(3);
+    }
+  }
+
+  /**
+   * Derives the Quality group, Palette menu, Bloom and Raw buttons from the actual
+   * renderer state, so presets, mode resets and recovery can never leave them stale.
+   */
+  syncControlState() {
+    const r = this.renderer;
+    if (!r) return;
+    const tier = r.adaptive?.mode;
+    document.querySelectorAll('.quality-btn').forEach(b => b.classList.toggle('active', b.dataset.tier === tier));
+    document.querySelectorAll('.palette-select-btn').forEach(b => b.classList.toggle('active', b.dataset.pal === r.activePalette));
+
+    const bloomBtn = document.getElementById('btn-bloom');
+    if (bloomBtn) {
+      bloomBtn.innerText = `Bloom: ${r.bloomEnabled ? 'On' : 'Off'}`;
+      bloomBtn.classList.toggle('active', !!r.bloomEnabled);
+    }
+    this.updateQualityInfo();
+    this.syncPressed();
+    const rawBtn = document.getElementById('btn-raw');
+    if (rawBtn) {
+      const rawOn = r.viewMode === 2;
+      rawBtn.innerText = rawOn ? 'Raw trajectories: On' : 'Raw trajectories';
+      rawBtn.classList.toggle('active', rawOn);
     }
   }
 
@@ -449,11 +661,15 @@ export class App {
     if (this.valC) this.valC.innerText = this.math.c.format(3);
     if (this.valD) this.valD.innerText = this.math.d.format(3);
     if (this.valN) this.valN.innerText = this.math.n;
+    const chip = document.getElementById('eq-n-chip');
+    if (chip) chip.innerText = `n=${this.math.n}`;
+    this.updateCoeffEffective();
   }
 
   randomize(style = null) {
     if (this.isExporting || this.renderer?.isExporting) return;
-    // Mode 3: Randomize switches to explore sandbox mode
+    // Mode 3: Randomize switches to explore sandbox mode and replaces the Explore session
+    this._exploreStash = null;
     this.mode = 'explore';
     const res = this.math.randomize(style);
     this.renderer.clearAccumulation();
@@ -475,9 +691,83 @@ export class App {
     }, duration);
   }
 
+  showStatusBanner(message, { level = 'warn', reload = false } = {}) {
+    const banner = document.getElementById('status-banner');
+    if (!banner) return;
+    const text = document.getElementById('status-banner-text');
+    if (text) text.textContent = message;
+    banner.className = `status-${level}`;
+    banner.style.display = 'flex';
+    const reloadBtn = document.getElementById('btn-status-reload');
+    if (reloadBtn) reloadBtn.style.display = reload ? '' : 'none';
+  }
+
+  hideStatusBanner() {
+    const banner = document.getElementById('status-banner');
+    if (banner) banner.style.display = 'none';
+  }
+
   closeDropdowns() {
     if (this.randomizeMenu) this.randomizeMenu.classList.remove('visible');
     if (this.paletteMenu) this.paletteMenu.classList.remove('visible');
+    if (this.exportMenu) this.exportMenu.classList.remove('visible');
+    this.syncMenuAria();
+  }
+
+  /** aria-expanded on the three menu buttons follows whether their menu is open. */
+  syncMenuAria() {
+    for (const [btnId, menu] of [['btn-randomize-toggle', this.randomizeMenu], ['btn-palette-toggle', this.paletteMenu], ['btn-export-toggle', this.exportMenu]]) {
+      document.getElementById(btnId)?.setAttribute('aria-expanded', String(!!menu?.classList.contains('visible')));
+    }
+  }
+
+  /** aria-pressed mirrors the selected/active state of toggle and segmented buttons. */
+  syncPressed() {
+    const sel = '.mode-btn, .sym-btn, .quality-btn, .palette-select-btn, #btn-bloom, #btn-readout, #btn-raw, #btn-debug, #btn-pause';
+    document.querySelectorAll(sel).forEach(b => b.setAttribute('aria-pressed', String(b.classList.contains('active'))));
+  }
+
+  anyDropdownOpen() {
+    return [this.randomizeMenu, this.paletteMenu, this.exportMenu].some(m => m?.classList.contains('visible'));
+  }
+
+  // --- Controls panel ---
+  togglePanel(force) {
+    const open = force === undefined ? !this.panelOpen : !!force;
+    this.panelOpen = open;
+    this.controlsPanel?.classList.toggle('open', open);
+    document.body.classList.toggle('panel-open', open);
+    const btn = document.getElementById('btn-controls');
+    if (btn) {
+      btn.classList.toggle('active', open);
+      btn.setAttribute('aria-expanded', String(open));
+    }
+    this.updateReadoutCompact();
+  }
+
+  closePanel() {
+    const hadFocus = this.controlsPanel?.contains(document.activeElement);
+    this.togglePanel(false);
+    if (hadFocus) document.getElementById('btn-controls')?.focus({ preventScroll: true });
+  }
+
+  setPanelSection(name, expanded) {
+    const section = document.getElementById(`panel-section-${name}`);
+    const head = section?.querySelector('.panel-section-head');
+    const body = section?.querySelector('.panel-section-body');
+    if (!head || !body) return;
+    head.setAttribute('aria-expanded', String(expanded));
+    body.hidden = !expanded;
+  }
+
+  openPanelSection(name) {
+    this.togglePanel(true);
+    this.setPanelSection(name, true);
+  }
+
+  // The equation readout shrinks to a one-line chip on short viewports or while the panel is open.
+  updateReadoutCompact() {
+    this.readoutEl?.classList.toggle('compact', window.innerHeight < 800 || window.innerWidth < 820 || this.panelOpen);
   }
 
   setupEvents() {
@@ -524,7 +814,9 @@ export class App {
           this.renderer.targetViewCenter[1] = this.dragCenterStart[1] + dy * scale;
         }
       } else {
-        if (this.mode === 'explore') {
+        // Canvas = interactive surface, UI = safe surface: hover only perturbs the
+        // artwork while the pointer is actually over the canvas.
+        if (this.mode === 'explore' && e.target === this.canvas) {
           const normX = (e.clientX / window.innerWidth) * 2 - 1;
           const normY = 1 - (e.clientY / window.innerHeight) * 2;
           this.math.setPointer(normX, normY);
@@ -557,12 +849,23 @@ export class App {
 
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+    // Leaving the canvas returns the pointer target to neutral; the existing damping in
+    // MathSystem.update() then relaxes the current influence smoothly (no hard reset).
+    this.canvas.addEventListener('pointerleave', () => {
+      if (this.isExporting || this.renderer?.isExporting) return;
+      if (this.mode === 'explore') this.math.setPointer(0, 0);
+    });
+
     // Wheel zoom: in Reference mode, framing is strictly preserved
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.renderer.adaptive.markInteraction();
       if (this.mode === 'reference') {
-        this.showToast('Framing locked in Reference Mode. Switch to Explore to zoom.');
+        const now = performance.now();
+        if (now - (this._lastFramingToast || 0) > 3000) {
+          this._lastFramingToast = now;
+          this.showToast('Framing locked in Reference Mode. Switch to Explore to zoom.');
+        }
         return;
       }
 
@@ -585,12 +888,26 @@ export class App {
 
     // Keyboard shortcuts
     window.addEventListener('keydown', (e) => {
+      // Browser/OS combinations (Ctrl+S, Ctrl+R, ...) are not app shortcuts.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // While a dialog is open it owns the keyboard: no shortcuts fire behind it.
+      if (this.isModalOpen()) {
+        this.handleModalKeydown(e);
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (this.anyDropdownOpen()) this.closeDropdowns();
+        else if (this.panelOpen) this.closePanel();
+        return;
+      }
       if (e.target.tagName === 'INPUT') return;
       const key = e.key.toLowerCase();
+      // Space activates a focused button natively; do not steal it.
+      if (key === ' ' && e.target?.closest?.('button, a, select, summary, [role="button"]')) return;
       if (key === '1') {
-        this.setMode('reference');
+        this.requestMode('reference');
       } else if (key === '2') {
-        this.setMode('explore');
+        this.requestMode('explore');
       } else if (key === '3') {
         this.randomize();
       } else if (key === 'h') {
@@ -612,13 +929,14 @@ export class App {
         this.toggleCoeffDrawer();
       } else if (key === 'e') {
         this.openExportModal();
+      } else if (key === '?') {
+        this.openHelpModal();
       } else if (key === 's') {
         this.openPresetModal();
       } else if (key === 'x') {
         const next = this.renderer.adaptive.mode === 'bruteforce' ? 'auto' : 'bruteforce';
         this.renderer.adaptive.setMode(next);
-        const qualityBtns = document.querySelectorAll('.quality-btn');
-        qualityBtns.forEach((b) => b.classList.toggle('active', b.dataset.tier === next));
+        this.syncControlState();
         this.onResize();
       }
     });
@@ -626,8 +944,8 @@ export class App {
 
   setupUI() {
     // Mode Switcher buttons
-    this.btnModeRef?.addEventListener('click', () => this.setMode('reference'));
-    this.btnModeExp?.addEventListener('click', () => this.setMode('explore'));
+    this.btnModeRef?.addEventListener('click', () => this.requestMode('reference'));
+    this.btnModeExp?.addEventListener('click', () => this.requestMode('explore'));
 
     // Randomize direct button & dropdown toggle & styles
     document.getElementById('btn-randomize-action')?.addEventListener('click', () => this.randomize());
@@ -635,8 +953,10 @@ export class App {
     const btnRandToggle = document.getElementById('btn-randomize-toggle');
     btnRandToggle?.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.randomizeMenu?.classList.toggle('visible');
-      if (this.paletteMenu) this.paletteMenu.classList.remove('visible');
+      const wasOpen = this.randomizeMenu?.classList.contains('visible');
+      this.closeDropdowns();
+      if (!wasOpen) this.randomizeMenu?.classList.add('visible');
+      this.syncMenuAria();
     });
 
     document.querySelectorAll('.rnd-style-btn').forEach(btn => {
@@ -649,8 +969,10 @@ export class App {
     // Palette dropdown toggle & selectors
     this.btnPaletteToggle?.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.paletteMenu?.classList.toggle('visible');
-      if (this.randomizeMenu) this.randomizeMenu.classList.remove('visible');
+      const wasOpen = this.paletteMenu?.classList.contains('visible');
+      this.closeDropdowns();
+      if (!wasOpen) this.paletteMenu?.classList.add('visible');
+      this.syncMenuAria();
     });
 
     document.querySelectorAll('.palette-select-btn').forEach(btn => {
@@ -675,6 +997,8 @@ export class App {
         this.renderer.adaptive.setMode(tier);
         qualityBtns.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
+        this.updateQualityInfo();
+        this.syncPressed();
         this.onResize();
       });
     });
@@ -693,6 +1017,7 @@ export class App {
         btn.classList.add('active');
         this.renderer.startSymmetryTransition();
         this.renderer.adaptive.markInteraction();
+        this.syncPressed();
       });
     });
 
@@ -726,13 +1051,43 @@ export class App {
     document.getElementById('btn-reset')?.addEventListener('click', () => this.resetView());
     document.getElementById('btn-debug')?.addEventListener('click', () => this.toggleDebug());
     document.getElementById('btn-hide')?.addEventListener('click', () => this.toggleUI());
+    document.getElementById('btn-show-ui')?.addEventListener('click', () => this.toggleUI());
+    document.getElementById('btn-status-reload')?.addEventListener('click', () => window.location.reload());
     document.getElementById('btn-bloom')?.addEventListener('click', () => this.toggleBloom());
     document.getElementById('btn-raw')?.addEventListener('click', () => this.toggleRawTrajectories());
     document.getElementById('btn-readout')?.addEventListener('click', () => this.toggleReadout());
     document.getElementById('btn-coeff')?.addEventListener('click', () => this.toggleCoeffDrawer());
 
     // Export & Presets Triggers
+    document.getElementById('btn-export-toggle')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasOpen = this.exportMenu?.classList.contains('visible');
+      this.closeDropdowns();
+      if (!wasOpen) this.exportMenu?.classList.add('visible');
+      this.syncMenuAria();
+    });
+    document.getElementById('btn-export-image')?.addEventListener('click', () => this.openExportModal('standard'));
     document.getElementById('btn-export-trigger')?.addEventListener('click', () => this.openExportModal('standard'));
+
+    // Help (gestures and shortcuts)
+    document.getElementById('btn-help')?.addEventListener('click', () => this.openHelpModal());
+    document.getElementById('btn-help-close')?.addEventListener('click', () => this.closeHelpModal());
+
+    // Controls panel
+    document.getElementById('btn-controls')?.addEventListener('click', () => this.togglePanel());
+    document.getElementById('btn-controls-close')?.addEventListener('click', () => this.closePanel());
+    document.querySelectorAll('.panel-section-head').forEach(head => {
+      head.addEventListener('click', () => {
+        const section = head.closest('.panel-section');
+        this.setPanelSection(section.id.replace('panel-section-', ''), head.getAttribute('aria-expanded') !== 'true');
+      });
+    });
+    document.getElementById('btn-readout-expand')?.addEventListener('click', () => {
+      const expanded = this.readoutEl?.classList.toggle('expanded');
+      document.getElementById('btn-readout-expand')?.setAttribute('aria-expanded', String(!!expanded));
+    });
+    window.addEventListener('resize', () => this.updateReadoutCompact());
+    this.updateReadoutCompact();
     document.getElementById('btn-refmaster-trigger')?.addEventListener('click', () => this.openExportModal('reference_master'));
     document.getElementById('btn-preset-trigger')?.addEventListener('click', () => this.openPresetModal());
 
@@ -757,6 +1112,7 @@ export class App {
           this.exportWidth = parseInt(w, 10);
           this.exportHeight = parseInt(h, 10);
         }
+        this.refreshExportDialog();
       });
     });
 
@@ -783,9 +1139,11 @@ export class App {
     document.getElementById('btn-preset-copy')?.addEventListener('click', () => this.copyPresetJSON());
 
     const fileInput = document.getElementById('preset-file-input');
+    document.getElementById('btn-preset-import')?.addEventListener('click', () => fileInput?.click());
     fileInput?.addEventListener('change', (e) => {
       const file = e.target.files?.[0];
       if (file) this.importPresetFile(file);
+      e.target.value = '';
     });
 
     // Coefficient Sliders
@@ -823,6 +1181,8 @@ export class App {
       this.math.setCoefficientOffset('d', 0, v);
     });
 
+    document.getElementById('btn-start-fresh')?.addEventListener('click', () => this.startFreshExplore());
+
     document.getElementById('btn-reset-coeffs')?.addEventListener('click', () => {
       if (this.mode === 'reference') return;
       this.renderer.adaptive.markInteraction();
@@ -836,40 +1196,218 @@ export class App {
 
   // --- Export Features ---
   openExportModal(type = 'standard') {
-    clearTimeout(this._exportCompletionTimeout);
-    this._exportCompletionTimeout = null;
+    this.closeDropdowns();
+    if (!this.isExporting) {
+      this.setExportUiState('idle');
+      // "Current View" always means the view as it is now, not as it was when the option was clicked.
+      if (document.querySelector('.export-res-btn.active')?.dataset.w === 'viewport' && this.canvas) {
+        this.exportWidth = this.canvas.width;
+        this.exportHeight = this.canvas.height;
+      }
+    }
     this.setExportType(type);
-    if (this.exportModal) this.exportModal.classList.add('visible');
+    if (this.exportModal) {
+      this.rememberFocus();
+      this.exportModal.classList.add('visible');
+      this.focusDialog(this.exportModal);
+    }
+  }
+
+  // --- Dialog focus management / keyboard ---
+  isModalOpen() {
+    return [this.exportModal, this.presetModal, this.helpModal].some(m => m?.classList.contains('visible'));
+  }
+
+  rememberFocus() {
+    if (this.isModalOpen()) return;
+    const el = document.activeElement;
+    this._modalReturnFocus = el && el !== document.body ? el : null;
+  }
+
+  focusDialog(modal) {
+    modal?.querySelector('.modal-dialog')?.focus({ preventScroll: true });
+  }
+
+  restoreFocus() {
+    const el = this._modalReturnFocus;
+    this._modalReturnFocus = null;
+    if (el && el.isConnected && !this.isModalOpen()) el.focus({ preventScroll: true });
+  }
+
+  handleModalKeydown(e) {
+    const modal = [this.exportModal, this.presetModal, this.helpModal].find(m => m?.classList.contains('visible'));
+    if (e.key === 'Escape') {
+      // A running export is stopped only through the explicit Cancel button.
+      if (modal === this.presetModal) this.closePresetModal();
+      else if (modal === this.helpModal) this.closeHelpModal();
+      else if (!this.isExporting) this.closeExportModal();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const dialog = modal?.querySelector('.modal-dialog');
+    if (!dialog) return;
+    const focusable = [...dialog.querySelectorAll('button, input, select, textarea, a[href]')]
+      .filter(el => !el.disabled && el.offsetParent !== null);
+    if (!focusable.length) {
+      e.preventDefault();
+      dialog.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (!dialog.contains(active) || active === dialog) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
   }
 
   setExportType(type) {
+    // The export type cannot change under a running export.
+    if (this.isExporting) return;
     this.exportType = type;
     const tabStd = document.getElementById('tab-export-standard');
     const tabRef = document.getElementById('tab-export-refmaster');
     const panelStd = document.getElementById('export-standard-panel');
     const panelRef = document.getElementById('export-refmaster-panel');
-    const btnStart = document.getElementById('btn-export-start');
 
     if (type === 'reference_master') {
       if (tabStd) tabStd.classList.remove('active');
       if (tabRef) tabRef.classList.add('active');
       if (panelStd) panelStd.style.display = 'none';
       if (panelRef) panelRef.style.display = 'block';
-      if (btnStart) btnStart.innerText = 'Develop Reference Master';
     } else {
       if (tabStd) tabStd.classList.add('active');
       if (tabRef) tabRef.classList.remove('active');
       if (panelStd) panelStd.style.display = 'block';
       if (panelRef) panelRef.style.display = 'none';
-      if (btnStart) btnStart.innerText = 'Download PNG';
     }
+    this.refreshExportDialog();
+  }
+
+  /** One line saying exactly what the next export will produce. */
+  describeExportOutput() {
+    if (this.exportType === 'reference_master') {
+      return 'Output: PNG · 4096 × 4096 · the canonical Reference artwork (your Explore edits are ignored)';
+    }
+    const width = this.exportWidth || 3840;
+    const height = this.exportHeight || 2160;
+    const source = this.mode === 'reference' ? 'the Reference artwork' : 'your current Explore view';
+    return `Output: PNG · ${width} × ${height} · ${source}`;
+  }
+
+  /** Title, output summary and primary-button label for the current type and dialog state. */
+  refreshExportDialog() {
+    const master = this.exportType === 'reference_master';
+    const title = document.getElementById('export-modal-title');
+    if (title) title.textContent = master ? 'Export Reference Master' : 'Export image';
+    const summary = document.getElementById('export-summary');
+    if (summary) summary.textContent = this.describeExportOutput();
+    const start = document.getElementById('btn-export-start');
+    if (start) start.textContent = this._exportUiState === 'failed' ? 'Try again' : (master ? 'Export Reference Master' : 'Export PNG');
+  }
+
+  describeExportFailure(err) {
+    const detail = err?.message || 'Unknown error';
+    if (err?.name === 'WebGLContextLostError') {
+      return { title: 'the graphics context was lost during the export.', detail: 'Wait for the renderer to recover, then try again.' };
+    }
+    if (/memory|texture|unsupported|limit/i.test(detail)) {
+      return { title: 'this device could not provide the graphics memory the export needs.', detail: `${detail} Try a smaller size or fewer passes.` };
+    }
+    return { title: 'the export could not be completed.', detail };
+  }
+
+  /**
+   * Single source of truth for the export dialog's state:
+   * idle | running | canceled | failed | success.
+   * Stale progress is cleared outside 'running'; success stays until the user dismisses it.
+   */
+  setExportUiState(state, info = {}) {
+    this._exportUiState = state;
+    const el = id => document.getElementById(id);
+    const running = state === 'running';
+    const success = state === 'success';
+
+    const options = el('export-options');
+    if (options) options.hidden = success;
+    document.querySelectorAll('#export-options button').forEach(b => { b.disabled = running; });
+
+    const closeBtn = el('btn-export-close');
+    if (closeBtn) {
+      closeBtn.disabled = running;
+      closeBtn.title = running ? 'Export in progress — use Cancel export to stop it' : 'Close';
+    }
+
+    const progress = el('export-progress-area');
+    if (progress) progress.style.display = running ? 'block' : 'none';
+    const label = el('export-status-label');
+    const pct = el('export-status-pct');
+    const fill = el('export-progress-fill');
+    const track = el('export-progress-track');
+    if (label) label.innerText = running ? 'Initializing...' : '';
+    if (pct) pct.innerText = running ? '0%' : '';
+    if (fill) fill.style.width = '0%';
+    if (track) track.setAttribute('aria-valuenow', '0');
+
+    const notice = el('export-notice');
+    if (notice) {
+      const show = state === 'canceled' || state === 'failed';
+      notice.hidden = !show;
+      notice.replaceChildren();
+      if (show) {
+        notice.className = 'export-notice ' + (state === 'failed' ? 'is-error' : 'is-canceled');
+        notice.setAttribute('role', state === 'failed' ? 'alert' : 'status');
+        const head = document.createElement('div');
+        const detail = document.createElement('div');
+        detail.className = 'export-detail';
+        if (state === 'failed') {
+          const f = this.describeExportFailure(info.error);
+          head.textContent = `⚠ Export failed — ${f.title}`;
+          detail.textContent = f.detail;
+        } else {
+          head.textContent = 'Export canceled.';
+          detail.textContent = 'Nothing was downloaded. Your session is unchanged.';
+        }
+        notice.append(head, detail);
+      }
+    }
+
+    const result = el('export-result');
+    if (result) {
+      result.hidden = !success;
+      if (success) {
+        const file = el('export-result-file');
+        const size = el('export-result-size');
+        if (file) file.textContent = info.filename || '';
+        if (size) size.textContent = `${info.width} × ${info.height} px`;
+      }
+    }
+
+    const start = el('btn-export-start');
+    if (start) {
+      start.hidden = success;
+      start.disabled = running;
+    }
+    const cancel = el('btn-export-cancel');
+    if (cancel) {
+      cancel.disabled = false;
+      cancel.textContent = running ? 'Cancel export' : (success ? 'Done' : 'Close');
+    }
+    this.refreshExportDialog();
   }
 
   closeExportModal() {
     if (this.isExporting) return;
     if (this.exportModal) this.exportModal.classList.remove('visible');
-    const progArea = document.getElementById('export-progress-area');
-    if (progArea) progArea.style.display = 'none';
+    this.setExportUiState('idle');
+    this.restoreFocus();
   }
 
   showExportDisplayHold() {
@@ -933,8 +1471,6 @@ export class App {
 
   async startExport() {
     if (this.isExporting || this.contextLost || this.renderer.isContextUnavailable()) return;
-    clearTimeout(this._exportCompletionTimeout);
-    this._exportCompletionTimeout = null;
     this._exportAbortController = new AbortController();
     this._exportTask = this.runExport();
     return this._exportTask;
@@ -942,6 +1478,11 @@ export class App {
 
   cancelExport() {
     this._exportAbortController?.abort();
+  }
+
+  /** After a finished export, put keyboard focus on the dismiss button so the result is announced and Enter closes it. */
+  focusExportDismiss() {
+    if (this.exportModal?.classList.contains('visible')) document.getElementById('btn-export-cancel')?.focus({ preventScroll: true });
   }
 
   async runExport() {
@@ -953,19 +1494,14 @@ export class App {
     // 1. Capture current visible artwork and display as temporary visual overlay over WebGL canvas
     this.showExportDisplayHold();
 
-    const progArea = document.getElementById('export-progress-area');
     const statusLbl = document.getElementById('export-status-label');
     const statusPct = document.getElementById('export-status-pct');
     const progFill = document.getElementById('export-progress-fill');
-    const btnStart = document.getElementById('btn-export-start');
-    const btnCancel = document.getElementById('btn-export-cancel');
+    const progTrack = document.getElementById('export-progress-track');
 
-    if (progArea) progArea.style.display = 'block';
-    if (statusLbl) statusLbl.innerText = 'Initializing...';
-    if (statusPct) statusPct.innerText = '0%';
-    if (progFill) progFill.style.width = '0%';
-    if (btnStart) btnStart.disabled = true;
-    if (btnCancel) btnCancel.disabled = false;
+    // Dialog state: options and close locked, progress shown (stage + percentage), Cancel export available.
+    this.setExportUiState('running');
+    if (this.exportModal?.classList.contains('visible')) this.focusDialog(this.exportModal);
 
     // REFERENCE MASTER EXPORT BRANCH
     if (this.exportType === 'reference_master') {
@@ -1043,24 +1579,20 @@ export class App {
             if (statusLbl) statusLbl.innerText = msg;
             if (statusPct) statusPct.innerText = `${pct}%`;
             if (progFill) progFill.style.width = `${pct}%`;
+            if (progTrack) progTrack.setAttribute('aria-valuenow', String(pct));
           }
         });
         this.showToast('Reference Master 4096×4096 exported successfully!');
-        this._exportCompletionTimeout = setTimeout(() => {
-          this._exportCompletionTimeout = null;
-          if (btnStart) btnStart.disabled = false;
-          if (btnCancel) btnCancel.disabled = false;
-          this.closeExportModal();
-        }, 700);
+        // Success stays open until the user dismisses it (no timer).
+        this.setExportUiState('success', { filename, width: 4096, height: 4096 });
+        this.focusExportDismiss();
         return blob;
       } catch (err) {
         if (err?.name !== 'AbortError') console.error('Reference Master Export error:', err);
         if (err?.name === 'WebGLContextLostError') this._exportInterrupted = true;
         const errMsg = err?.message || 'Export failed';
-        if (statusLbl) statusLbl.innerText = err?.name === 'AbortError' ? 'Export canceled.' : 'Export failed: ' + errMsg;
+        this.setExportUiState(err?.name === 'AbortError' ? 'canceled' : 'failed', { error: err });
         this.showToast(err?.name === 'AbortError' ? 'Export canceled.' : 'Reference Master Export failed: ' + errMsg);
-        if (btnStart) btnStart.disabled = false;
-        if (btnCancel) btnCancel.disabled = false;
       } finally {
         // Complete session state restoration
         this.mode = sessionState.mode;
@@ -1130,24 +1662,20 @@ export class App {
           if (statusLbl) statusLbl.innerText = msg;
           if (statusPct) statusPct.innerText = `${pct}%`;
           if (progFill) progFill.style.width = `${pct}%`;
+          if (progTrack) progTrack.setAttribute('aria-valuenow', String(pct));
         }
       });
       this.showToast(`Successfully exported ${width}×${height} PNG!`);
-      this._exportCompletionTimeout = setTimeout(() => {
-        this._exportCompletionTimeout = null;
-        if (btnStart) btnStart.disabled = false;
-        if (btnCancel) btnCancel.disabled = false;
-        this.closeExportModal();
-      }, 700);
+      // Success stays open until the user dismisses it (no timer).
+      this.setExportUiState('success', { filename, width, height });
+      this.focusExportDismiss();
       return blob;
     } catch (err) {
       if (err?.name !== 'AbortError') console.error('Export error:', err);
       if (err?.name === 'WebGLContextLostError') this._exportInterrupted = true;
       const errMsg = err?.message || 'Export failed';
-      if (statusLbl) statusLbl.innerText = err?.name === 'AbortError' ? 'Export canceled.' : 'Export failed: ' + errMsg;
+      this.setExportUiState(err?.name === 'AbortError' ? 'canceled' : 'failed', { error: err });
       this.showToast(err?.name === 'AbortError' ? 'Export canceled.' : 'Export failed: ' + errMsg);
-      if (btnStart) btnStart.disabled = false;
-      if (btnCancel) btnCancel.disabled = false;
     } finally {
       this.updateReadout();
       this.isExporting = false;
@@ -1161,11 +1689,29 @@ export class App {
   openPresetModal() {
     this.populateCuratedPresets();
     this.renderUserPresets();
-    if (this.presetModal) this.presetModal.classList.add('visible');
+    if (this.presetModal) {
+      this.rememberFocus();
+      this.presetModal.classList.add('visible');
+      this.focusDialog(this.presetModal);
+    }
+  }
+
+  openHelpModal() {
+    if (!this.helpModal || this.isModalOpen()) return;
+    this.closeDropdowns();
+    this.rememberFocus();
+    this.helpModal.classList.add('visible');
+    this.focusDialog(this.helpModal);
+  }
+
+  closeHelpModal() {
+    this.helpModal?.classList.remove('visible');
+    this.restoreFocus();
   }
 
   closePresetModal() {
     if (this.presetModal) this.presetModal.classList.remove('visible');
+    this.restoreFocus();
   }
 
   populateCuratedPresets() {
@@ -1174,17 +1720,27 @@ export class App {
     list.innerHTML = '';
     CURATED_PRESETS.forEach(p => {
       const btn = document.createElement('button');
-      btn.style.cssText = 'display:flex; flex-direction:column; align-items:flex-start; padding:6px 10px; background:rgba(20,40,80,0.5); border:1px solid rgba(40,90,160,0.3); border-radius:6px;';
+      btn.style.cssText = 'display:flex; flex-direction:column; align-items:flex-start; min-width:0; white-space:normal; text-align:left; padding:6px 10px; background:rgba(20,40,80,0.5); border:1px solid rgba(40,90,160,0.3); border-radius:6px;';
       btn.innerHTML = `
         <div style="font-weight:600; color:#e2f0ff; font-size:10.5px;">${p.name}</div>
-        <div style="font-size:9px; color:#6482a8; margin-top:2px;">${p.description}</div>
+        <div style="font-size:10.5px; color:#86a3ca; margin-top:2px;">${p.description}</div>
       `;
       btn.addEventListener('click', () => {
-        this.loadPresetObject(p);
-        this.closePresetModal();
+        if (this.loadPresetSafely(p)) this.closePresetModal();
       });
       list.appendChild(btn);
     });
+  }
+
+  /** Loads a preset, reporting an invalid one as a toast instead of an uncaught error. */
+  loadPresetSafely(preset) {
+    try {
+      this.loadPresetObject(preset);
+      return true;
+    } catch (err) {
+      this.showToast('Unable to load preset: ' + (err?.message || 'Invalid preset.'));
+      return false;
+    }
   }
 
   getUserPresets() {
@@ -1201,7 +1757,7 @@ export class App {
     if (!list) return;
     const presets = this.getUserPresets();
     if (presets.length === 0) {
-      list.innerHTML = '<div style="font-size:10px; color:#5577a3; padding:4px;">No custom presets saved yet.</div>';
+      list.innerHTML = '<div style="font-size:10.5px; color:#86a3ca; padding:4px;">Nothing saved in this browser yet.</div>';
       return;
     }
     list.innerHTML = '';
@@ -1209,27 +1765,26 @@ export class App {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:rgba(10,24,48,0.5); border:1px solid rgba(40,80,140,0.25); border-radius:6px; padding:4px 8px;';
       const label = document.createElement('div');
-      label.style.cssText = 'font-size:10.5px; color:#c0daf8;';
+      label.style.cssText = 'font-size:10.5px; color:#c0daf8; min-width:0; overflow-wrap:anywhere;';
       label.textContent = `${p.name || 'Unnamed Preset'} `;
       const symmetry = document.createElement('span');
-      symmetry.style.cssText = 'font-size:9px; color:#5577a3;';
+      symmetry.style.cssText = 'font-size:10.5px; color:#86a3ca;';
       symmetry.textContent = `(n=${p.symmetry})`;
       label.appendChild(symmetry);
       const actions = document.createElement('div');
       actions.style.cssText = 'display:flex; gap:4px;';
       const load = document.createElement('button');
       load.className = 'load-user-preset';
-      load.style.cssText = 'padding:2px 8px; font-size:9.5px; background:rgba(30,120,255,0.3);';
+      load.style.cssText = 'padding:2px 8px; font-size:10.5px; background:rgba(30,120,255,0.3);';
       load.textContent = 'Load';
       const remove = document.createElement('button');
       remove.className = 'del-user-preset';
-      remove.style.cssText = 'padding:2px 6px; font-size:9.5px; color:#f87171;';
+      remove.style.cssText = 'padding:2px 6px; font-size:10.5px; color:#f87171;';
       remove.textContent = '\u2715';
       actions.append(load, remove);
       row.append(label, actions);
       row.querySelector('.load-user-preset')?.addEventListener('click', () => {
-        this.loadPresetObject(p);
-        this.closePresetModal();
+        if (this.loadPresetSafely(p)) this.closePresetModal();
       });
       row.querySelector('.del-user-preset')?.addEventListener('click', () => {
         this.deleteUserPreset(idx);
@@ -1245,10 +1800,13 @@ export class App {
 
     // Save to localStorage
     const existing = this.getUserPresets();
+    const limitReached = existing.length >= 20;
     existing.unshift(preset);
+    let stored = true;
     try {
       localStorage.setItem('mobius_custom_presets', JSON.stringify(existing.slice(0, 20)));
     } catch (e) {
+      stored = false;
       console.warn('LocalStorage save error:', e);
     }
     this.renderUserPresets();
@@ -1266,7 +1824,13 @@ export class App {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
 
     if (input) input.value = '';
-    this.showToast(`Saved preset: "${name}"`);
+    if (!stored) {
+      this.showToast(`Could not keep "${name}" in this browser (storage unavailable). The preset file was still downloaded.`);
+    } else if (limitReached) {
+      this.showToast(`Saved preset: "${name}" (20-preset limit reached; the oldest was removed)`);
+    } else {
+      this.showToast(`Saved preset: "${name}"`);
+    }
   }
 
   deleteUserPreset(idx) {
@@ -1274,7 +1838,9 @@ export class App {
     existing.splice(idx, 1);
     try {
       localStorage.setItem('mobius_custom_presets', JSON.stringify(existing));
-    } catch (e) {}
+    } catch (e) {
+      this.showToast('Could not update saved presets (storage unavailable).');
+    }
     this.renderUserPresets();
   }
 
@@ -1329,11 +1895,12 @@ export class App {
       }
       // Authoritative Reference reset establishes canonical math, framing, palette, sliders, and UI state LAST
       this.setMode('reference');
-      this.showToast(`Loaded preset: ${preset.name || 'Simone Conradi (Reference Artwork)'}`);
+      this.showToast(`Loaded preset: ${preset.name || 'Simone Conradi (Reference Artwork)'}${this.presetQualityNote(preset)}`);
       return;
     }
 
-    // MODE: EXPLORE
+    // MODE: EXPLORE — the preset replaces any saved Explore session
+    this._exploreStash = null;
     this.setMode('explore');
 
     // Restore mathematical parameters (coefficients, symmetry, offsets, drift)
@@ -1372,7 +1939,15 @@ export class App {
     this.renderer.clearAccumulation();
     this.updateModeUI();
     this.updateReadout();
-    this.showToast(`Loaded preset: ${preset.name || 'Unnamed'}`);
+    this.showToast(`Loaded preset: ${preset.name || 'Unnamed'}${this.presetQualityNote(preset)}`);
+  }
+
+  /** " · Quality: High" when a preset switched live quality to a manual tier, so it is not a surprise. */
+  presetQualityNote(preset) {
+    const tier = String(preset?.rendering?.tier || '').toLowerCase();
+    if (!tier || tier === 'auto') return '';
+    const names = { potato: 'Potato', low: 'Low', standard: 'Standard', high: 'High', ultra: 'Ultra', extreme: 'Extreme', brute: 'Brute Force', bruteforce: 'Brute Force', brute_force: 'Brute Force' };
+    return ` · Quality: ${names[tier] || tier}`;
   }
 
   copyPresetJSON() {
@@ -1381,6 +1956,8 @@ export class App {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(str).then(() => {
         this.showToast('Preset JSON copied to clipboard!');
+      }).catch(() => {
+        this.showToast('Could not copy to the clipboard.');
       });
     } else {
       this.showToast('Clipboard access unavailable.');
@@ -1417,6 +1994,7 @@ export class App {
     if (!this.math.evolving) {
       this.renderer.clearAccumulation();
     }
+    this.syncPressed();
   }
 
   resetView() {
@@ -1435,37 +2013,53 @@ export class App {
   toggleUI() {
     this.uiHidden = !this.uiHidden;
     this.uiContainer?.classList.toggle('hidden', this.uiHidden);
-    document.getElementById('hint-unhide')?.classList.toggle('visible', this.uiHidden);
+    // inert removes the hidden controls from the tab order and accessibility tree at once
+    // (the CSS visibility change is delayed by the fade).
+    if (this.uiContainer) this.uiContainer.inert = this.uiHidden;
+    document.body.classList.toggle('ui-hidden', this.uiHidden);
+    const hint = document.getElementById('hint-unhide');
+    clearTimeout(this._hintTimeout);
+    hint?.classList.toggle('visible', this.uiHidden);
+    if (this.uiHidden) {
+      // The corner button stays; the longer key hint fades after a few seconds.
+      this._hintTimeout = setTimeout(() => hint?.classList.remove('visible'), 4000);
+      document.getElementById('btn-show-ui')?.focus({ preventScroll: true });
+    }
   }
 
   toggleReadout() {
     this.readoutVisible = !this.readoutVisible;
     this.readoutEl?.classList.toggle('collapsed', !this.readoutVisible);
     document.getElementById('btn-readout')?.classList.toggle('active', this.readoutVisible);
+    this.syncPressed();
   }
 
   toggleCoeffDrawer() {
     this.coeffDrawerVisible = !this.coeffDrawerVisible;
     this.coeffDrawer?.classList.toggle('visible', this.coeffDrawerVisible);
-    document.getElementById('btn-coeff')?.classList.toggle('active', this.coeffDrawerVisible);
+    const btn = document.getElementById('btn-coeff');
+    btn?.classList.toggle('active', this.coeffDrawerVisible);
+    btn?.setAttribute('aria-expanded', String(this.coeffDrawerVisible));
+    // Showing the coefficients opens the panel at Mathematics (key P / Coefficients button).
+    if (this.coeffDrawerVisible) {
+      this.openPanelSection('math');
+      // The panel scrolls on short viewports: bring the sliders and their reset into view.
+      this.coeffDrawer?.scrollIntoView?.({ block: 'nearest' });
+    }
   }
 
   toggleDebug() {
     this.debugMode = !this.debugMode;
     this.debugOverlay?.classList.toggle('visible', this.debugMode);
     document.getElementById('btn-debug')?.classList.toggle('active', this.debugMode);
+    this.syncPressed();
   }
 
   toggleBloom() {
     if (this.isExporting || this.renderer?.isExporting) return;
     this.renderer.bloomEnabled = !this.renderer.bloomEnabled;
     this.renderer.viewMode = this.renderer.bloomEnabled ? 0 : 1;
-    const btn = document.getElementById('btn-bloom');
-    if (btn) {
-      btn.innerText = `Bloom: ${this.renderer.bloomEnabled ? 'ON' : 'OFF'}`;
-      btn.classList.toggle('active', this.renderer.bloomEnabled);
-    }
-    document.getElementById('btn-raw')?.classList.remove('active');
+    this.syncControlState();
   }
 
   toggleRawTrajectories() {
@@ -1475,17 +2069,11 @@ export class App {
     } else {
       this.renderer.viewMode = 2;
     }
-    const btn = document.getElementById('btn-raw');
-    if (btn) {
-      btn.innerText = `Raw: ${this.renderer.viewMode === 2 ? 'ON' : 'OFF'}`;
-      btn.classList.toggle('active', this.renderer.viewMode === 2);
-    }
+    this.syncControlState();
   }
 
   onContextLost(event) {
     event.preventDefault();
-    clearTimeout(this._exportCompletionTimeout);
-    this._exportCompletionTimeout = null;
     clearTimeout(this._contextRecoveryTimer);
     this._contextRecoveryTimer = null;
     this._contextRecoveryAttempts = 0;
@@ -1496,6 +2084,7 @@ export class App {
     this.renderer.handleContextLoss();
     this.hideExportDisplayHold();
     this.showToast('Graphics context lost — recovering…');
+    this.showStatusBanner('Graphics context lost — recovering…');
   }
 
   async onContextRestored() {
@@ -1542,6 +2131,8 @@ export class App {
       rebuilt.commitInitialization();
       this._contextRecoveryAttempts = 0;
       this.hideExportDisplayHold();
+      this.syncControlState();
+      this.hideStatusBanner();
       this.showToast(this._exportInterrupted
         ? 'Export interrupted because the graphics context was lost. The renderer recovered; please try again.'
         : 'Graphics context restored.');
@@ -1560,6 +2151,7 @@ export class App {
       const delay = [250, 750, 1500][attempt - 1];
       if (delay !== undefined) {
         this.showToast('Graphics recovery failed — retrying…');
+        this.showStatusBanner('Graphics recovery failed — retrying…');
         this._contextRecoveryTimer = setTimeout(() => {
           this._contextRecoveryTimer = null;
           if (generation === this._contextRecoveryGeneration && this.contextLost && !old.gl.isContextLost()) {
@@ -1568,6 +2160,7 @@ export class App {
         }, delay);
       } else {
         this.showToast('Graphics recovery failed after several attempts.');
+        this.showStatusBanner('Graphics recovery failed after several attempts. Reload the page to continue.', { level: 'error', reload: true });
       }
     } finally {
       this._restoringContext = false;
@@ -1652,6 +2245,11 @@ export class App {
     if (this.valC) this.valC.innerText = this.math.c.format(3);
     if (this.valD) this.valD.innerText = this.math.d.format(3);
     if (this.valN) this.valN.innerText = this.math.n;
+    if (this.eqChip) this.eqChip.innerText = `n=${this.math.n}`;
+    if (this.panelOpen) {
+      this.updateQualityInfo();
+      if (this.coeffDrawerVisible) this.updateCoeffEffective();
+    }
 
     // Update Profiler Overlay
     if (this.debugMode) {

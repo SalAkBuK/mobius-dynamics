@@ -8,7 +8,11 @@ try{const {app,w,audit}=await boot(),d=w.document;w.console.error=(...args)=>rec
  const stayedDisabled=d.getElementById('btn-export-start').disabled;app.cancelExport();await second;w.HTMLCanvasElement.prototype.toBlob=native;
  check(baseline?'Old completion callback reenables newer export Start':'Earlier completion callback cannot alter active export controls',baseline?!stayedDisabled:stayedDisabled);
  if(!baseline){
-  setup();await app.startExport();app.openExportModal();await sleep(900);check('Reopening export modal cancels previous completion close',app.exportModal.classList.contains('visible'));app.closeExportModal();
+  // Approved UX (Phase C): a successful export keeps the dialog open until the user dismisses it; there is no delayed completion timer.
+  setup();app.openExportModal();await app.startExport();await sleep(900);
+  check('Successful export keeps the dialog open: no delayed completion timer closes it',app.exportModal.classList.contains('visible')&&app._exportCompletionTimeout===undefined&&!d.getElementById('export-result').hidden&&/\.png$/.test(d.getElementById('export-result-file').textContent));
+  app.openExportModal();check('Reopening after a success starts a clean dialog (no stale result)',d.getElementById('export-result').hidden&&!d.getElementById('btn-export-start').disabled);
+  app.closeExportModal();check('Explicit dismissal closes the dialog and leaves the controls enabled',!app.exportModal.classList.contains('visible')&&!d.getElementById('btn-export-start').disabled&&!d.getElementById('btn-export-start').hidden);
   async function photons(r){const gl=r.gl,a=new Float32Array(r.accumWidth*r.accumHeight*4);gl.bindFramebuffer(gl.FRAMEBUFFER,r.accumFbos[r.accumReadIdx]);gl.readPixels(0,0,r.accumWidth,r.accumHeight,gl.RGBA,gl.FLOAT,a);gl.bindFramebuffer(gl.FRAMEBUFFER,null);return hash(new Uint8Array(a.buffer));}
   function snapshot(){const r=app.renderer;return JSON.stringify({state:state(app),app:[app.mode,app.isExporting,app.contextLost,app.displayHoldActive],mathMode:app.math.mode,
    visual:Object.fromEntries(['aspect','particlesOverride','stepsOverride','numParticles','stepsPerFrame','persistence','currentPersistence','showRawTrajectories','_referenceDevelopmentKey','_referencePresentationKey'].map(k=>[k,r[k]])),ui:[d.getElementById('mode-status-pill').textContent,d.getElementById('btn-mode-reference').className,d.getElementById('btn-mode-explore').className,d.getElementById('val-a').textContent]});}

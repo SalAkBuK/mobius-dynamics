@@ -1,0 +1,70 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Phase C / C4: microcopy. The approved phrases are preserved, tooltips are accurate, naming is consistent,
+// and a preset that switches live quality says so. Wording only; behaviour is covered elsewhere.
+import {boot,sleep,reporter} from './hardening_test_helpers.js';
+import {CURATED_PRESETS} from './app.js';
+const {check,finish}=reporter();
+try{
+  const {w,app}=await boot(),doc=w.document,$=id=>doc.getElementById(id),r=app.renderer;
+  const text=id=>$(id).textContent.replace(/\s+/g,' ').trim();
+  const allText=doc.body.innerText.replace(/\s+/g,' ');
+  const key=(k,extra={})=>w.dispatchEvent(new w.KeyboardEvent('keydown',{key:k,bubbles:true,...extra}));
+
+  // ---- approved phrases preserved verbatim
+  const tier=doc.querySelector('.quality-btn[data-tier="bruteforce"]');
+  doc.querySelector('.quality-btn[data-tier="auto"]').click();
+  check('approved phrase kept: "Current tier: <tier>" under Auto',/^Current tier: \S+/.test($('quality-current-tier').textContent)&&!$('quality-current-tier').hidden);
+  tier.click();
+  check('approved phrase kept: "Maximum live GPU load — high-end hardware recommended."',$('quality-warning').textContent.trim()==='Maximum live GPU load — high-end hardware recommended.'&&!$('quality-warning').hidden&&tier.title.startsWith('Maximum live GPU load — high-end hardware recommended.'));
+  doc.querySelector('.quality-btn[data-tier="auto"]').click();
+  check('approved intent kept: live preview quality is not export quality',/live preview only/i.test(text('quality-helper'))&&/not affected/i.test(text('quality-helper')));
+  check('"Changing this enters Explore." kept for Order n and palette in Reference',text('order-note')==='Changing this enters Explore.'&&text('palette-note')==='Changing this enters Explore.');
+
+  // ---- accurate tooltips (no advertised keys that do not exist; no jargon-only tiers)
+  check('zoom tooltips no longer advertise non-existent "+"/"-" keys',$('btn-zoom-in').dataset.baseTitle==='Zoom in'&&$('btn-zoom-out').dataset.baseTitle==='Zoom out'&&!/\(\+\)|\(-\)/.test(doc.body.innerHTML));
+  check('quality tooltips explain the numbers in words (particles × steps per frame) and Auto says what it does',
+    /particles × \d+ steps per frame/.test(doc.querySelector('.quality-btn[data-tier="low"]').title)&&/holds 60 FPS/.test(doc.querySelector('.quality-btn[data-tier="auto"]').title));
+  check('mode buttons explain themselves',/fixed formula and framing/.test($('btn-mode-reference').title)&&/Change the mathematics/.test($('btn-mode-explore').title));
+  $('btn-mode-explore').click();
+  check('toggles say what they do and which key drives them',/\(B\)/.test($('btn-bloom').title)&&/\(O\)/.test($('btn-readout').title)&&/\(T\)/.test($('btn-raw').title)&&/\(D\)/.test($('btn-debug').title)&&/Space/.test($('btn-pause').title));
+  $('btn-mode-reference').click();
+  check('reset naming is consistent: "Reset view" and "Reset offsets" (no bare "Reset"/"Reset Coefficients")',$('btn-reset').textContent.trim()==='Reset view'&&$('btn-reset-coeffs').textContent.trim()==='Reset offsets'&&!/Reset Coefficients/.test(allText));
+  check('coefficient header is plain: "Coefficient offsets (live)"',/Coefficient offsets \(live\)/.test(text('coeff-drawer')));
+
+  // ---- consistent state labels
+  check('On/Off labels share one style: "Bloom: On"',$('btn-bloom').textContent.trim()==='Bloom: On');
+  $('btn-bloom').click();check('"Bloom: Off"',$('btn-bloom').textContent.trim()==='Bloom: Off');$('btn-bloom').click();
+  check('Raw is named in full: "Raw trajectories" / "Raw trajectories: On"',$('btn-raw').textContent.trim()==='Raw trajectories'&&($('btn-raw').click(),$('btn-raw').textContent.trim()==='Raw trajectories: On')&&($('btn-raw').click(),$('btn-raw').textContent.trim()==='Raw trajectories'));
+  check('Hide and Debug are named in full',/Hide controls/.test($('btn-hide').textContent)&&/Debug overlay/.test($('btn-debug').textContent));
+
+  // ---- one name per palette on the button
+  const pal=k=>{$('btn-palette-toggle').click();doc.querySelector(`.palette-select-btn[data-pal="${k}"]`).click();};
+  const labels={};for(const k of ['solar','aurora','amethyst','monochrome'])pal(k),labels[k]=$('btn-palette-toggle').textContent.trim();
+  $('btn-mode-reference').click();labels.cobalt=$('btn-palette-toggle').textContent.trim();
+  check('the palette button uses one short name each (Cobalt, Solar, Aurora, Amethyst, Silver) - no "Simone" for the cobalt palette',
+    labels.cobalt==='Palette: Cobalt ▾'&&labels.solar==='Palette: Solar ▾'&&labels.aurora==='Palette: Aurora ▾'&&labels.amethyst==='Palette: Amethyst ▾'&&labels.monochrome==='Palette: Silver ▾',JSON.stringify(labels));
+
+  // ---- presets dialog copy
+  app.openPresetModal();
+  const pm=doc.getElementById('preset-modal').innerText.replace(/\s+/g,' ');
+  check('presets dialog uses plain labels (Presets / Curated presets / Save current state / Saved in this browser / Preset name)',
+    /\bPresets\b/.test(text('preset-modal-title'))&&/Curated presets/i.test(pm)&&/Save current state/i.test(pm)&&/Saved in this browser/i.test(pm)&&$('preset-name-input').placeholder==='Preset name'&&!/organism|Masterpiece/i.test(pm)&&!/Attractor/.test(text('preset-modal-title')),pm.slice(0,200));
+  check('empty saved list says so plainly',/Nothing saved in this browser yet\./.test(pm));
+  app.closePresetModal();
+
+  // ---- preset toast mentions a manual quality tier the preset applied
+  const toasts=[];const show=app.showToast.bind(app);app.showToast=t=>{toasts.push(t);show(t);};
+  const caustic=CURATED_PRESETS.find(p=>/Caustic Crown/.test(p.name));
+  app.loadPresetObject(caustic);
+  check('loading a preset that selects a tier says so: "· Quality: High"',/Loaded preset: Caustic Crown \(16-fold\) · Quality: High$/.test(toasts.at(-1)),toasts.at(-1));
+  app.loadPresetObject(CURATED_PRESETS[0]);
+  check('a preset that leaves Quality on Auto adds nothing',toasts.at(-1)===`Loaded preset: ${CURATED_PRESETS[0].name}`,toasts.at(-1));
+  const pre=app.getPresetObject('Brute');pre.rendering.tier='bruteforce';app.loadPresetObject(pre);
+  check('Brute Force reads "Brute Force" in that note',/ · Quality: Brute Force$/.test(toasts.at(-1)),toasts.at(-1));
+  doc.querySelector('.quality-btn[data-tier="auto"]').click();
+
+  // ---- the old jargon is gone from the places the audit flagged
+  check('no leftover audit-flagged wording ("Mode 3", "Locked to n=16", "Formula Protected", "Pointer Perturbations", "Develop Quality", "Deep Caustics")',!/Mode 3|Locked to n=16|Formula Protected|Pointer Perturbations|Develop Quality|Deep Caustics/.test(doc.documentElement.innerHTML));
+  check('the help dialog still lists every shortcut (copy change must not drop any)',['1','2','3','Space','R','P','B','O','E','S','H','?','Esc','T','D','X'].every(k=>[...$('help-modal').querySelectorAll('kbd')].some(x=>x.textContent.trim()===k)));
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>
