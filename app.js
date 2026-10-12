@@ -301,6 +301,7 @@ export class App {
 
     this.setupEvents();
     this.setupUI();
+    this.observeChromeHeight();
     this.setMode(startMode);
     this.updateReadout();
     this.onResize();
@@ -312,6 +313,21 @@ export class App {
     } else {
       requestAnimationFrame(this.animate);
     }
+  }
+
+  /**
+   * Publishes the bottom edge of the top toolbar + status pill as --chrome-h so the
+   * coefficient drawer and debug overlay always start below it, however it wraps.
+   */
+  observeChromeHeight() {
+    const top = document.getElementById('top-bar-container');
+    if (!top || typeof ResizeObserver === 'undefined') return;
+    const apply = () => {
+      document.documentElement.style.setProperty('--chrome-h', `${Math.ceil(top.getBoundingClientRect().bottom)}px`);
+    };
+    this._chromeObserver = new ResizeObserver(apply);
+    this._chromeObserver.observe(top);
+    apply();
   }
 
   setMode(mode) {

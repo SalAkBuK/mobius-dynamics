@@ -13,6 +13,11 @@
       -webkit-user-select: none;
     }
 
+    :root {
+      /* Bottom edge of the top toolbar + status pill; updated from app.js (ResizeObserver). */
+      --chrome-h: 130px;
+    }
+
     body, html {
       width: 100%;
       height: 100%;
@@ -120,8 +125,12 @@
     #top-bar-container {
       position: absolute;
       top: 10px;
-      left: 50%;
-      transform: translateX(-50%);
+      /* left/right + auto margins centre the bar without the left:50% shrink-to-fit
+         cap, which limited the toolbar to half the viewport width. */
+      left: 0;
+      right: 0;
+      margin: 0 auto;
+      width: max-content;
       pointer-events: auto;
       display: flex;
       flex-direction: column;
@@ -133,6 +142,8 @@
 
     /* Minimal Controls Bar (Top Center) */
     #controls-bar {
+      position: relative;
+      z-index: 9;
       pointer-events: auto;
       display: flex;
       flex-wrap: wrap;
@@ -202,7 +213,7 @@
     /* Optional Coefficient Controls Drawer */
     #coeff-drawer {
       position: absolute;
-      top: 68px;
+      top: calc(var(--chrome-h) + 8px);
       left: 50%;
       transform: translateX(-50%);
       pointer-events: auto;
@@ -255,7 +266,7 @@
     /* Diagnostic Debug Overlay (Top Right) */
     #debug-overlay {
       position: absolute;
-      top: 68px;
+      top: calc(var(--chrome-h) + 8px);
       right: 24px;
       pointer-events: auto;
       background: rgba(3, 7, 16, 0.65);
