@@ -944,7 +944,7 @@ export class MobiusRenderer {
   }
 
   clearAccumulation() {
-    if (this.isContextUnavailable()) return;
+    if (this.isExporting || this.isContextUnavailable()) return;
     const gl = this.gl;
     for (const fbo of this.accumFbos) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
@@ -1002,6 +1002,7 @@ export class MobiusRenderer {
   }
 
   startSymmetryTransition() {
+    if (this.isExporting) return;
     // Graceful continuous transition instead of harsh black flash
     this.currentPersistence = 0.90;
     this.accumulationFrames = 0;
@@ -1438,6 +1439,29 @@ export class MobiusRenderer {
    * Renders at pristine high resolution in dedicated offscreen framebuffers.
    * Performs an accumulation/develop pass without altering interactive screen state.
    */
+  captureExportSession(mathSys) {
+    const clone = value => {
+      if (value === null || typeof value !== 'object') return value;
+      if (ArrayBuffer.isView(value)) return value.slice();
+      if (Array.isArray(value)) return value.map(clone);
+      return Object.assign(Object.create(Object.getPrototypeOf(value)),
+        Object.fromEntries(Object.entries(value).map(([k, v]) => [k, clone(v)])));
+    };
+    const keys = ['zoom', 'targetZoom', 'viewCenter', 'targetViewCenter', 'activePalette',
+      'bloomEnabled', 'viewMode', 'gain', 'particlesOverride', 'stepsOverride', 'numParticles', 'stepsPerFrame',
+      'referenceDeposits', 'referenceSettled', 'referenceAutoDpp', 'respawnRequested',
+      '_referenceDevelopmentKey', '_referencePresentationKey', 'currentPersistence'];
+    return { math: clone(mathSys), renderer: clone(Object.fromEntries(keys.map(k => [k, this[k]]))),
+      quality: clone(Object.fromEntries(Object.entries(this.adaptive)
+        .filter(([k, v]) => k !== 'renderer' && typeof v !== 'function'))) };
+  }
+
+  restoreExportSession(mathSys, session) {
+    Object.assign(mathSys, session.math);
+    Object.assign(this, session.renderer);
+    Object.assign(this.adaptive, session.quality);
+  }
+
   async exportPNG(mathSys, options = {}) {
     if (options.isReferenceMaster) {
       return this.exportReferenceMaster(mathSys, options);
@@ -1453,6 +1477,9 @@ export class MobiusRenderer {
       this.assertContextAvailable();
     };
 
+    if (this.isExporting) throw new Error('An export is already in progress.');
+    const session = this.captureExportSession(mathSys);
+    const image = session.renderer;
     this.isExporting = true;
     const gl = this.gl;
 
@@ -1581,20 +1608,20 @@ export class MobiusRenderer {
           gl.blendFunc(gl.ONE, gl.ONE);
 
           gl.useProgram(this.splatProg);
-          gl.uniform2f(this.splatUniforms.viewCenter, this.viewCenter[0], this.viewCenter[1]);
-          gl.uniform1f(this.splatUniforms.zoom, this.zoom);
-          gl.uniform1f(this.splatUniforms.aspect, this.aspect);
+          gl.uniform2f(this.splatUniforms.viewCenter, image.viewCenter[0], image.viewCenter[1]);
+          gl.uniform1f(this.splatUniforms.zoom, image.zoom);
+          gl.uniform1f(this.splatUniforms.aspect, width / height);
           gl.uniform1f(this.splatUniforms.photonScale, this.floatCap.photonScale || 1.0);
 
           gl.useProgram(this.simProg);
-          gl.uniform2f(this.simUniforms.a, mathSys.a.r, mathSys.a.i);
-          gl.uniform2f(this.simUniforms.b, mathSys.b.r, mathSys.b.i);
-          gl.uniform2f(this.simUniforms.c, mathSys.c.r, mathSys.c.i);
-          gl.uniform2f(this.simUniforms.d, mathSys.d.r, mathSys.d.i);
-          gl.uniform1f(this.simUniforms.n, mathSys.n);
-          gl.uniform1f(this.simUniforms.time, mathSys.time);
-          gl.uniform2f(this.simUniforms.viewCenter, this.viewCenter[0], this.viewCenter[1]);
-          gl.uniform1f(this.simUniforms.zoom, this.zoom);
+          gl.uniform2f(this.simUniforms.a, session.math.a.r, session.math.a.i);
+          gl.uniform2f(this.simUniforms.b, session.math.b.r, session.math.b.i);
+          gl.uniform2f(this.simUniforms.c, session.math.c.r, session.math.c.i);
+          gl.uniform2f(this.simUniforms.d, session.math.d.r, session.math.d.i);
+          gl.uniform1f(this.simUniforms.n, session.math.n);
+          gl.uniform1f(this.simUniforms.time, session.math.time);
+          gl.uniform2f(this.simUniforms.viewCenter, image.viewCenter[0], image.viewCenter[1]);
+          gl.uniform1f(this.simUniforms.zoom, image.zoom);
           gl.uniform1f(this.simUniforms.respawnAll, 0.0);
 
           for (let s = 0; s < exportSteps; s++) {
@@ -1631,7 +1658,7 @@ export class MobiusRenderer {
       // 4. Bloom pass
       onProgress(88, 'Filtering high-resolution bloom...');
       const currentAccumTex = this.accumTextures[this.accumReadIdx];
-      if (this.bloomEnabled) {
+      if (image.bloomEnabled) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, expBloomFbo[0]);
         gl.viewport(0, 0, expBloomW, expBloomH);
         gl.useProgram(this.blurProg);
@@ -1662,14 +1689,14 @@ export class MobiusRenderer {
       gl.bindTexture(gl.TEXTURE_2D, expBloomTex[1]);
       gl.uniform1i(this.postUniforms.bloomTex, 1);
 
-      const zoomMag = Math.max(1.0, this.zoom / 1.65);
-      const adaptiveGain = this.gain * (1.0 + Math.pow(zoomMag - 1.0, 0.85) * 2.8);
+      const zoomMag = Math.max(1.0, image.zoom / 1.65);
+      const adaptiveGain = image.gain * (1.0 + Math.pow(zoomMag - 1.0, 0.85) * 2.8);
       gl.uniform1f(this.postUniforms.gain, adaptiveGain);
-      gl.uniform1f(this.postUniforms.bloomEnabled, this.bloomEnabled ? 1.0 : 0.0);
-      gl.uniform1f(this.postUniforms.viewMode, this.viewMode);
+      gl.uniform1f(this.postUniforms.bloomEnabled, image.bloomEnabled ? 1.0 : 0.0);
+      gl.uniform1f(this.postUniforms.viewMode, image.viewMode);
       gl.uniform1f(this.postUniforms.photonScale, this.floatCap.photonScale || 1.0);
 
-      const pal = PALETTES[this.activePalette] || PALETTES.cobalt;
+      const pal = PALETTES[image.activePalette] || PALETTES.cobalt;
       gl.uniform3fv(this.postUniforms.colBg, pal.bg);
       gl.uniform3fv(this.postUniforms.colMidnight, pal.midnight);
       gl.uniform3fv(this.postUniforms.colElectric, pal.electric);
@@ -1747,6 +1774,7 @@ export class MobiusRenderer {
       this.accumulationFrames = origAccumFrames;
       this.vboCur = origVboCur;
       mathSys.evolving = origEvolving;
+      this.restoreExportSession(mathSys, session);
       this.isExporting = false;
 
       if (!this.isContextUnavailable()) {
@@ -1781,6 +1809,9 @@ export class MobiusRenderer {
       throw new Error(`4096×4096 Reference Master is unsupported: GPU MAX_TEXTURE_SIZE is ${maxTexSize}px.`);
     }
 
+    if (this.isExporting) throw new Error('An export is already in progress.');
+    const session = this.captureExportSession(mathSys);
+    const image = session.renderer;
     this.isExporting = true;
 
     // 1. Save original renderer state and math state
@@ -2176,6 +2207,7 @@ export class MobiusRenderer {
       this.numParticles = origNumParticles;
       this.stepsPerFrame = origStepsPerFrame;
       this.vboCur = origVboCur;
+      this.restoreExportSession(mathSys, session);
       this.isExporting = false;
 
       if (!this.isContextUnavailable()) {

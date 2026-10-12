@@ -314,6 +314,7 @@ export class App {
   }
 
   setMode(mode) {
+    if (this.isExporting || this.renderer?.isExporting) return;
     this.mode = mode;
     this.math.setMode(mode);
 
@@ -450,6 +451,7 @@ export class App {
   }
 
   randomize(style = null) {
+    if (this.isExporting || this.renderer?.isExporting) return;
     // Mode 3: Randomize switches to explore sandbox mode
     this.mode = 'explore';
     const res = this.math.randomize(style);
@@ -478,6 +480,16 @@ export class App {
   }
 
   setupEvents() {
+    // Controls stay visually unchanged; export correctness also uses immutable data.
+    for (const type of ['click', 'input', 'change', 'keydown', 'pointerdown', 'pointermove', 'wheel']) {
+      window.addEventListener(type, event => {
+        if (!(this.isExporting || this.renderer?.isExporting)) return;
+        if (event.target?.closest?.('#export-modal')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, { capture: true, passive: false });
+    }
+
     window.addEventListener('resize', () => this.onResize());
 
     // Tab visibility handling
@@ -1273,6 +1285,7 @@ export class App {
   }
 
   loadPresetObject(preset) {
+    if (this.isExporting || this.renderer?.isExporting) return;
     if (!preset) return;
     const targetMode = preset.mode === 'reference' ? 'reference' : 'explore';
 
@@ -1359,6 +1372,7 @@ export class App {
   }
 
   togglePause() {
+    if (this.isExporting || this.renderer?.isExporting) return;
     this.math.evolving = !this.math.evolving;
     const btn = document.getElementById('btn-pause');
     if (btn) {
@@ -1371,6 +1385,7 @@ export class App {
   }
 
   resetView() {
+    if (this.isExporting || this.renderer?.isExporting) return;
     if (this.mode === 'reference') {
       this.setMode('reference');
     } else {
@@ -1407,6 +1422,7 @@ export class App {
   }
 
   toggleBloom() {
+    if (this.isExporting || this.renderer?.isExporting) return;
     this.renderer.bloomEnabled = !this.renderer.bloomEnabled;
     this.renderer.viewMode = this.renderer.bloomEnabled ? 0 : 1;
     const btn = document.getElementById('btn-bloom');
@@ -1418,6 +1434,7 @@ export class App {
   }
 
   toggleRawTrajectories() {
+    if (this.isExporting || this.renderer?.isExporting) return;
     if (this.renderer.viewMode === 2) {
       this.renderer.viewMode = this.renderer.bloomEnabled ? 0 : 1;
     } else {

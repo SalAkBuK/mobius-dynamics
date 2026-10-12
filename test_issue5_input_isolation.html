@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,explore,png,state,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter(),baseline=location.search.includes('baseline');
+try{const {app,w}=await boot(),r=app.renderer,m=app.math;
+  const opts={width:96,height:64,accumFrames:30};
+  explore(app);const control=await png(await r.exportPNG(m,opts));
+  const mutators={
+    mode:()=>app.setMode('reference'),randomize:()=>app.randomize('chaotic'),symmetry:()=>m.setSymmetry(7),
+    coefficient:()=>{m.setCoefficientOffset('a',1,.3);m.update(0,2.1);},palette:()=>r.setPalette('cobalt'),
+    quality:()=>r.adaptive.setMode('extreme'),aspect:()=>{r.aspect=99;},camera:()=>{r.zoom=.6;r.viewCenter=[2,1];},
+    bloom:()=>{r.bloomEnabled=false;},view:()=>{r.viewMode=2;},gain:()=>{r.gain=17;},
+    clear:()=>r.clearAccumulation(),reset:()=>app.resetView(),pause:()=>app.togglePause(),
+    keyboard:()=>w.dispatchEvent(new w.KeyboardEvent('keydown',{key:'r',bubbles:true})),
+    dom:()=>w.document.getElementById('btn-mode-reference').click()
+  };
+  let changed=0;
+  for(const [name,mutate] of Object.entries(mutators)){
+    explore(app);const before=state(app);let attempted=false;
+    const image=await png(await r.exportPNG(m,{...opts,onProgress(p){if(p>=35&&p<=85){mutate();attempted=true;}}}));
+    const pixelsEqual=image.hash===control.hash,liveEqual=before===state(app);changed+=!pixelsEqual;
+    check(name+': '+(baseline?'classified interference':'snapshot pixels and session preserved'),baseline?attempted:pixelsEqual&&liveEqual,
+      JSON.stringify({pixelsEqual,liveEqual,hash:image.hash}));
+  }
+  if(baseline)check('Pre-fix active export corruption reproduced',changed>0,'mutators changing pixels: '+changed);
+  else{
+    explore(app);const masterControl=await png(await r.exportReferenceMaster(m,{accumPasses:1}));
+    explore(app);const masterBefore=state(app);
+    const masterInterference=await png(await r.exportReferenceMaster(m,{accumPasses:1,onProgress(p){
+      if(p>=5&&p<98){app.setMode('reference');m.setSymmetry(5);r.zoom=99;r.gain=30;r.viewMode=2;r.clearAccumulation();}
+    }}));
+    check('Master remains canonical with identical pixels under interference',masterControl.hash===masterInterference.hash);
+    check('Master interference preserves full session snapshot',masterBefore===state(app));
+    explore(app);const before=state(app);let error;
+    try{await r.exportPNG(m,{...opts,onProgress(p){if(p===35){r.zoom=99;m.setSymmetry(5);throw Error('test');}}});}catch(e){error=e;}
+    check('Ordinary failure restores snapshot and releases export guard',!!error&&!r.isExporting&&state(app)===before);
+  }
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>
