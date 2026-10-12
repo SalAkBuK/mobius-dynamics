@@ -330,6 +330,12 @@ export class App {
     apply();
   }
 
+  /** UI entry point for mode buttons/keys: re-selecting the active mode does nothing. */
+  requestMode(mode) {
+    if (mode === this.mode) return;
+    this.setMode(mode);
+  }
+
   setMode(mode) {
     if (this.isExporting || this.renderer?.isExporting) return;
     this.mode = mode;
@@ -392,14 +398,37 @@ export class App {
     const resetCoeffBtn = document.getElementById('btn-reset-coeffs');
     if (resetCoeffBtn) resetCoeffBtn.disabled = isRef;
 
-    // Symmetry buttons: in Reference mode, locked to 16
+    // Order-n buttons stay fully usable. In Reference, picking anything but 16 enters
+    // Explore, and the tooltip says so (they are not presented as disabled).
     const symBtns = document.querySelectorAll('.sym-btn');
     symBtns.forEach(btn => {
       const n = parseInt(btn.dataset.n, 10);
       btn.classList.toggle('active', isRef ? n === 16 : n === this.math.n);
-      btn.style.opacity = isRef && n !== 16 ? '0.4' : '1.0';
-      btn.title = isRef ? 'Locked to n=16 in Reference mode' : `Order n = ${n}`;
+      btn.style.opacity = '';
+      btn.title = isRef
+        ? (n === 16 ? 'Order n = 16 (Reference)' : 'Changing this enters Explore.')
+        : `Order n = ${n}`;
     });
+
+    // Non-Reference palettes enter Explore as well.
+    document.querySelectorAll('.palette-select-btn').forEach(btn => {
+      if (isRef && btn.dataset.pal !== 'cobalt') btn.title = 'Changing this enters Explore.';
+      else btn.removeAttribute('title');
+    });
+
+    // Zoom +/- never change mode; in Reference the framing is locked, so they are
+    // genuinely unavailable (the existing "Framing locked" toast is kept on click).
+    for (const id of ['btn-zoom-in', 'btn-zoom-out']) {
+      const btn = document.getElementById(id);
+      if (!btn) continue;
+      if (btn.dataset.baseTitle === undefined) btn.dataset.baseTitle = btn.title;
+      btn.classList.toggle('is-unavailable', isRef);
+      if (isRef) btn.setAttribute('aria-disabled', 'true'); else btn.removeAttribute('aria-disabled');
+      btn.title = isRef ? 'Framing is locked in Reference' : btn.dataset.baseTitle;
+    }
+
+    const rndBtn = document.getElementById('btn-randomize-action');
+    if (rndBtn) rndBtn.title = isRef ? 'Randomize — enters Explore (shortcut: 3)' : 'Randomize (shortcut: 3)';
 
     // Pause/Resume button
     const btnPause = document.getElementById('btn-pause');
@@ -604,7 +633,11 @@ export class App {
       e.preventDefault();
       this.renderer.adaptive.markInteraction();
       if (this.mode === 'reference') {
-        this.showToast('Framing locked in Reference Mode. Switch to Explore to zoom.');
+        const now = performance.now();
+        if (now - (this._lastFramingToast || 0) > 3000) {
+          this._lastFramingToast = now;
+          this.showToast('Framing locked in Reference Mode. Switch to Explore to zoom.');
+        }
         return;
       }
 
@@ -639,9 +672,9 @@ export class App {
       // Space activates a focused button natively; do not steal it.
       if (key === ' ' && e.target?.closest?.('button, a, select, summary, [role="button"]')) return;
       if (key === '1') {
-        this.setMode('reference');
+        this.requestMode('reference');
       } else if (key === '2') {
-        this.setMode('explore');
+        this.requestMode('explore');
       } else if (key === '3') {
         this.randomize();
       } else if (key === 'h') {
@@ -676,8 +709,8 @@ export class App {
 
   setupUI() {
     // Mode Switcher buttons
-    this.btnModeRef?.addEventListener('click', () => this.setMode('reference'));
-    this.btnModeExp?.addEventListener('click', () => this.setMode('explore'));
+    this.btnModeRef?.addEventListener('click', () => this.requestMode('reference'));
+    this.btnModeExp?.addEventListener('click', () => this.requestMode('explore'));
 
     // Randomize direct button & dropdown toggle & styles
     document.getElementById('btn-randomize-action')?.addEventListener('click', () => this.randomize());

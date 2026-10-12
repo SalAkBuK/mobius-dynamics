@@ -210,6 +210,12 @@
       outline: none;
     }
 
+    /* Genuinely unavailable (does not change mode when clicked), e.g. zoom in Reference. */
+    button.is-unavailable {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     button.active {
       background: rgba(30, 120, 255, 0.35);
       color: #f0f7ff;
@@ -679,7 +685,7 @@
 
         <!-- Randomization Segment (Mode 3) -->
         <div class="dropdown-container btn-group" style="padding:1px;">
-          <button id="btn-randomize-action" title="Randomize Organism (Mode 3 • Shortcut: 3)">🎲 Randomize</button>
+          <button id="btn-randomize-action" title="Randomize — enters Explore (shortcut: 3)">🎲 Randomize</button>
           <button id="btn-randomize-toggle" title="Select Morphology Style" style="padding-left:4px; padding-right:4px;">▾</button>
           <div id="randomize-menu" class="dropdown-menu">
             <div class="dropdown-header">Curated Morphology Families</div>
