@@ -422,6 +422,32 @@ export class App {
       const curPal = PALETTES[this.renderer.activePalette] || PALETTES.cobalt;
       this.btnPaletteToggle.innerText = `Palette: ${curPal.name.split(' ')[0]} ▾`;
     }
+
+    this.syncControlState();
+  }
+
+  /**
+   * Derives the Quality group, Palette menu, Bloom and Raw buttons from the actual
+   * renderer state, so presets, mode resets and recovery can never leave them stale.
+   */
+  syncControlState() {
+    const r = this.renderer;
+    if (!r) return;
+    const tier = r.adaptive?.mode;
+    document.querySelectorAll('.quality-btn').forEach(b => b.classList.toggle('active', b.dataset.tier === tier));
+    document.querySelectorAll('.palette-select-btn').forEach(b => b.classList.toggle('active', b.dataset.pal === r.activePalette));
+
+    const bloomBtn = document.getElementById('btn-bloom');
+    if (bloomBtn) {
+      bloomBtn.innerText = `Bloom: ${r.bloomEnabled ? 'ON' : 'OFF'}`;
+      bloomBtn.classList.toggle('active', !!r.bloomEnabled);
+    }
+    const rawBtn = document.getElementById('btn-raw');
+    if (rawBtn) {
+      const rawOn = r.viewMode === 2;
+      rawBtn.innerText = rawOn ? 'Raw: ON' : 'Raw';
+      rawBtn.classList.toggle('active', rawOn);
+    }
   }
 
   updateSliderInputs() {
@@ -642,8 +668,7 @@ export class App {
       } else if (key === 'x') {
         const next = this.renderer.adaptive.mode === 'bruteforce' ? 'auto' : 'bruteforce';
         this.renderer.adaptive.setMode(next);
-        const qualityBtns = document.querySelectorAll('.quality-btn');
-        qualityBtns.forEach((b) => b.classList.toggle('active', b.dataset.tier === next));
+        this.syncControlState();
         this.onResize();
       }
     });
@@ -1560,12 +1585,7 @@ export class App {
     if (this.isExporting || this.renderer?.isExporting) return;
     this.renderer.bloomEnabled = !this.renderer.bloomEnabled;
     this.renderer.viewMode = this.renderer.bloomEnabled ? 0 : 1;
-    const btn = document.getElementById('btn-bloom');
-    if (btn) {
-      btn.innerText = `Bloom: ${this.renderer.bloomEnabled ? 'ON' : 'OFF'}`;
-      btn.classList.toggle('active', this.renderer.bloomEnabled);
-    }
-    document.getElementById('btn-raw')?.classList.remove('active');
+    this.syncControlState();
   }
 
   toggleRawTrajectories() {
@@ -1575,11 +1595,7 @@ export class App {
     } else {
       this.renderer.viewMode = 2;
     }
-    const btn = document.getElementById('btn-raw');
-    if (btn) {
-      btn.innerText = `Raw: ${this.renderer.viewMode === 2 ? 'ON' : 'OFF'}`;
-      btn.classList.toggle('active', this.renderer.viewMode === 2);
-    }
+    this.syncControlState();
   }
 
   onContextLost(event) {
@@ -1642,6 +1658,7 @@ export class App {
       rebuilt.commitInitialization();
       this._contextRecoveryAttempts = 0;
       this.hideExportDisplayHold();
+      this.syncControlState();
       this.showToast(this._exportInterrupted
         ? 'Export interrupted because the graphics context was lost. The renderer recovered; please try again.'
         : 'Graphics context restored.');
