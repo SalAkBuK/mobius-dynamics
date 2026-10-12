@@ -1633,6 +1633,9 @@ export class App {
   toggleUI() {
     this.uiHidden = !this.uiHidden;
     this.uiContainer?.classList.toggle('hidden', this.uiHidden);
+    // inert removes the hidden controls from the tab order and accessibility tree at once
+    // (the CSS visibility change is delayed by the fade).
+    if (this.uiContainer) this.uiContainer.inert = this.uiHidden;
     document.body.classList.toggle('ui-hidden', this.uiHidden);
     const hint = document.getElementById('hint-unhide');
     clearTimeout(this._hintTimeout);
