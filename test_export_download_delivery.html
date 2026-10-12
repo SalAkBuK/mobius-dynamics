@@ -1,0 +1,47 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// The export input-isolation guard must not swallow the export's own download click.
+// The older fixtures replace HTMLAnchorElement.prototype.click with a counter, so they never exercise the real
+// click event; this page dispatches a real, cancelable click and records whether it REACHES the link
+// (the guard stops propagation and cancels the default action when it blocks an event).
+import {boot,explore,sleep,until,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+try{
+  const {app,w,audit}=await boot(),d=w.document;
+  const setup=()=>{explore(app);app.exportType='standard';app.exportWidth=96;app.exportHeight=64;app.exportPasses=1;app.refMasterPasses=1;app.hideExportDisplayHold();app.updateReadout();app.updateModeUI();};
+  const deliveries=[];
+  w.HTMLAnchorElement.prototype.click=function(){
+    audit.downloads++;
+    const link=this;let reached=false;
+    link.addEventListener('click',e=>{reached=true;e.preventDefault();},{once:true});   // stand-in for the browser's download; no real file in the test
+    const ev=new w.MouseEvent('click',{bubbles:true,cancelable:true});
+    link.dispatchEvent(ev);
+    deliveries.push({download:link.download,reached,exporting:app.isExporting,connected:link.isConnected});
+  };
+  for(const type of ['standard','reference_master']){
+    setup();app.exportType=type;const before=deliveries.length;
+    await app.startExport();
+    const got=deliveries.slice(before);
+    check(type+' export: exactly one download link is clicked, while the export is still marked as running',got.length===1&&got[0].exporting===true,JSON.stringify(got));
+    check(type+' export: that click REACHES the link, so the browser can save the file',got[0]?.reached===true,JSON.stringify(got));
+    check(type+' export: the link carries the announced file name',got[0]?.download===d.getElementById('export-result-file').textContent,got[0]?.download);
+  }
+
+  // ---- the guard still isolates the live session from everything else while an export runs
+  setup();app.exportType='standard';
+  const native=w.HTMLCanvasElement.prototype.toBlob;let held,encoding=false;
+  w.HTMLCanvasElement.prototype.toBlob=function(cb){encoding=true;held=cb;};
+  const run=app.startExport();await until(()=>encoding,'encoding');
+  const stray=d.createElement('a');stray.href='#nowhere';d.body.append(stray);let strayReached=false;stray.addEventListener('click',()=>{strayReached=true;});
+  const dl=d.createElement('a');dl.href='#nowhere';dl.download='x.png';d.body.append(dl);let dlReached=false;dl.addEventListener('click',e=>{dlReached=true;e.preventDefault();});
+  const modeBefore=app.mode;
+  d.getElementById('btn-mode-reference').click();
+  stray.dispatchEvent(new w.MouseEvent('click',{bubbles:true,cancelable:true}));
+  dl.dispatchEvent(new w.MouseEvent('click',{bubbles:true,cancelable:true}));
+  check('guard intact: a script click on a normal button is still swallowed during an export',app.mode===modeBefore);
+  check('guard intact: a script click on an ordinary link is still swallowed during an export',strayReached===false);
+  check('only a script-made <a download> click is let through',dlReached===true);
+  const keyHandled=(()=>{const m=app.mode;w.dispatchEvent(new w.KeyboardEvent('keydown',{key:'1',bubbles:true}));return app.mode===m;})();
+  check('guard intact: keyboard shortcuts are still swallowed during an export',keyHandled);
+  w.HTMLCanvasElement.prototype.toBlob=native;app.cancelExport();await run;stray.remove();dl.remove();
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

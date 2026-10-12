@@ -776,6 +776,9 @@ export class App {
       window.addEventListener(type, event => {
         if (!(this.isExporting || this.renderer?.isExporting)) return;
         if (event.target?.closest?.('#export-modal')) return;
+        // The export's own download: a script-made click on an <a download> link. Cancelling it
+        // would silently discard the finished PNG. It is never user input (not trusted).
+        if (type === 'click' && !event.isTrusted && event.target?.tagName === 'A' && event.target.hasAttribute('download')) return;
         event.preventDefault();
         event.stopImmediatePropagation();
       }, { capture: true, passive: false });
