@@ -627,6 +627,45 @@
       transition: width 0.15s ease;
     }
 
+    /* Persistent graphics status (context loss / recovery failure) */
+    #status-banner {
+      display: none;
+      position: fixed;
+      top: calc(var(--chrome-h) + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 150;
+      align-items: center;
+      gap: 12px;
+      width: max-content;
+      max-width: min(92vw, 560px);
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-size: 11.5px;
+      line-height: 1.4;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+      pointer-events: auto;
+    }
+
+    #status-banner.status-warn {
+      color: #fcd9a0;
+      background: rgba(48, 30, 6, 0.94);
+      border: 1px solid rgba(245, 158, 11, 0.5);
+    }
+
+    #status-banner.status-error {
+      color: #fecaca;
+      background: rgba(52, 12, 18, 0.95);
+      border: 1px solid rgba(248, 113, 113, 0.55);
+    }
+
+    #status-banner button {
+      border: 1px solid currentColor;
+      font-size: 11px;
+      padding: 3px 10px;
+      color: inherit;
+    }
+
     /* Toast */
     #toast-banner {
       position: fixed;
@@ -638,7 +677,7 @@
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
       border: 1px solid rgba(60, 130, 220, 0.35);
-      border-radius: 20px;
+      border-radius: 16px;
       padding: 6px 16px;
       font-size: 11px;
       color: #93c5fd;
@@ -646,7 +685,12 @@
       pointer-events: none;
       transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       z-index: 300;
-      white-space: nowrap;
+      /* Long messages wrap inside the viewport instead of clipping at both edges. */
+      width: max-content;
+      max-width: min(92vw, 520px);
+      white-space: normal;
+      text-align: center;
+      line-height: 1.4;
     }
 
     #toast-banner.show {
@@ -971,6 +1015,12 @@
         <button id="btn-preset-done">Done</button>
       </div>
     </div>
+  </div>
+
+  <!-- Persistent graphics status banner -->
+  <div id="status-banner" role="alert">
+    <span id="status-banner-text"></span>
+    <button id="btn-status-reload" type="button" style="display:none;">Reload</button>
   </div>
 
   <!-- Toast Banner -->

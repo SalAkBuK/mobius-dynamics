@@ -546,6 +546,22 @@ export class App {
     }, duration);
   }
 
+  showStatusBanner(message, { level = 'warn', reload = false } = {}) {
+    const banner = document.getElementById('status-banner');
+    if (!banner) return;
+    const text = document.getElementById('status-banner-text');
+    if (text) text.textContent = message;
+    banner.className = `status-${level}`;
+    banner.style.display = 'flex';
+    const reloadBtn = document.getElementById('btn-status-reload');
+    if (reloadBtn) reloadBtn.style.display = reload ? '' : 'none';
+  }
+
+  hideStatusBanner() {
+    const banner = document.getElementById('status-banner');
+    if (banner) banner.style.display = 'none';
+  }
+
   closeDropdowns() {
     if (this.randomizeMenu) this.randomizeMenu.classList.remove('visible');
     if (this.paletteMenu) this.paletteMenu.classList.remove('visible');
@@ -810,6 +826,7 @@ export class App {
     document.getElementById('btn-debug')?.addEventListener('click', () => this.toggleDebug());
     document.getElementById('btn-hide')?.addEventListener('click', () => this.toggleUI());
     document.getElementById('btn-show-ui')?.addEventListener('click', () => this.toggleUI());
+    document.getElementById('btn-status-reload')?.addEventListener('click', () => window.location.reload());
     document.getElementById('btn-bloom')?.addEventListener('click', () => this.toggleBloom());
     document.getElementById('btn-raw')?.addEventListener('click', () => this.toggleRawTrajectories());
     document.getElementById('btn-readout')?.addEventListener('click', () => this.toggleReadout());
@@ -1667,6 +1684,7 @@ export class App {
     this.renderer.handleContextLoss();
     this.hideExportDisplayHold();
     this.showToast('Graphics context lost — recovering…');
+    this.showStatusBanner('Graphics context lost — recovering…');
   }
 
   async onContextRestored() {
@@ -1714,6 +1732,7 @@ export class App {
       this._contextRecoveryAttempts = 0;
       this.hideExportDisplayHold();
       this.syncControlState();
+      this.hideStatusBanner();
       this.showToast(this._exportInterrupted
         ? 'Export interrupted because the graphics context was lost. The renderer recovered; please try again.'
         : 'Graphics context restored.');
@@ -1732,6 +1751,7 @@ export class App {
       const delay = [250, 750, 1500][attempt - 1];
       if (delay !== undefined) {
         this.showToast('Graphics recovery failed — retrying…');
+        this.showStatusBanner('Graphics recovery failed — retrying…');
         this._contextRecoveryTimer = setTimeout(() => {
           this._contextRecoveryTimer = null;
           if (generation === this._contextRecoveryGeneration && this.contextLost && !old.gl.isContextLost()) {
@@ -1740,6 +1760,7 @@ export class App {
         }, delay);
       } else {
         this.showToast('Graphics recovery failed after several attempts.');
+        this.showStatusBanner('Graphics recovery failed after several attempts. Reload the page to continue.', { level: 'error', reload: true });
       }
     } finally {
       this._restoringContext = false;
