@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,sleep,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter(),baseline=location.search.includes('baseline');
+try{const {app,w}=await boot(),d=w.document,name='<img src=x onerror="window.__presetInjection=true">',description='<svg onload="window.__presetDescriptionInjection=true"></svg>',symmetry='<img src=x onerror="window.__presetSymmetryInjection=true">';
+ const preset=app.getPresetObject(name);preset.description=description;
+ w.localStorage.setItem('mobius_custom_presets',JSON.stringify([preset,{...preset,symmetry}]));app.renderUserPresets();await sleep(100);
+ if(baseline)check('User preset name/symmetry executes markup pre-fix',w.__presetInjection===true&&w.__presetSymmetryInjection===true);
+ else{
+  check('Names and symmetry render literally without elements/execution',!w.__presetInjection&&!w.__presetSymmetryInjection&&!d.querySelector('#user-presets-list img')&&d.getElementById('user-presets-list').textContent.includes(name)&&d.getElementById('user-presets-list').textContent.includes(symmetry));
+  app.loadPresetObject(preset);await sleep(20);check('Loaded metadata stays literal in toast',!w.__presetInjection&&!w.__presetDescriptionInjection&&!d.querySelector('#toast img'));
+  const toasts=[];const show=app.showToast.bind(app);app.showToast=t=>{toasts.push(t);show(t);};
+  app.importPresetFile(new w.File([JSON.stringify(preset)],name+'.json',{type:'application/json'}));await sleep(100);
+  check('Imported names/descriptions/filename cannot execute',!w.__presetInjection&&!w.__presetDescriptionInjection&&toasts.some(t=>t.includes(name))&&!d.querySelector('#toast img, #toast svg'));
+  d.querySelector('.load-user-preset').click();check('Existing Load handler still works',app.math.n===preset.symmetry);
+  d.querySelector('.del-user-preset').click();check('Existing Delete handler still works',app.getUserPresets().length===1);
+ }
+ w.localStorage.removeItem('mobius_custom_presets');
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

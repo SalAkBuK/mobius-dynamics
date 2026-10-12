@@ -51,3 +51,11 @@ Issue 8 pushed and confirmed: `2a99087aa21c017ee6317c5630c1647c221c5bb8` (496 re
 Reproduced: 41 unsafe payloads were accepted, mutated state or reached unsafe roots generation. The baseline test stops invalid n before actually allocating a billion roots; it records reaching that loop, not an intentional machine hang. Root cause: unvalidated deserialization and visual-field assignment, boolean coercion and unbounded import size. Fix: shared small validator runs before any mutation in App loading and direct MathSystem.fromJSON. Supported imported Explore symmetry is integer 1?64; complex components ?1000; finite drift time 0?1e9; zoom 0.3?500; center components ?1e6; boolean/coordinate structure, palette/tier/view whitelists and metadata types/lengths checked. Missing optional fields and valid partial/legacy presets remain supported. Unknown metadata is ignored by the loaders, never merged into runtime objects. Reference ignores imported math/framing/palette and resets canonically, while applied rendering fields still validate. File imports above 1 MiB are rejected before reading and error messages identify the invalid field.
 
 Files: preset_validation.js, math.js, app.js, test_issue10_presets.html, this report. Fifty focused assertions plus Reference invariant, modes/exports, input isolation and context recovery pass (222 total).
+
+## Issue 11 ? preset markup injection
+
+Reproduced: harmless image onerror payloads executed from user preset names and stored symmetry labels. Root cause: user-controlled values interpolated into row.innerHTML. Fix: create row elements and assign name/symmetry through textContent, retaining existing styling and Load/Delete behavior. Descriptions are not rendered in user rows; curated descriptions are static internal markup. Imported names, errors and toast messages use innerText; filenames only become download attributes, never HTML.
+
+Files: app.js, test_issue11_metadata.html, this report. Baseline 1/1; post-fix 5/5 including literal text, no image/SVG execution, imports/toasts and existing handlers. Previous preset validation, Reference invariant and modes/export tests pass (96 total).
+
+Issue 10 pushed and confirmed: `9dc300b8c6f31d445a747f79223d267e6bf295b2`.

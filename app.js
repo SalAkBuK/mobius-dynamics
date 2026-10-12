@@ -1202,13 +1202,25 @@ export class App {
     presets.forEach((p, idx) => {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:rgba(10,24,48,0.5); border:1px solid rgba(40,80,140,0.25); border-radius:6px; padding:4px 8px;';
-      row.innerHTML = `
-        <div style="font-size:10.5px; color:#c0daf8;">${p.name || 'Unnamed Preset'} <span style="font-size:9px; color:#5577a3;">(n=${p.symmetry})</span></div>
-        <div style="display:flex; gap:4px;">
-          <button class="load-user-preset" style="padding:2px 8px; font-size:9.5px; background:rgba(30,120,255,0.3);">Load</button>
-          <button class="del-user-preset" style="padding:2px 6px; font-size:9.5px; color:#f87171;">✕</button>
-        </div>
-      `;
+      const label = document.createElement('div');
+      label.style.cssText = 'font-size:10.5px; color:#c0daf8;';
+      label.textContent = `${p.name || 'Unnamed Preset'} `;
+      const symmetry = document.createElement('span');
+      symmetry.style.cssText = 'font-size:9px; color:#5577a3;';
+      symmetry.textContent = `(n=${p.symmetry})`;
+      label.appendChild(symmetry);
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex; gap:4px;';
+      const load = document.createElement('button');
+      load.className = 'load-user-preset';
+      load.style.cssText = 'padding:2px 8px; font-size:9.5px; background:rgba(30,120,255,0.3);';
+      load.textContent = 'Load';
+      const remove = document.createElement('button');
+      remove.className = 'del-user-preset';
+      remove.style.cssText = 'padding:2px 6px; font-size:9.5px; color:#f87171;';
+      remove.textContent = '?';
+      actions.append(load, remove);
+      row.append(label, actions);
       row.querySelector('.load-user-preset')?.addEventListener('click', () => {
         this.loadPresetObject(p);
         this.closePresetModal();
