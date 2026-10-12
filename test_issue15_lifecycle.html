@@ -1,0 +1,40 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,state,sleep,until,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+try{
+ const injection=`<script>window.__life={sets:{},handlers:{},urls:new Set(),failedRebuilds:0,failBuffers:0};const life=window.__life;
+ const lifeAdd=EventTarget.prototype.addEventListener;EventTarget.prototype.addEventListener=function(type,...args){if(this===window||this===document||this instanceof HTMLElement){const key=(this===window?'window':this===document?'document':this.id||this.tagName)+':'+type;life.handlers[key]=(life.handlers[key]||0)+1;}return lifeAdd.call(this,type,...args);};
+ const get=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(kind,...args){const gl=get.call(this,kind,...args);if(kind!=='webgl2'||!gl||gl.__life)return gl;gl.__life=true;
+ for(const type of ['Buffer','Texture','Framebuffer','VertexArray','Program','Shader','Query']){const set=life.sets[type]=new Set(),create=gl['create'+type].bind(gl),remove=gl['delete'+type].bind(gl);gl['create'+type]=(...a)=>{if(type==='Buffer'&&life.failBuffers>0){life.failBuffers--;life.failedRebuilds++;return null;}const v=create(...a);if(v)set.add(v);return v;};gl['delete'+type]=v=>{set.delete(v);return remove(v);};}
+ this.addEventListener('webglcontextlost',()=>Object.values(life.sets).forEach(set=>set.clear()));return gl;};
+ const create=URL.createObjectURL.bind(URL),revoke=URL.revokeObjectURL.bind(URL);URL.createObjectURL=value=>{const url=create(value);life.urls.add(url);return url;};URL.revokeObjectURL=url=>{life.urls.delete(url);return revoke(url);};<\/script>`;
+ const {app,w,audit}=await boot(injection),life=w.__life,counts=()=>Object.fromEntries(Object.entries(life.sets).map(([k,v])=>[k,v.size])),initial=JSON.stringify(counts()),handlers=JSON.stringify(life.handlers);
+ let maxTimers=0,maxUrls=0,totalSettled=0;
+ const canonical=()=>{const m=app.math,r=app.renderer;return app.mode==='reference'&&m.mode==='reference'&&m.n===16&&!m.evolving&&m.time===0&&m.a.r===-.755&&m.a.i===.330&&m.b.r===-.376&&m.b.i===.026&&m.c.r===6.401&&m.c.i===.803&&m.d.r===1.520&&m.d.i===.840&&['A','B','C','D'].every(k=>m['userOffset'+k].r===0&&m['userOffset'+k].i===0)&&m.pointerCurrent.r===0&&m.pointerCurrent.i===0&&m.pointerTarget.r===0&&m.pointerTarget.i===0&&m.shockMag===0&&r.zoom===1.65&&r.activePalette==='cobalt';};
+ for(let cycle=0;cycle<32;cycle++){
+  let r=app.renderer;app.setMode('reference');r.adaptive.setMode('potato');r.particlesOverride=65536;r.stepsOverride=16;r.resize(cycle%2?256:128,cycle%2?192:128);
+  r.render(app.math,.016);r.adaptive.setMode('low');r.render(app.math,.016);r.adaptive.setMode('potato');
+  for(let i=0;i<1000&&!r.referenceSettled;i++)r.render(app.math,.016);
+  const commands=audit.glCommands;for(let i=0;i<5;i++)r.render(app.math,.016);totalSettled++;
+  check('Cycle '+cycle+' Reference settles idle/canonical',canonical()&&r.referenceSettled&&audit.glCommands===commands);
+  app.togglePause();app.math.setSymmetry(32);app.math.setCoefficientOffset('a',.4,.2);app.math.setPointer(1,1);app.math.injectShock(1,1);app.math.update(.016);check('Cycle '+cycle+' Reference ignores unsafe inputs',canonical());
+  app.randomize(['conradi-like','organic','dense lace','symmetric','chaotic','subtle'][cycle%6]);app.math.evolving=false;app.math.update(.016);r.particlesOverride=4096;r.stepsOverride=16;r.render(app.math,.016);r.render(app.math,.016);
+  app.exportType='standard';app.exportWidth=96;app.exportHeight=64;app.exportPasses=1;const session=state(app),downloads=audit.downloads;
+  const success=await app.startExport();check('Cycle '+cycle+' Standard success preserves session',!!success&&state(app)===session&&audit.downloads===downloads+1);
+  const standard=r.exportPNG.bind(r);r.exportPNG=(m,o)=>standard(m,{...o,accumFrames:30,onProgress(p,msg){o.onProgress(p,msg);if(p>=35)app.cancelExport();}});
+  await app.startExport();r.exportPNG=standard;check('Cycle '+cycle+' Standard cancel restores session/hold',state(app)===session&&!app.displayHoldActive&&!app.isExporting&&!r.isExporting&&audit.downloads===downloads+1);
+  app.exportType='reference_master';app.refMasterPasses=120;const master=r.exportReferenceMaster.bind(r);r.exportReferenceMaster=(m,o)=>master(m,{...o,onProgress(p,msg){o.onProgress(p,msg);if(p>=25)app.cancelExport();}});
+  await app.startExport();r.exportReferenceMaster=master;check('Cycle '+cycle+' Master cancel restores Explore',state(app)===session&&!app.displayHoldActive&&audit.downloads===downloads+1);
+  app.refMasterPasses=1;const completed=await app.startExport();check('Cycle '+cycle+' Master success restores Explore',!!completed&&state(app)===session&&audit.downloads===downloads+2);
+  const preset=app.getPresetObject('lifecycle '+cycle);app.setMode('reference');check('Cycle '+cycle+' pre-preset canonical',canonical());app.loadPresetObject(preset);app.math.update(0);
+  r.adaptive.setMode(cycle%2?'standard':'potato');r.resize(cycle%2?192:320,cycle%2?128:240);
+  const math=JSON.stringify(app.math),old=r,loss=r.gl.getExtension('WEBGL_lose_context'),attempts=cycle%2?2:1;life.failBuffers=attempts;loss.loseContext();await until(()=>app.contextLost,'lost');await sleep(100);loss.restoreContext();await until(()=>!app.contextLost&&app.renderer!==old,'restored with retry');r=app.renderer;r.profiler.enabled=false;
+  check('Cycle '+cycle+' clean rebuild retry preserves Explore JS session',JSON.stringify(app.math)===math&&life.failBuffers===0&&!app.isExporting&&!r.isExporting&&!app.displayHoldActive&&audit.downloads===downloads+2);
+  r.render(app.math,.016);check('Cycle '+cycle+' no resource/RAF/handler growth',JSON.stringify(counts())===initial&&audit.pending.size===1&&JSON.stringify(life.handlers)===handlers&&!r._interruptExport&&!app._contextRecoveryTimer&&w.document.querySelectorAll('canvas').length===2,JSON.stringify(counts()));
+  maxTimers=Math.max(maxTimers,audit.timers.size);maxUrls=Math.max(maxUrls,life.urls.size);document.title='Lifecycle '+cycle;await sleep(0);
+ }
+ await sleep(10500);
+ check('All delayed URLs/timers drained, handlers/RAF/live handles bounded',life.urls.size===0&&audit.timers.size===0&&audit.pending.size===1&&JSON.stringify(counts())===initial&&JSON.stringify(life.handlers)===handlers,JSON.stringify({cycles:32,totalSettled,failedRebuildAttempts:life.failedRebuilds,maxTimers,maxUrls,finalTimers:audit.timers.size,finalUrls:life.urls.size,liveHandles:counts(),canvasCount:w.document.querySelectorAll('canvas').length,lostGL:audit.lostGL}));
+ check('No GL calls while lost',audit.lostGL.length===0,JSON.stringify(audit.lostGL));
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

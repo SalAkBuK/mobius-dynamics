@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,explore,buffers,equal,state,sleep,until,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+try{const {app,w,audit}=await boot();
+ for(const type of ['standard','reference_master'])for(const fault of ['null','empty','throw','loss']){
+  explore(app);const r=app.renderer,before=state(app),vbos=buffers(r),downloads=audit.downloads,toasts=[];app.showToast=t=>toasts.push(t);
+  app.exportType=type;app.exportWidth=96;app.exportHeight=64;app.exportPasses=1;app.refMasterPasses=1;
+  const native=w.HTMLCanvasElement.prototype.toBlob,loss=r.gl.getExtension('WEBGL_lose_context');let late,lost=false;
+  w.HTMLCanvasElement.prototype.toBlob=function(cb){if(fault==='throw')throw Error('Injected encoder throw');
+   if(fault==='loss'){late=cb;lost=true;loss.loseContext();}
+   else cb(fault==='null'?null:new w.Blob([],{type:'image/png'}));};
+  const blob=await app.startExport();w.HTMLCanvasElement.prototype.toBlob=native;
+  check(type+' '+fault+': no blob/download/100%/success toast',!blob&&audit.downloads===downloads&&w.document.getElementById('export-status-pct').innerText!=='100%'&&toasts.every(t=>!/success|successfully/i.test(t)),JSON.stringify(toasts));
+  check(type+' '+fault+': flags and waiter clear',!app.isExporting&&!r.isExporting&&!r._interruptExport&&!app._exportAbortController);
+  if(!lost)check(type+' '+fault+': exact session and full VBO restoration',state(app)===before&&buffers(r).every((a,i)=>equal(a,vbos[i])));
+  else{await until(()=>app.contextLost,'lost');late(new w.Blob(['late'],{type:'image/png'}));await sleep(20);
+   check(type+' late encoder callback inert',audit.downloads===downloads);loss.restoreContext();
+   await until(()=>!app.contextLost&&app.renderer!==r,'recovered');app.renderer.profiler.enabled=false;
+   check(type+' lost encoding: Explore JS session recovered',app.mode==='explore'&&app.math.n===11&&app.math.time===7.25&&!app.displayHoldActive);
+  }
+ }
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

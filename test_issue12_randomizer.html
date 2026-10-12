@@ -5,7 +5,7 @@ const {check,finish}=reporter();
 try{const {app,w}=await boot(),r=app.renderer,m=app.math,gl=r.gl;r.resize(64,64);r.particlesOverride=1024;r.stepsOverride=16;r.adaptive.setMode('potato');
  const resources=trackResources(gl),pixels=new Uint8Array(64*64*4),photons=new Float32Array(r.accumWidth*r.accumHeight*4),particles=new Float32Array(1024*4),initial=new Float32Array(1024*4);
  for(let i=0;i<1024;i++){const angle=i*Math.PI/512;initial[i*4]=.4*Math.cos(angle);initial[i*4+1]=.4*Math.sin(angle);initial[i*4+2]=0;initial[i*4+3]=(i*1973+97)&0xffffff;}
- let rng=0x12adbeef; // replaced below with a fixed reproducible uint seed
+ let rng=0x12adbeef; // Fixed reproducible uint seed.
  w.Math.random=()=>{rng=(Math.imul(rng,1664525)+1013904223)>>>0;return rng/4294967296;};
  for(const family of RANDOM_STYLES){m.resetToReference();let blanks=0,white=0,diverged=0,respawn=0,outside=0,maxMs=0,slow=0,minDet=Infinity,maxDet=0;
   for(let i=0;i<1000;i++){
