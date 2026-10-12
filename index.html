@@ -569,6 +569,8 @@
     }
 
     .modal-dialog {
+      max-height: calc(100vh - 24px);
+      overflow-y: auto;
       background: rgba(5, 12, 28, 0.94);
       border: 1px solid rgba(60, 120, 210, 0.35);
       border-radius: 12px;
@@ -940,7 +942,7 @@
 
       <div class="modal-section">
         <div class="modal-section-title">Curated Masterpiece Presets</div>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px;" id="curated-presets-list">
+        <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:6px;" id="curated-presets-list">
           <!-- Populated dynamically -->
         </div>
       </div>
@@ -956,7 +958,7 @@
 
       <div class="modal-section" id="saved-presets-section">
         <div class="modal-section-title">My Saved Presets</div>
-        <div id="user-presets-list" style="max-height:120px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+        <div id="user-presets-list" style="max-height:clamp(120px, 26vh, 240px); overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
           <div style="font-size:10px; color:#5577a3;">No custom presets saved yet.</div>
         </div>
       </div>

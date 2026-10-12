@@ -1324,17 +1324,27 @@ export class App {
     list.innerHTML = '';
     CURATED_PRESETS.forEach(p => {
       const btn = document.createElement('button');
-      btn.style.cssText = 'display:flex; flex-direction:column; align-items:flex-start; padding:6px 10px; background:rgba(20,40,80,0.5); border:1px solid rgba(40,90,160,0.3); border-radius:6px;';
+      btn.style.cssText = 'display:flex; flex-direction:column; align-items:flex-start; min-width:0; white-space:normal; text-align:left; padding:6px 10px; background:rgba(20,40,80,0.5); border:1px solid rgba(40,90,160,0.3); border-radius:6px;';
       btn.innerHTML = `
         <div style="font-weight:600; color:#e2f0ff; font-size:10.5px;">${p.name}</div>
         <div style="font-size:9px; color:#6482a8; margin-top:2px;">${p.description}</div>
       `;
       btn.addEventListener('click', () => {
-        this.loadPresetObject(p);
-        this.closePresetModal();
+        if (this.loadPresetSafely(p)) this.closePresetModal();
       });
       list.appendChild(btn);
     });
+  }
+
+  /** Loads a preset, reporting an invalid one as a toast instead of an uncaught error. */
+  loadPresetSafely(preset) {
+    try {
+      this.loadPresetObject(preset);
+      return true;
+    } catch (err) {
+      this.showToast('Unable to load preset: ' + (err?.message || 'Invalid preset.'));
+      return false;
+    }
   }
 
   getUserPresets() {
@@ -1359,7 +1369,7 @@ export class App {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex; justify-content:space-between; align-items:center; background:rgba(10,24,48,0.5); border:1px solid rgba(40,80,140,0.25); border-radius:6px; padding:4px 8px;';
       const label = document.createElement('div');
-      label.style.cssText = 'font-size:10.5px; color:#c0daf8;';
+      label.style.cssText = 'font-size:10.5px; color:#c0daf8; min-width:0; overflow-wrap:anywhere;';
       label.textContent = `${p.name || 'Unnamed Preset'} `;
       const symmetry = document.createElement('span');
       symmetry.style.cssText = 'font-size:9px; color:#5577a3;';
@@ -1378,8 +1388,7 @@ export class App {
       actions.append(load, remove);
       row.append(label, actions);
       row.querySelector('.load-user-preset')?.addEventListener('click', () => {
-        this.loadPresetObject(p);
-        this.closePresetModal();
+        if (this.loadPresetSafely(p)) this.closePresetModal();
       });
       row.querySelector('.del-user-preset')?.addEventListener('click', () => {
         this.deleteUserPreset(idx);
@@ -1395,10 +1404,13 @@ export class App {
 
     // Save to localStorage
     const existing = this.getUserPresets();
+    const limitReached = existing.length >= 20;
     existing.unshift(preset);
+    let stored = true;
     try {
       localStorage.setItem('mobius_custom_presets', JSON.stringify(existing.slice(0, 20)));
     } catch (e) {
+      stored = false;
       console.warn('LocalStorage save error:', e);
     }
     this.renderUserPresets();
@@ -1416,7 +1428,13 @@ export class App {
     setTimeout(() => URL.revokeObjectURL(url), 5000);
 
     if (input) input.value = '';
-    this.showToast(`Saved preset: "${name}"`);
+    if (!stored) {
+      this.showToast(`Could not keep "${name}" in this browser (storage unavailable). The preset file was still downloaded.`);
+    } else if (limitReached) {
+      this.showToast(`Saved preset: "${name}" (20-preset limit reached; the oldest was removed)`);
+    } else {
+      this.showToast(`Saved preset: "${name}"`);
+    }
   }
 
   deleteUserPreset(idx) {
@@ -1424,7 +1442,9 @@ export class App {
     existing.splice(idx, 1);
     try {
       localStorage.setItem('mobius_custom_presets', JSON.stringify(existing));
-    } catch (e) {}
+    } catch (e) {
+      this.showToast('Could not update saved presets (storage unavailable).');
+    }
     this.renderUserPresets();
   }
 
@@ -1531,6 +1551,8 @@ export class App {
     if (navigator.clipboard) {
       navigator.clipboard.writeText(str).then(() => {
         this.showToast('Preset JSON copied to clipboard!');
+      }).catch(() => {
+        this.showToast('Could not copy to the clipboard.');
       });
     } else {
       this.showToast('Clipboard access unavailable.');
