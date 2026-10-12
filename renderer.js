@@ -1547,7 +1547,7 @@ export class MobiusRenderer {
     let expPostFbo = null;
 
     try {
-      onProgress(5, 'Allocating 4K GPU framebuffers (3840x2160)...');
+      onProgress(5, `Allocating ${width}×${height} GPU framebuffers...`);
 
       // Like Reference Master, preserve both full live particle buffers on-GPU.
       // Export follows its existing trajectory; finally restores the live state.
@@ -1689,7 +1689,7 @@ export class MobiusRenderer {
         }
         framesDone += chunk;
         const progressPct = 10 + Math.round((framesDone / totalFrames) * 75);
-        onProgress(progressPct, `Developing 4K passes (${framesDone}/${totalFrames})...`);
+        onProgress(progressPct, `Developing ${width}×${height} passes (${framesDone}/${totalFrames})...`);
         await this.waitForExport(done => {
           const id = setTimeout(done, 0);
           return () => clearTimeout(id);
@@ -1748,7 +1748,7 @@ export class MobiusRenderer {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
       // 6. Read pixels
-      onProgress(95, 'Reading 4K framebuffer...');
+      onProgress(95, `Reading ${width}×${height} framebuffer...`);
       const pixels = new Uint8Array(width * height * 4);
       gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
       this.checkExportGL('pixel readback');
