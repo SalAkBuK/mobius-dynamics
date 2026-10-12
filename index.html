@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Möbius Complex Dynamics Laboratory</title>
   <style>
     * {
@@ -123,8 +123,8 @@
 
     #equation-readout.compact #btn-readout-expand {
       display: inline-block;
-      padding: 0 6px;
-      font-size: 11px;
+      padding: 2px 6px;
+      font-size: 12px;
     }
 
     #equation-readout.collapsed {
@@ -142,7 +142,7 @@
     }
 
     .eq-sub {
-      color: #6482a8;
+      color: #86a3ca;
       font-size: 10.5px;
       margin-bottom: 6px;
     }
@@ -155,7 +155,7 @@
     }
 
     .param-label {
-      color: #5577a3;
+      color: #86a3ca;
     }
 
     .param-val {
@@ -202,10 +202,10 @@
     }
 
     .control-label {
-      font-size: 9.5px;
+      font-size: 10.5px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #507096;
+      color: #86a3ca;
       margin-right: 2px;
       margin-left: 2px;
     }
@@ -293,7 +293,7 @@
     }
 
     .coeff-name {
-      color: #6482a8;
+      color: #86a3ca;
       font-family: monospace;
       width: 45px;
     }
@@ -407,7 +407,7 @@
       letter-spacing: 0.05em;
       padding: 4px 10px;
       border-radius: 14px;
-      font-size: 10px;
+      font-size: 10.5px;
     }
 
     .mode-btn.active.ref-mode {
@@ -437,7 +437,7 @@
     #mode-status-pill {
       pointer-events: auto;
       font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
-      font-size: 9.5px;
+      font-size: 10.5px;
       letter-spacing: 0.04em;
       padding: 3px 12px;
       border-radius: 12px;
@@ -495,7 +495,7 @@
       text-align: left;
       padding: 5px 8px;
       border-radius: 6px;
-      font-size: 10px;
+      font-size: 10.5px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -507,10 +507,10 @@
     }
 
     .dropdown-header {
-      font-size: 8.5px;
+      font-size: 10.5px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #5577a3;
+      color: #86a3ca;
       padding: 4px 6px 2px 6px;
       border-bottom: 1px solid rgba(40, 80, 140, 0.2);
       margin-bottom: 2px;
@@ -630,7 +630,7 @@
 
     .modal-sub {
       font-size: 11px;
-      color: #6482a8;
+      color: #86a3ca;
       margin-bottom: 14px;
     }
 
@@ -639,10 +639,10 @@
     }
 
     .modal-section-title {
-      font-size: 10px;
+      font-size: 10.5px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #5577a3;
+      color: #86a3ca;
       margin-bottom: 6px;
     }
 
@@ -963,6 +963,54 @@
       background: rgba(10, 20, 38, 0.55);
     }
 
+    /* ---- Accessibility polish (Phase C) ---- */
+    /* Every control is at least 24x24 CSS px (WCAG 2.2 target size minimum). */
+    button {
+      min-height: 24px;
+      min-width: 24px;
+    }
+
+    .coeff-slider {
+      height: 24px;
+      margin: 0;
+    }
+
+    /* Genuinely disabled controls look disabled; enabled ones never do. */
+    button:disabled,
+    input:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    button:disabled:hover {
+      background: transparent;
+      color: #8da4c4;
+    }
+
+    /* Selected state is not conveyed by colour alone: a bar under the selected option. */
+    .sym-btn.active,
+    .quality-btn.active,
+    .palette-select-btn.active,
+    #btn-bloom.active,
+    #btn-readout.active,
+    #btn-raw.active,
+    #btn-debug.active,
+    #btn-pause.active,
+    #btn-controls.active {
+      box-shadow: inset 0 -2px 0 rgba(120, 190, 255, 0.85);
+    }
+
+    #btn-readout-expand {
+      min-width: 24px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+      }
+    }
+
     /* ---- Small screens / touch (Phase C) ---- */
     #gl-canvas {
       touch-action: none;
@@ -975,7 +1023,7 @@
     /* The panel header (with its close button) stays visible while the panel scrolls. */
     #controls-panel .panel-head {
       position: sticky;
-      top: 0;
+      top: -10px;
       z-index: 2;
       margin: -10px -14px 4px;
       padding: 10px 14px 6px;
@@ -1083,7 +1131,7 @@
         <!-- Randomize (an Explore action) -->
         <div class="dropdown-container btn-group" style="padding:1px;">
           <button id="btn-randomize-action" title="Randomize — enters Explore (shortcut: 3)">🎲 Randomize</button>
-          <button id="btn-randomize-toggle" title="Select Morphology Style" aria-label="Select morphology style">▾</button>
+          <button id="btn-randomize-toggle" title="Select Morphology Style" aria-label="Select morphology style" aria-haspopup="true" aria-expanded="false">▾</button>
           <div id="randomize-menu" class="dropdown-menu">
             <div class="dropdown-header">Curated Morphology Families</div>
             <button class="rnd-style-btn" data-style="conradi-like">Conradi-like (Rosette Basin)</button>
@@ -1100,7 +1148,7 @@
         <!-- Export: one primary action; Reference Master lives in the menu -->
         <div class="dropdown-container btn-group" style="padding:1px;">
           <button id="btn-export-trigger" class="btn-action-highlight" title="Export image…">📷 Export</button>
-          <button id="btn-export-toggle" title="More export options" aria-label="More export options">▾</button>
+          <button id="btn-export-toggle" title="More export options" aria-label="More export options" aria-haspopup="true" aria-expanded="false">▾</button>
           <div id="export-menu" class="dropdown-menu">
             <div class="dropdown-header">Export</div>
             <button id="btn-export-image">Image…</button>
@@ -1133,7 +1181,7 @@
           <div class="panel-row">
             <span class="panel-label">Palette</span>
             <div class="dropdown-container" id="palette-container">
-              <button id="btn-palette-toggle" title="Color Grading Palette">Palette ▾</button>
+              <button id="btn-palette-toggle" title="Color Grading Palette" aria-haspopup="true" aria-expanded="false">Palette ▾</button>
               <div id="palette-menu" class="dropdown-menu">
                 <div class="dropdown-header">Color Grading Palettes</div>
                 <button class="palette-select-btn active" data-pal="cobalt">Cobalt (Conradi Reference)</button>
@@ -1194,10 +1242,10 @@
 
           <!-- Coefficient controls (the four existing sliders) -->
           <div id="coeff-drawer">
-            <div id="coeff-lock-notice" style="display:none; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:4px 8px; font-size:10px; margin-bottom:4px;">
+            <div id="coeff-lock-notice" style="display:none; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:4px 8px; font-size: 10.5px; margin-bottom:4px;">
               🔒 Coefficients locked in Reference Mode. Switch to Explore to edit.
             </div>
-            <div style="font-size: 10px; color: #8aa6cc; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
+            <div style="font-size: 10.5px; color: #8aa6cc; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
               Live Mobius Perturbation Controls
             </div>
             <div class="coeff-explain">Offsets are added to the base coefficients. Edits apply live.</div>
@@ -1226,7 +1274,7 @@
             </div>
             <div class="coeff-eff" title="Im(d): base value, then the effective value after offset and drift">Im(d) base <span id="coeff-base-d-im">0.840</span> → <span id="coeff-live-d-im">0.840</span></div>
             <div style="display:flex; justify-content: flex-end; margin-top: 4px;">
-              <button id="btn-reset-coeffs" style="padding: 3px 8px; font-size: 10px;">Reset offsets</button>
+              <button id="btn-reset-coeffs" style="padding: 3px 8px; font-size: 10.5px;">Reset offsets</button>
             </div>
           </div>
         </div>
@@ -1296,11 +1344,11 @@
       <div class="dbg-row"><span>Display Ratio (DPR):</span> <span class="dbg-val" id="dbg-dpr">1.50</span></div>
       <div class="dbg-row"><span>Accumulation Age:</span> <span class="dbg-val" id="dbg-accum">0.0s (0 frames)</span></div>
       <div class="dbg-row"><span>Float Format:</span> <span class="dbg-val" id="dbg-format">RGBA32F</span></div>
-      <div class="dbg-row"><span>Capability Path:</span> <span class="dbg-val" id="dbg-path" style="font-size:10px;">Native Float Blend</span></div>
-      <div class="dbg-row"><span>Adaptation Event:</span> <span class="dbg-val" id="dbg-event" style="color:#a8d8ff;font-size:9.5px;">Calibrating...</span></div>
+      <div class="dbg-row"><span>Capability Path:</span> <span class="dbg-val" id="dbg-path" style="font-size: 10.5px;">Native Float Blend</span></div>
+      <div class="dbg-row"><span>Adaptation Event:</span> <span class="dbg-val" id="dbg-event" style="color:#a8d8ff;font-size: 10.5px;">Calibrating...</span></div>
       <div class="dbg-row"><span>Zoom Level:</span> <span class="dbg-val" id="dbg-zoom">1.00x</span></div>
       <div class="dbg-row"><span>Render Resolution:</span> <span class="dbg-val" id="dbg-res">--</span></div>
-      <div style="margin-top: 8px; font-size: 9.5px; color: #5879a2; border-top: 1px solid rgba(40, 80, 140, 0.2); padding-top: 4px;">
+      <div style="margin-top: 8px; font-size: 10.5px; color: #86a3ca; border-top: 1px solid rgba(40, 80, 140, 0.2); padding-top: 4px;">
         Click to perturb • Drag (Right-click/Shift) to Pan • Scroll to Zoom • [D] Toggle Debug
       </div>
     </div>
@@ -1356,7 +1404,7 @@
           <div>Formula: Canonical Simone Conradi 2026 Reference (n=16)</div>
           <div>Workload: 589,824 particles × 16 IFS steps = 9,437,184 deposits/pass</div>
           <div>Isolated offscreen accumulation • Starts from black • Persistence = 1.0</div>
-          <div style="color: #64748b; font-size: 9.5px; margin-top: 4px; border-top: 1px solid rgba(56, 189, 248, 0.15); padding-top: 4px;">
+          <div style="color: #94a3b8; font-size: 10.5px; margin-top: 4px; border-top: 1px solid rgba(56, 189, 248, 0.15); padding-top: 4px;">
             Zero drift, pointer perturbation, or user offsets. Interactive session is 100% restored afterward.
           </div>
         </div>
@@ -1371,7 +1419,7 @@
       </div>
 
       <div id="export-progress-area" style="display:none; margin: 12px 0;">
-        <div style="display:flex; justify-content:space-between; font-size:10px; color:#93c5fd;">
+        <div style="display:flex; justify-content:space-between; font-size: 10.5px; color:#93c5fd;">
           <span id="export-status-label">Initializing...</span>
           <span id="export-status-pct">0%</span>
         </div>
@@ -1453,13 +1501,13 @@
       <div class="modal-section" id="saved-presets-section">
         <div class="modal-section-title">My Saved Presets</div>
         <div id="user-presets-list" style="max-height:clamp(120px, 26vh, 240px); overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
-          <div style="font-size:10px; color:#5577a3;">No custom presets saved yet.</div>
+          <div style="font-size: 10.5px; color:#86a3ca;">No custom presets saved yet.</div>
         </div>
       </div>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; border-top:1px solid rgba(40,80,140,0.2); padding-top:10px;">
         <div>
-          <button type="button" id="btn-preset-import" style="font-size:10px; color:#60a5fa;">📁 Import Preset JSON</button>
+          <button type="button" id="btn-preset-import" style="font-size: 10.5px; color:#60a5fa;">📁 Import Preset JSON</button>
           <input type="file" id="preset-file-input" accept=".json" style="display:none;" tabindex="-1">
         </div>
         <button id="btn-preset-done">Done</button>
@@ -1474,7 +1522,7 @@
   </div>
 
   <!-- Toast Banner -->
-  <div id="toast-banner">Toast Notification</div>
+  <div id="toast-banner" role="status" aria-live="polite" aria-atomic="true">Toast Notification</div>
 
   <div id="hint-unhide">Press H to restore controls</div>
   <button id="btn-show-ui" type="button" title="Show controls (H)">Show controls</button>

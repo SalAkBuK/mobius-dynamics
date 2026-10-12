@@ -1,0 +1,84 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Phase C / C2: accessibility and legibility. Contrast of every visible text node (against both a quiet and a
+// bright artwork backdrop), minimum text size, minimum target size, state not conveyed by colour alone,
+// disabled vs enabled appearance, announcements, menu/toggle semantics and page zoom.
+import {boot,sleep,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+try{
+  const {frame,w,app}=await boot(),doc=w.document,$=id=>doc.getElementById(id);
+  frame.style.width='1366px';frame.style.height='900px';w.dispatchEvent(new w.Event('resize'));await sleep(150);
+  // measure final states, not mid-transition values (the iframe may not be producing frames)
+  const noMotion=doc.createElement('style');noMotion.textContent='*{transition:none !important}';doc.head.append(noMotion);
+  const cs=e=>w.getComputedStyle(e);
+  const parse=s=>{const m=(s.match(/[\d.]+/g)||[]).map(Number);return m.length<3?{r:0,g:0,b:0,a:0}:{r:m[0],g:m[1],b:m[2],a:m.length>3?m[3]:1};};
+  const over=(t,b)=>({r:t.r*t.a+b.r*(1-t.a),g:t.g*t.a+b.g*(1-t.a),b:t.b*t.a+b.b*(1-t.a),a:1});
+  const lum=c=>{const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);};return 0.2126*f(c.r)+0.7152*f(c.g)+0.0722*f(c.b);};
+  const ratio=(a,b)=>{const x=lum(a),y=lum(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);};
+  const shown=e=>{let a=e;while(a&&a!==doc.body){const s=cs(a);if(s.display==='none'||s.visibility==='hidden'||a.hidden||s.opacity==='0')return false;a=a.parentElement;}const r=e.getBoundingClientRect();return r.width>0&&r.height>0;};
+  const textNodes=()=>{const out=[],seen=new Set(),tw=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let n;
+    while((n=tw.nextNode())){if(!n.textContent.trim())continue;const el=n.parentElement;if(!el||seen.has(el)||el.closest('script,style,#capture-container,#export-display-hold,#toast-banner,[disabled],[aria-disabled="true"]'))continue;seen.add(el);if(shown(el))out.push(el);}return out;};
+  const worst=el=>{const chain=[];for(let a=el;a;a=a.parentElement)chain.unshift(a);let op=1;chain.forEach(a=>op*=parseFloat(cs(a).opacity));let min=99;
+    for(const base of [{r:5,g:10,b:22,a:1},{r:150,g:190,b:255,a:1}]){let bg=base;for(const a of chain){const c=parse(cs(a).backgroundColor);if(c.a>0)bg=over(c,bg);}
+      let fg=parse(cs(el).color);fg={...fg,a:fg.a*op};min=Math.min(min,ratio(over(fg,bg),bg));}return min;};
+  const lowContrast=[],tiny=[];let nodeCount=0;
+  const analyse=(name,els)=>{nodeCount+=els.length;for(const el of els){const fs=parseFloat(cs(el).fontSize),bold=parseInt(cs(el).fontWeight)>=700,need=(fs>=18.66||(fs>=14&&bold))?3:4.5,r=worst(el);
+    if(r<need)lowContrast.push(name+': '+(el.id||el.className||el.tagName)+' "'+el.textContent.trim().slice(0,24)+'" '+r.toFixed(2));if(fs<10.5)tiny.push(name+': '+el.textContent.trim().slice(0,24)+' '+fs+'px');}};
+  const surfaces=async()=>{
+    $('btn-mode-explore').click();$('btn-controls').click();$('btn-coeff').getAttribute('aria-expanded')==='false'&&$('btn-coeff').click();
+    doc.querySelector('#panel-section-developer .panel-section-head').getAttribute('aria-expanded')==='false'&&doc.querySelector('#panel-section-developer .panel-section-head').click();
+    $('btn-debug').click();$('btn-readout-expand').click();await sleep(400);analyse('panel+debug+readout',textNodes());
+    $('btn-debug').click();app.closePanel();$('btn-mode-reference').click();
+    for(const [name,open,close] of [['presets',()=>app.openPresetModal(),()=>app.closePresetModal()],['export',()=>app.openExportModal(),()=>app.closeExportModal()],['export master',()=>{app.openExportModal('reference_master');},()=>app.closeExportModal()],['help',()=>app.openHelpModal(),()=>app.closeHelpModal()]]){open();await sleep(40);analyse(name,textNodes());close();}};
+  await surfaces();
+  check('every visible text node meets contrast (4.5:1 small / 3:1 large) on quiet and bright backdrops ('+nodeCount+' nodes; disabled controls are exempt)',lowContrast.length===0,JSON.stringify(lowContrast.slice(0,8)));
+  check('no visible text is smaller than 10.5px',tiny.length===0,JSON.stringify(tiny.slice(0,8)));
+
+  // ---- target size (fine pointer): every visible button and slider is at least 24x24 CSS px
+  $('btn-mode-explore').click();$('btn-controls').click();$('btn-coeff').getAttribute('aria-expanded')==='false'&&$('btn-coeff').click();
+  doc.querySelector('#panel-section-developer .panel-section-head').getAttribute('aria-expanded')==='false'&&doc.querySelector('#panel-section-developer .panel-section-head').click();$('btn-readout-expand').click();await sleep(60);
+  const small=[...doc.querySelectorAll('button,input[type=range]')].filter(shown).filter(b=>{const r=b.getBoundingClientRect();return r.height<24||(b.tagName==='BUTTON'&&r.width<24);}).map(b=>(b.id||b.textContent.trim())+' '+Math.round(b.getBoundingClientRect().width)+'x'+Math.round(b.getBoundingClientRect().height));
+  check('every visible button and slider is at least 24x24 CSS px',small.length===0,JSON.stringify(small));
+
+  // ---- aria-pressed mirrors .active
+  const sel='.mode-btn,.sym-btn,.quality-btn,.palette-select-btn,#btn-bloom,#btn-readout,#btn-raw,#btn-debug,#btn-pause';
+  const synced=()=>[...doc.querySelectorAll(sel)].every(b=>b.getAttribute('aria-pressed')===String(b.classList.contains('active')));
+  check('toggle and segmented buttons carry aria-pressed that matches their active state',synced()&&doc.querySelectorAll(sel).length>=20);
+  $('btn-bloom').click();$('btn-readout').click();$('btn-debug').click();$('btn-raw').click();doc.querySelector('.sym-btn[data-n="24"]').click();doc.querySelector('.quality-btn[data-tier="high"]').click();$('btn-mode-reference').click();
+  check('and stays in sync after bloom/readout/debug/raw/order/quality/mode changes',synced());
+  $('btn-debug').click();$('btn-raw').click();$('btn-bloom').click();$('btn-readout').click();
+  const pal=key=>{$('btn-palette-toggle').click();doc.querySelector(`.palette-select-btn[data-pal="${key}"]`).click();};pal('solar');
+  check('and after a palette change',synced()&&doc.querySelector('.palette-select-btn[data-pal="solar"]').getAttribute('aria-pressed')==='true');
+  $('btn-mode-reference').click();
+
+  // ---- selection is not colour-only
+  const shadow=e=>cs(e).boxShadow;
+  check('the selected option has a non-colour cue (inset bar) on order, quality, palette and toggles',
+    ['.sym-btn.active','.quality-btn.active','.palette-select-btn.active','#btn-bloom.active','#btn-readout.active'].every(q=>{const e=doc.querySelector(q);return e&&shadow(e)!=='none';}));
+  check('unselected options have no such bar',shadow(doc.querySelector('.sym-btn:not(.active)'))==='none');
+
+  // ---- disabled vs enabled appearance
+  $('btn-mode-reference').click();await sleep(400);
+  const op=e=>parseFloat(cs(e).opacity);
+  check('Reference: the locked sliders, Start fresh and the Drift button look disabled',[...doc.querySelectorAll('.coeff-slider')].every(s=>s.disabled&&op(s)<1)&&$('btn-start-fresh').disabled&&op($('btn-start-fresh'))<1&&$('btn-pause').disabled&&op($('btn-pause'))<1);
+  check('Reference: enabled controls never look disabled (Order n, palette, quality, mode, bloom)',['.sym-btn','.quality-btn','#btn-mode-explore','#btn-bloom','#btn-palette-toggle'].every(q=>op(doc.querySelector(q))===1));
+  check('Reference: zoom is shown as unavailable (it would not do anything) and flagged aria-disabled',$('btn-zoom-in').getAttribute('aria-disabled')==='true'&&op($('btn-zoom-in'))<1);
+  $('btn-mode-explore').click();await sleep(400);
+  check('Explore: sliders, Start fresh and Drift are enabled and look enabled',[...doc.querySelectorAll('.coeff-slider')].every(s=>!s.disabled&&op(s)===1)&&!$('btn-start-fresh').disabled&&op($('btn-start-fresh'))===1&&op($('btn-pause'))===1);
+
+  // ---- announcements, menu semantics, zoom
+  check('the toast is a polite live status region',$('toast-banner').getAttribute('role')==='status'&&$('toast-banner').getAttribute('aria-live')==='polite');
+  check('the persistent graphics banner is an alert',$('status-banner').getAttribute('role')==='alert');
+  const menus=[['btn-randomize-toggle','randomize-menu'],['btn-export-toggle','export-menu'],['btn-palette-toggle','palette-menu']];
+  let ok=menus.every(([b])=>$(b).getAttribute('aria-haspopup')==='true'&&$(b).getAttribute('aria-expanded')==='false');
+  for(const [b,m] of menus){$(b).click();ok=ok&&$(b).getAttribute('aria-expanded')==='true'&&$(m).classList.contains('visible');w.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));ok=ok&&$(b).getAttribute('aria-expanded')==='false';}
+  check('menu buttons expose aria-haspopup and an aria-expanded that follows the menu (and Esc)',ok);
+  const meta=doc.querySelector('meta[name=viewport]').content;
+  check('the viewport meta no longer blocks page zoom',!/user-scalable\s*=\s*(no|0)/i.test(meta)&&!/maximum-scale\s*=\s*1(\.0)?\b/i.test(meta),meta);
+  check('every dialog is labelled and modal',[...doc.querySelectorAll('.modal-dialog')].every(d=>d.getAttribute('role')==='dialog'&&d.getAttribute('aria-modal')==='true'&&doc.getElementById(d.getAttribute('aria-labelledby'))));
+  check('icon-only buttons have accessible names',['btn-randomize-toggle','btn-export-toggle','btn-controls-close','btn-help','btn-export-close','btn-preset-close','btn-help-close','btn-readout-expand'].every(id=>($(id).getAttribute('aria-label')||$(id).textContent.trim()).length>0));
+  const reduce=[...doc.styleSheets].some(s=>[...s.cssRules].some(r=>r.type===r.MEDIA_RULE&&/prefers-reduced-motion/.test(r.conditionText||r.media.mediaText)));
+  check('reduced-motion preference is honoured',reduce);
+  const ring=[...doc.styleSheets].flatMap(sh=>[...sh.cssRules]).filter(r=>r.selectorText&&r.selectorText.includes(':focus-visible'));
+  check('keyboard focus has a visible ring for buttons and inputs (:focus-visible outline)',ring.some(r=>r.selectorText.includes('button')&&/solid/.test(r.style.outline||r.style.outlineStyle)&&parseFloat(r.style.outlineWidth||r.style.outline)>=2||(r.selectorText.includes('button')&&r.style.outlineStyle==='solid')),ring.map(r=>r.selectorText).join(' | '));
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

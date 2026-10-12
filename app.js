@@ -610,6 +610,7 @@ export class App {
       bloomBtn.classList.toggle('active', !!r.bloomEnabled);
     }
     this.updateQualityInfo();
+    this.syncPressed();
     const rawBtn = document.getElementById('btn-raw');
     if (rawBtn) {
       const rawOn = r.viewMode === 2;
@@ -709,6 +710,20 @@ export class App {
     if (this.randomizeMenu) this.randomizeMenu.classList.remove('visible');
     if (this.paletteMenu) this.paletteMenu.classList.remove('visible');
     if (this.exportMenu) this.exportMenu.classList.remove('visible');
+    this.syncMenuAria();
+  }
+
+  /** aria-expanded on the three menu buttons follows whether their menu is open. */
+  syncMenuAria() {
+    for (const [btnId, menu] of [['btn-randomize-toggle', this.randomizeMenu], ['btn-palette-toggle', this.paletteMenu], ['btn-export-toggle', this.exportMenu]]) {
+      document.getElementById(btnId)?.setAttribute('aria-expanded', String(!!menu?.classList.contains('visible')));
+    }
+  }
+
+  /** aria-pressed mirrors the selected/active state of toggle and segmented buttons. */
+  syncPressed() {
+    const sel = '.mode-btn, .sym-btn, .quality-btn, .palette-select-btn, #btn-bloom, #btn-readout, #btn-raw, #btn-debug, #btn-pause';
+    document.querySelectorAll(sel).forEach(b => b.setAttribute('aria-pressed', String(b.classList.contains('active'))));
   }
 
   anyDropdownOpen() {
@@ -939,6 +954,7 @@ export class App {
       const wasOpen = this.randomizeMenu?.classList.contains('visible');
       this.closeDropdowns();
       if (!wasOpen) this.randomizeMenu?.classList.add('visible');
+      this.syncMenuAria();
     });
 
     document.querySelectorAll('.rnd-style-btn').forEach(btn => {
@@ -954,6 +970,7 @@ export class App {
       const wasOpen = this.paletteMenu?.classList.contains('visible');
       this.closeDropdowns();
       if (!wasOpen) this.paletteMenu?.classList.add('visible');
+      this.syncMenuAria();
     });
 
     document.querySelectorAll('.palette-select-btn').forEach(btn => {
@@ -979,6 +996,7 @@ export class App {
         qualityBtns.forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         this.updateQualityInfo();
+        this.syncPressed();
         this.onResize();
       });
     });
@@ -997,6 +1015,7 @@ export class App {
         btn.classList.add('active');
         this.renderer.startSymmetryTransition();
         this.renderer.adaptive.markInteraction();
+        this.syncPressed();
       });
     });
 
@@ -1043,6 +1062,7 @@ export class App {
       const wasOpen = this.exportMenu?.classList.contains('visible');
       this.closeDropdowns();
       if (!wasOpen) this.exportMenu?.classList.add('visible');
+      this.syncMenuAria();
     });
     document.getElementById('btn-export-image')?.addEventListener('click', () => this.openExportModal('standard'));
     document.getElementById('btn-export-trigger')?.addEventListener('click', () => this.openExportModal('standard'));
@@ -1593,7 +1613,7 @@ export class App {
       btn.style.cssText = 'display:flex; flex-direction:column; align-items:flex-start; min-width:0; white-space:normal; text-align:left; padding:6px 10px; background:rgba(20,40,80,0.5); border:1px solid rgba(40,90,160,0.3); border-radius:6px;';
       btn.innerHTML = `
         <div style="font-weight:600; color:#e2f0ff; font-size:10.5px;">${p.name}</div>
-        <div style="font-size:9px; color:#6482a8; margin-top:2px;">${p.description}</div>
+        <div style="font-size:10.5px; color:#86a3ca; margin-top:2px;">${p.description}</div>
       `;
       btn.addEventListener('click', () => {
         if (this.loadPresetSafely(p)) this.closePresetModal();
@@ -1627,7 +1647,7 @@ export class App {
     if (!list) return;
     const presets = this.getUserPresets();
     if (presets.length === 0) {
-      list.innerHTML = '<div style="font-size:10px; color:#5577a3; padding:4px;">No custom presets saved yet.</div>';
+      list.innerHTML = '<div style="font-size:10.5px; color:#86a3ca; padding:4px;">No custom presets saved yet.</div>';
       return;
     }
     list.innerHTML = '';
@@ -1638,18 +1658,18 @@ export class App {
       label.style.cssText = 'font-size:10.5px; color:#c0daf8; min-width:0; overflow-wrap:anywhere;';
       label.textContent = `${p.name || 'Unnamed Preset'} `;
       const symmetry = document.createElement('span');
-      symmetry.style.cssText = 'font-size:9px; color:#5577a3;';
+      symmetry.style.cssText = 'font-size:10.5px; color:#86a3ca;';
       symmetry.textContent = `(n=${p.symmetry})`;
       label.appendChild(symmetry);
       const actions = document.createElement('div');
       actions.style.cssText = 'display:flex; gap:4px;';
       const load = document.createElement('button');
       load.className = 'load-user-preset';
-      load.style.cssText = 'padding:2px 8px; font-size:9.5px; background:rgba(30,120,255,0.3);';
+      load.style.cssText = 'padding:2px 8px; font-size:10.5px; background:rgba(30,120,255,0.3);';
       load.textContent = 'Load';
       const remove = document.createElement('button');
       remove.className = 'del-user-preset';
-      remove.style.cssText = 'padding:2px 6px; font-size:9.5px; color:#f87171;';
+      remove.style.cssText = 'padding:2px 6px; font-size:10.5px; color:#f87171;';
       remove.textContent = '\u2715';
       actions.append(load, remove);
       row.append(label, actions);
@@ -1856,6 +1876,7 @@ export class App {
     if (!this.math.evolving) {
       this.renderer.clearAccumulation();
     }
+    this.syncPressed();
   }
 
   resetView() {
@@ -1892,6 +1913,7 @@ export class App {
     this.readoutVisible = !this.readoutVisible;
     this.readoutEl?.classList.toggle('collapsed', !this.readoutVisible);
     document.getElementById('btn-readout')?.classList.toggle('active', this.readoutVisible);
+    this.syncPressed();
   }
 
   toggleCoeffDrawer() {
@@ -1912,6 +1934,7 @@ export class App {
     this.debugMode = !this.debugMode;
     this.debugOverlay?.classList.toggle('visible', this.debugMode);
     document.getElementById('btn-debug')?.classList.toggle('active', this.debugMode);
+    this.syncPressed();
   }
 
   toggleBloom() {
