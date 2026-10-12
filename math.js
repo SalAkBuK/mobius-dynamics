@@ -1,3 +1,5 @@
+import { validateMathPreset } from './preset_validation.js';
+
 /**
  * Core Mathematics for Mobius Complex Dynamics Laboratory
  * 
@@ -626,7 +628,7 @@ export class MathSystem {
   }
 
   fromJSON(data) {
-    if (!data) return;
+    validateMathPreset(data, this.mode);
     const targetMode = data.mode === 'reference' ? 'reference' : (data.mode === 'explore' ? 'explore' : this.mode);
     if (targetMode === 'reference') {
       this.resetToReference();

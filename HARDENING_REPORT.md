@@ -39,3 +39,15 @@ Reproduced ten unsafe paths across Standard/Master: ignored texture/viewport lim
 Files: renderer.js, test_issue8_allocations.html, this report. Forced failures at twelve stages per export path now reject clearly with exact session/VBO restoration and zero temporary handles/downloads. A final successful export proves continued usability (25/25). Previous cancellation, snapshot, VBO, Master and context/rebuild suites pass.
 
 Issue 7 pushed and confirmed: `26902b7eb294c781f3a22a0a8122481a8131fcf0` (16 real-tab assertions; 284 relevant assertions total).
+
+## Issue 9 ? PNG encoding audit
+
+Already protected; no production change required and no dedicated commit, as requested. New test_issue9_encoding.html exercises actual App Standard/Master failures for null callback, zero-byte Blob, encoder throw and actual context loss, including late callbacks. All 26 assertions pass: no 100%, success toast or download; flags/waiters clear, healthy context restores full session/VBOs, lost context recovers Explore without auto-restarting export. Relevant allocation/cancel/context suites also pass (240 assertions total). Coverage is retained in the final test/report commit.
+
+Issue 8 pushed and confirmed: `2a99087aa21c017ee6317c5630c1647c221c5bb8` (496 relevant assertions).
+
+## Issue 10 ? hostile preset validation
+
+Reproduced: 41 unsafe payloads were accepted, mutated state or reached unsafe roots generation. The baseline test stops invalid n before actually allocating a billion roots; it records reaching that loop, not an intentional machine hang. Root cause: unvalidated deserialization and visual-field assignment, boolean coercion and unbounded import size. Fix: shared small validator runs before any mutation in App loading and direct MathSystem.fromJSON. Supported imported Explore symmetry is integer 1?64; complex components ?1000; finite drift time 0?1e9; zoom 0.3?500; center components ?1e6; boolean/coordinate structure, palette/tier/view whitelists and metadata types/lengths checked. Missing optional fields and valid partial/legacy presets remain supported. Unknown metadata is ignored by the loaders, never merged into runtime objects. Reference ignores imported math/framing/palette and resets canonically, while applied rendering fields still validate. File imports above 1 MiB are rejected before reading and error messages identify the invalid field.
+
+Files: preset_validation.js, math.js, app.js, test_issue10_presets.html, this report. Fifty focused assertions plus Reference invariant, modes/exports, input isolation and context recovery pass (222 total).

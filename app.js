@@ -28,6 +28,7 @@
  *    - Full JSON preset library (save, load, copy, import)
  */
 
+import { validatePreset, MAX_PRESET_BYTES } from './preset_validation.js';
 import { MathSystem, CONRADI_REFERENCE } from './math.js';
 import { MobiusRenderer, PALETTES } from './renderer.js';
 
@@ -1297,7 +1298,7 @@ export class App {
 
   loadPresetObject(preset) {
     if (this.isExporting || this.renderer?.isExporting) return;
-    if (!preset) return;
+    validatePreset(preset);
     const targetMode = preset.mode === 'reference' ? 'reference' : 'explore';
 
     if (targetMode === 'reference') {
@@ -1369,6 +1370,10 @@ export class App {
   }
 
   importPresetFile(file) {
+    if (file.size > MAX_PRESET_BYTES) {
+      this.showToast('Preset file is too large (maximum 1 MB).');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -1376,7 +1381,7 @@ export class App {
         this.loadPresetObject(data);
         this.closePresetModal();
       } catch (err) {
-        this.showToast('Failed to parse preset JSON file.');
+        this.showToast('Unable to load preset: ' + (err?.message || 'Invalid JSON.'));
       }
     };
     reader.readAsText(file);

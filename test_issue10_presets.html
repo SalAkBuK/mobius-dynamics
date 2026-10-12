@@ -1,0 +1,34 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,explore,state,reporter,sleep} from './hardening_test_helpers.js';
+const {check,finish}=reporter(),baseline=location.search.includes('baseline');
+try{const {app,w}=await boot(),m=app.math;let unsafe=0;
+ const payloads=[null,[],42,'preset',{mode:'invalid'},... [1e9,0,-1,1.5,'16',null,[],{}].map(n=>({mode:'explore',n})),
+  ...[1e300,'1',null,{},[]].map(r=>({coefficients:{a:{r,i:0}}})),{coefficients:{a:{r:1}}},{coefficients:[]},
+  {offsets:{a:{r:Infinity,i:0}}},{userOffsets:{a:null}},{camera:{zoom:1e20}},{camera:{zoom:'2'}},{camera:{center:[0]}},{camera:{center:[0,1e20]}},{camera:null},
+  {drift:{time:'3'}},{drift:{time:-1}},{evolving:'false'},{drift:{evolving:{}}},{palette:'unknown'},{palette:null},
+  {rendering:{tier:'unknown'}},{rendering:{tier:{}}},{rendering:{bloom:'false'}},{rendering:{viewMode:99}},{rendering:[]},{name:{}},{description:[]},
+  {n:16,symmetry:24}];
+ for(const [i,payload] of payloads.entries()){
+  app.setMode('reference');explore(app);const before=state(app),roots=m.updateRootsOfUnity;let dangerous=false,error;
+  m.updateRootsOfUnity=function(){if(typeof this.n!=='number'||!Number.isInteger(this.n)||this.n<1||this.n>64){dangerous=true;throw Error('Test stopped unsafe roots loop');}return roots.call(this);};
+  try{app.loadPresetObject(payload);}catch(e){error=e;}m.updateRootsOfUnity=roots;
+  const safe=!!error&&!dangerous&&state(app)===before;
+  if(baseline){unsafe+=!safe;check('baseline unsafe payload '+i,true,JSON.stringify({error:error?.message,dangerous,mutated:state(app)!==before}));}
+  else check('Reject payload '+i+' before any state mutation',safe,error?.message);
+ }
+ if(baseline)check('Unsafe preset acceptance reproduced',unsafe>0,'unsafe: '+unsafe);
+ else{
+  for(const payload of [{},{n:8},{symmetry:32,coefficients:{a:{r:-.755,i:.33}}},app.getPresetObject('roundtrip')]){
+   explore(app);app.loadPresetObject(payload);check('Legacy/partial/roundtrip valid preset accepted',app.mode==='explore'&&Number.isFinite(app.math.a.r)&&app.math.omegas.length===app.math.n);
+  }
+  for(const n of [1,64]){app.loadPresetObject({mode:'explore',n});check('Supported symmetry endpoint '+n,m.n===n&&m.omegas.length===n);}
+  app.loadPresetObject({mode:'reference',n:1e9,coefficients:null,camera:{zoom:1e300},offsets:[]});
+  check('Reference wins over hostile mathematical/framing data',app.mode==='reference'&&m.n===16&&m.time===0&&app.renderer.zoom===1.65&&app.renderer.activePalette==='cobalt');
+  explore(app);const before=JSON.stringify(m);let rejected=false;try{m.fromJSON({mode:'explore',n:1e9});}catch(e){rejected=true;}
+  check('Direct MathSystem deserialization validates before mutation',rejected&&JSON.stringify(m)===before);
+  const toasts=[];app.showToast=t=>toasts.push(t);app.importPresetFile(new w.File(['{}'],'huge.json'));
+  await sleep(50);app.importPresetFile({size:1024*1024+1});
+  check('Oversized import rejected clearly before reading',toasts.some(t=>/large|1 MB/i.test(t)));
+ }
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>
