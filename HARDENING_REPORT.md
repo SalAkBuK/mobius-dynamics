@@ -23,3 +23,11 @@ Reproduced: yes. The existing Cancel control was disabled throughout a long Stan
 Files: `renderer.js`, `app.js`, `hardening_test_helpers.js`, `test_issue6_cancellation.html`, this report. Tests cover Standard and full Master 120/240, each canceled at initialization, early development, 25%, 50%, 90%, and PNG encoding; late encoder callbacks, full VBO equality, session equality, all temporary GPU resource types, actual Cancel control, and immediate successful next export. Previous Issues 4/5, context loss, display hold and Master are rerun. Final assertion count and commit are entered in the ledger.
 
 Issue 5 pushed and confirmed at origin/main: `b7974f5f5eed3a1fee93a7bfc1c0ccf5055fac75`.
+
+## Issue 7 — real background-tab progress
+
+Reproduced: yes, with actual Chrome tabs and `document.hidden=true`, not only a visibility mock. Standard progress stayed at 29% from one to four seconds hidden; Master stayed at 9%. Bringing the original tab forward resumed both. Fix: the two export cooperative yields now use cancelable zero-delay timer tasks, leaving foreground App RAF and tab visibility rendering policy unchanged. Native hidden-tab timer throttling can still slow progress, and browser/OS suspension cannot be overcome by a page scheduler.
+
+After the fix, observed hidden progress advanced Standard 66% -> 85% and Master 18% -> 22% across the same interval, with decoded outputs identical to foreground controls. The expanded real-tab fixture additionally checks cancellation and actual context loss/recovery while hidden. Files: `renderer.js`, `test_issue7_background.html`, `run_issue7_background.py`, this report. Cancellation, snapshot isolation, full VBO equality and context recovery suites are rerun.
+
+Issue 6 pushed and confirmed at origin/main: `827fbed17deedb663902baa3b284042d8e25a5ba` (77 new cancellation assertions, 289 relevant assertions total).

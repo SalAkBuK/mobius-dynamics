@@ -1658,8 +1658,8 @@ export class MobiusRenderer {
         const progressPct = 10 + Math.round((framesDone / totalFrames) * 75);
         onProgress(progressPct, `Developing 4K passes (${framesDone}/${totalFrames})...`);
         await this.waitForExport(done => {
-          const id = requestAnimationFrame(done);
-          return () => cancelAnimationFrame(id);
+          const id = setTimeout(done, 0);
+          return () => clearTimeout(id);
         });
       }
 
@@ -2072,8 +2072,8 @@ export class MobiusRenderer {
         const progressPct = 5 + Math.round((passesDone / totalPasses) * 85);
         onProgress(progressPct, `Developing Reference Master (${passesDone} / ${totalPasses})`);
         await this.waitForExport(done => {
-          const id = requestAnimationFrame(done);
-          return () => cancelAnimationFrame(id);
+          const id = setTimeout(done, 0);
+          return () => clearTimeout(id);
         });
       }
 

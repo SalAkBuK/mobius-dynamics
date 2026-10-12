@@ -1,0 +1,14 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,explore,png} from './hardening_test_helpers.js';
+const {app}=await boot();window.__ready=true;window.__testApp=app;
+window.__run=async(type,action)=>{
+  explore(app);window.__done=false;window.__progress=0;window.__error=null;window.__result=null;
+  const method=type==='standard'?'exportPNG':'exportReferenceMaster';
+  const controller=new AbortController();let interrupted=false;
+  try{window.__result=await png(await app.renderer[method](app.math,{width:96,height:64,accumFrames:120,accumPasses:120,
+    signal:controller.signal,onProgress(p){window.__progress=p;
+      if(document.hidden&&action&&!interrupted){interrupted=true;
+        if(action==='abort')controller.abort();else{window.__extension=app.renderer.gl.getExtension('WEBGL_lose_context');window.__extension.loseContext();}}
+    }}));}catch(e){window.__error=e.name;}finally{window.__done=true;}
+};
+</script>
