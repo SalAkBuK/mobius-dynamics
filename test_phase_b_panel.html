@@ -1,0 +1,72 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Phase B / B2: primary bar + docked Controls panel. Structure, defaults, wiring and capability
+// preservation (every control id from the hardened baseline 1f14dd4 must still exist).
+import {boot,sleep,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+const BASELINE_IDS=["btn-bloom", "btn-coeff", "btn-debug", "btn-export-cancel", "btn-export-close", "btn-export-start", "btn-export-trigger", "btn-hide", "btn-mode-explore", "btn-mode-reference", "btn-palette-toggle", "btn-pause", "btn-preset-close", "btn-preset-copy", "btn-preset-done", "btn-preset-save", "btn-preset-trigger", "btn-randomize-action", "btn-randomize-toggle", "btn-raw", "btn-readout", "btn-refmaster-trigger", "btn-reset", "btn-reset-coeffs", "btn-zoom-in", "btn-zoom-out", "btn-zoom-reset", "capture-container", "coeff-drawer", "coeff-lock-notice", "controls-bar", "curated-presets-list", "dbg-accum", "dbg-brute-banner", "dbg-cpu", "dbg-dpr", "dbg-event", "dbg-format", "dbg-fps", "dbg-frametime", "dbg-gpu", "dbg-iters", "dbg-mode", "dbg-particles", "dbg-path", "dbg-res", "dbg-steps", "dbg-tier", "dbg-zoom", "debug-overlay", "equation-readout", "export-display-hold", "export-modal", "export-passes-group", "export-progress-area", "export-progress-fill", "export-refmaster-panel", "export-res-group", "export-standard-panel", "export-status-label", "export-status-pct", "export-type-group", "gl-canvas", "hint-unhide", "lbl-a-re", "lbl-b-im", "lbl-c-re", "lbl-d-im", "mode-btn-group", "mode-status-pill", "palette-menu", "preset-file-input", "preset-modal", "preset-name-input", "quality-btn-group", "randomize-menu", "refmaster-passes-group", "saved-presets-section", "slider-a-re", "slider-b-im", "slider-c-re", "slider-d-im", "symmetry-btn-group", "tab-export-refmaster", "tab-export-standard", "toast-banner", "top-bar-container", "ui-container", "user-presets-list", "val-a", "val-b", "val-c", "val-d", "val-n"];
+try{
+  const {w,app}=await boot(),doc=w.document,$=id=>doc.getElementById(id);
+  const key=k=>w.dispatchEvent(new w.KeyboardEvent('keydown',{key:k,bubbles:true}));
+  const open=()=>$('controls-panel').classList.contains('open');
+  const missing=BASELINE_IDS.filter(id=>!$(id));
+  check('every control/element id from the hardened baseline still exists ('+BASELINE_IDS.length+' ids)',missing.length===0,JSON.stringify(missing));
+  const all=[...doc.querySelectorAll('[id]')].map(e=>e.id),dupes=all.filter((id,i)=>all.indexOf(id)!==i);
+  check('no duplicate ids after moving the DOM',dupes.length===0,JSON.stringify(dupes));
+  const bar=[...doc.querySelectorAll('#controls-bar button')].filter(b=>!b.closest('.dropdown-menu')).map(b=>b.id);
+  check('primary bar contains only mode, Randomize, Presets, Export and Controls',JSON.stringify(bar)===JSON.stringify(['btn-mode-reference','btn-mode-explore','btn-randomize-action','btn-randomize-toggle','btn-preset-trigger','btn-export-trigger','btn-export-toggle','btn-controls']),JSON.stringify(bar));
+  check('Reference Master is reachable from the Export menu',$('export-menu').contains($('btn-refmaster-trigger'))&&$('export-menu').contains($('btn-export-image')));
+  check('every previously-toolbar control now lives in the Controls panel',['btn-palette-toggle','btn-zoom-in','btn-zoom-out','btn-zoom-reset','btn-bloom','btn-readout','btn-reset','btn-hide','btn-pause','btn-coeff','btn-raw','btn-debug']
+    .every(id=>$('controls-panel').contains($(id)))&&doc.querySelectorAll('#controls-panel .sym-btn').length===7&&doc.querySelectorAll('#controls-panel .quality-btn').length===7&&doc.querySelectorAll('#controls-panel .coeff-slider').length===4);
+  check('panel is closed by default',!open()&&$('btn-controls').getAttribute('aria-expanded')==='false');
+  check('Developer section is collapsed by default; View, Mathematics and Quality are expanded',
+    $('panel-body-developer').hidden&&doc.querySelector('#panel-section-developer .panel-section-head').getAttribute('aria-expanded')==='false'&&
+    !$('panel-body-view').hidden&&!$('panel-body-math').hidden&&!$('panel-body-quality').hidden);
+  check('coefficient block starts hidden',!$('coeff-drawer').classList.contains('visible')&&app.coeffDrawerVisible===false);
+
+  $('btn-controls').click();
+  check('Controls button opens the panel and compacts the readout',open()&&$('btn-controls').getAttribute('aria-expanded')==='true'&&$('equation-readout').classList.contains('compact'));
+  doc.querySelector('#panel-section-developer .panel-section-head').click();
+  check('Developer section expands on demand',!$('panel-body-developer').hidden);
+  doc.querySelector('#panel-section-developer .panel-section-head').click();
+  check('and collapses again',$('panel-body-developer').hidden);
+  key('Escape');
+  check('Esc closes the panel',!open()&&$('btn-controls').getAttribute('aria-expanded')==='false');
+  key('p');
+  check('key P opens the panel at Mathematics with the coefficient sliders',open()&&$('coeff-drawer').classList.contains('visible')&&$('btn-coeff').getAttribute('aria-expanded')==='true');
+  key('p');
+  check('P again hides the coefficient block',!$('coeff-drawer').classList.contains('visible'));
+  $('btn-controls-close').click();
+  check('the close button closes the panel',!open());
+
+  $('btn-export-toggle').click();
+  check('export menu opens',$('export-menu').classList.contains('visible'));
+  $('btn-randomize-toggle').click();
+  check('opening another menu closes the export menu',!$('export-menu').classList.contains('visible')&&$('randomize-menu').classList.contains('visible'));
+  key('Escape');
+  check('Esc closes an open menu before the panel',!$('randomize-menu').classList.contains('visible'));
+  $('btn-export-toggle').click();$('btn-refmaster-trigger').click();
+  check('Reference Master menu item opens the Reference Master dialog',app.exportType==='reference_master'&&$('export-modal').classList.contains('visible')&&!$('export-menu').classList.contains('visible'));
+  app.closeExportModal();
+  $('btn-export-toggle').click();$('btn-export-image').click();
+  check('Image… menu item opens the Standard export dialog',app.exportType==='standard'&&$('export-modal').classList.contains('visible'));
+  app.closeExportModal();
+  $('btn-export-trigger').click();
+  check('the Export button opens the dialog directly',$('export-modal').classList.contains('visible'));
+  app.closeExportModal();
+
+  $('btn-palette-toggle').click();
+  check('palette list opens inside the panel',$('palette-menu').classList.contains('visible')&&$('controls-panel').contains($('palette-menu')));
+  doc.querySelector('.palette-select-btn[data-pal="solar"]').click();
+  check('choosing a palette applies it (and enters Explore)',app.renderer.activePalette==='solar'&&app.mode==='explore'&&!$('palette-menu').classList.contains('visible'));
+  $('btn-mode-reference').click();
+
+  const order=[...doc.querySelectorAll('#ui-container button, #ui-container input')].map(e=>e.id).filter(Boolean);
+  check('DOM order keeps the bar before the panel before the readout',order.indexOf('btn-controls')<order.indexOf('btn-controls-close')&&order.indexOf('btn-controls-close')<order.indexOf('btn-readout-expand'));
+  key('2');
+  check('shortcuts still reach the app',app.mode==='explore');
+  key('d');check('D toggles the debug overlay',app.debugMode===true);key('d');
+  key('x');check('X toggles brute force',app.renderer.adaptive.mode==='bruteforce');key('x');
+  key('h');check('H hides the UI including the panel',app.uiHidden&&$('ui-container').inert===true);key('h');
+  check('H restores it',!app.uiHidden&&$('ui-container').inert===false);
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

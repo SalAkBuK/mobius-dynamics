@@ -89,6 +89,44 @@
       transition: opacity 0.25s ease, transform 0.25s ease;
     }
 
+    #equation-readout .eq-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    #equation-readout .eq-chip,
+    #btn-readout-expand {
+      display: none;
+    }
+
+    /* Compact chip on short viewports or while the Controls panel is open; click to expand. */
+    #equation-readout.compact:not(.expanded) .eq-sub,
+    #equation-readout.compact:not(.expanded) #eq-body {
+      display: none;
+    }
+
+    #equation-readout.compact:not(.expanded) {
+      padding: 7px 12px;
+      bottom: 16px;
+    }
+
+    #equation-readout.compact:not(.expanded) .eq-title {
+      margin-bottom: 0;
+    }
+
+    #equation-readout.compact .eq-chip {
+      display: inline;
+      color: #8aa6cc;
+    }
+
+    #equation-readout.compact #btn-readout-expand {
+      display: inline-block;
+      padding: 0 6px;
+      font-size: 11px;
+    }
+
     #equation-readout.collapsed {
       opacity: 0;
       transform: translateY(12px);
@@ -230,26 +268,17 @@
       margin: 0 2px;
     }
 
-    /* Optional Coefficient Controls Drawer */
+    /* Coefficient controls, shown inside the Controls panel (Mathematics) */
     #coeff-drawer {
-      position: absolute;
-      top: calc(var(--chrome-h) + 8px);
-      left: 50%;
-      transform: translateX(-50%);
-      pointer-events: auto;
-      background: rgba(3, 7, 16, 0.65);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      border: 1px solid rgba(40, 80, 140, 0.28);
-      border-radius: 10px;
-      padding: 10px 16px;
       display: none;
       flex-direction: column;
       gap: 8px;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(40, 80, 140, 0.22);
+      border-radius: 8px;
+      background: rgba(10, 20, 38, 0.45);
       font-size: 11px;
-      min-width: 380px;
-      z-index: 9;
     }
 
     #coeff-drawer.visible {
@@ -287,7 +316,7 @@
     #debug-overlay {
       position: absolute;
       top: calc(var(--chrome-h) + 8px);
-      right: 24px;
+      left: 24px;
       pointer-events: auto;
       background: rgba(3, 7, 16, 0.65);
       backdrop-filter: blur(14px);
@@ -697,6 +726,157 @@
       transform: translateX(-50%) translateY(0);
       opacity: 1;
     }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    /* ---- Primary bar (mode, randomize, presets, export, controls) ---- */
+    #controls-bar {
+      gap: 6px;
+      padding: 5px 10px;
+    }
+
+    #controls-bar .mode-btn {
+      font-size: 12px;
+      padding: 5px 12px;
+    }
+
+    #controls-bar > button,
+    #controls-bar .btn-group > button {
+      font-size: 12px;
+      padding: 5px 10px;
+    }
+
+    #controls-bar #btn-randomize-toggle,
+    #controls-bar #btn-export-toggle {
+      padding-left: 6px;
+      padding-right: 6px;
+    }
+
+    #export-menu {
+      left: auto;
+      right: 0;
+      transform: none;
+      min-width: 220px;
+    }
+
+    #export-menu small {
+      color: #8aa6cc;
+      font-size: 10.5px;
+      margin-left: 12px;
+    }
+
+    /* ---- Controls panel (docked, closed by default) ---- */
+    #controls-panel {
+      position: absolute;
+      top: calc(var(--chrome-h) + 8px);
+      right: 16px;
+      width: 304px;
+      max-height: calc(100vh - var(--chrome-h) - 24px);
+      overflow-y: auto;
+      display: none;
+      pointer-events: auto;
+      padding: 10px 14px 12px;
+      background: rgba(3, 7, 16, 0.80);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(40, 80, 140, 0.28);
+      border-radius: 10px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+      font-size: 11.5px;
+      color: #9cb5db;
+      z-index: 9;
+    }
+
+    #controls-panel.open {
+      display: block;
+    }
+
+    #controls-panel .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    #controls-panel .panel-title {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: #d8ecff;
+    }
+
+    #controls-panel .panel-section + .panel-section {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(40, 80, 140, 0.22);
+    }
+
+    #controls-panel .panel-section-head {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 2px;
+      border-radius: 6px;
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #8aa6cc;
+    }
+
+    #controls-panel .panel-section-head .chev {
+      transition: transform 0.15s ease;
+    }
+
+    #controls-panel .panel-section-head[aria-expanded="false"] .chev {
+      transform: rotate(-90deg);
+    }
+
+    #controls-panel .panel-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 6px 0;
+    }
+
+    #controls-panel .panel-label {
+      flex: none;
+      width: 54px;
+      color: #8aa6cc;
+      font-size: 11px;
+    }
+
+    #controls-panel .btn-group {
+      flex-wrap: wrap;
+      border-radius: 12px;
+    }
+
+    #controls-panel button {
+      font-size: 11.5px;
+      padding: 4px 9px;
+    }
+
+    #controls-panel .panel-section-head {
+      font-size: 10.5px;
+      padding: 4px 2px;
+    }
+
+    #palette-container {
+      width: 100%;
+    }
+
+    #palette-menu {
+      position: static;
+      transform: none;
+      width: 100%;
+      min-width: 0;
+      margin-top: 6px;
+      box-shadow: none;
+      background: rgba(10, 20, 38, 0.55);
+    }
   </style>
 </head>
 <body>
@@ -714,10 +894,9 @@
 
   <div id="ui-container">
     <div id="top-bar-container">
-      <!-- Top Minimal Controls Bar -->
-      <div id="controls-bar">
-        <!-- Mode Selection Segment -->
-        <span class="control-label">Mode</span>
+      <!-- Primary bar: only the most important actions -->
+      <div id="controls-bar" role="toolbar" aria-label="Primary controls">
+        <!-- Mode -->
         <div class="mode-btn-group" id="mode-btn-group">
           <button id="btn-mode-reference" class="mode-btn active ref-mode" title="Faithful Simone Conradi Artwork (Formula Protected)">
             <span class="mode-dot ref-dot"></span>Reference
@@ -729,10 +908,10 @@
 
         <div class="divider"></div>
 
-        <!-- Randomization Segment (Mode 3) -->
+        <!-- Randomize (an Explore action) -->
         <div class="dropdown-container btn-group" style="padding:1px;">
           <button id="btn-randomize-action" title="Randomize — enters Explore (shortcut: 3)">🎲 Randomize</button>
-          <button id="btn-randomize-toggle" title="Select Morphology Style" style="padding-left:4px; padding-right:4px;">▾</button>
+          <button id="btn-randomize-toggle" title="Select Morphology Style" aria-label="Select morphology style">▾</button>
           <div id="randomize-menu" class="dropdown-menu">
             <div class="dropdown-header">Curated Morphology Families</div>
             <button class="rnd-style-btn" data-style="conradi-like">Conradi-like (Rosette Basin)</button>
@@ -744,76 +923,22 @@
           </div>
         </div>
 
-        <div class="divider"></div>
+        <button id="btn-preset-trigger" title="Save &amp; Load Presets">💾 Presets</button>
 
-        <!-- Symmetry Order n -->
-        <span class="control-label">Order n</span>
-        <div class="btn-group" id="symmetry-btn-group">
-          <button class="sym-btn" data-n="3">3</button>
-          <button class="sym-btn" data-n="5">5</button>
-          <button class="sym-btn" data-n="8">8</button>
-          <button class="sym-btn" data-n="12">12</button>
-          <button class="sym-btn active" data-n="16">16</button>
-          <button class="sym-btn" data-n="24">24</button>
-          <button class="sym-btn" data-n="32">32</button>
-        </div>
-
-        <div class="divider"></div>
-
-        <!-- Adaptive Quality Selector (Auto Recommended) -->
-        <span class="control-label">Quality</span>
-        <div class="btn-group" id="quality-btn-group">
-          <button class="quality-btn active" data-tier="auto" title="Auto (Empirical 60 FPS Headroom Ladder)">Auto</button>
-          <button class="quality-btn" data-tier="low" title="Low (75k x 8)">Low</button>
-          <button class="quality-btn" data-tier="standard" title="Standard (150k x 8)">Standard</button>
-          <button class="quality-btn" data-tier="high" title="High (250k x 8)">High</button>
-          <button class="quality-btn" data-tier="ultra" title="Ultra (400k x 10)">Ultra</button>
-          <button class="quality-btn" data-tier="extreme" title="Extreme (589k x 12)">Extreme</button>
-          <button class="quality-btn" data-tier="bruteforce" title="Manual Brute Force (589k x 16, 9.44M deposits/frame)">Brute Force</button>
-        </div>
-
-        <div class="divider"></div>
-
-        <!-- Zoom navigation buttons -->
-        <div class="btn-group">
-          <button id="btn-zoom-in" title="Zoom In (+)">+</button>
-          <button id="btn-zoom-out" title="Zoom Out (-)">−</button>
-          <button id="btn-zoom-reset" title="Reset Zoom">1×</button>
-        </div>
-
-        <div class="divider"></div>
-
-        <button id="btn-pause" title="Toggle autonomous coefficient drift">Pause</button>
-        <button id="btn-reset" title="Reset framing and view">Reset</button>
-
-        <div class="divider"></div>
-
-        <!-- Palette Dropdown -->
-        <div class="dropdown-container">
-          <button id="btn-palette-toggle" title="Color Grading Palette">Palette ▾</button>
-          <div id="palette-menu" class="dropdown-menu">
-            <div class="dropdown-header">Color Grading Palettes</div>
-            <button class="palette-select-btn active" data-pal="cobalt">Cobalt (Conradi Reference)</button>
-            <button class="palette-select-btn" data-pal="solar">Solar Amber</button>
-            <button class="palette-select-btn" data-pal="aurora">Aurora Emerald</button>
-            <button class="palette-select-btn" data-pal="amethyst">Amethyst Nebula</button>
-            <button class="palette-select-btn" data-pal="monochrome">Silver Monolith</button>
+        <!-- Export: one primary action; Reference Master lives in the menu -->
+        <div class="dropdown-container btn-group" style="padding:1px;">
+          <button id="btn-export-trigger" class="btn-action-highlight" title="Export image…">📷 Export</button>
+          <button id="btn-export-toggle" title="More export options" aria-label="More export options">▾</button>
+          <div id="export-menu" class="dropdown-menu">
+            <div class="dropdown-header">Export</div>
+            <button id="btn-export-image">Image…</button>
+            <button id="btn-refmaster-trigger" title="Reference Master Export (4096×4096 Square Master • Maximum Fidelity)">💎 Reference Master… <small>4096×4096</small></button>
           </div>
         </div>
 
-        <!-- Export & Presets -->
-        <button id="btn-export-trigger" class="btn-action-highlight" title="Export image…">📷 Export</button>
-        <button id="btn-refmaster-trigger" class="btn-refmaster-highlight" title="Reference Master Export (4096×4096 Square Master • Maximum Fidelity)">💎 Reference Master</button>
-        <button id="btn-preset-trigger" title="Save &amp; Load Presets">💾 Presets</button>
-
         <div class="divider"></div>
 
-        <button id="btn-coeff">Coeffs</button>
-        <button id="btn-readout" class="active">Readout</button>
-        <button id="btn-bloom" class="active">Bloom: ON</button>
-        <button id="btn-raw">Raw</button>
-        <button id="btn-debug">Debug [D]</button>
-        <button id="btn-hide">Hide [H]</button>
+        <button id="btn-controls" type="button" aria-expanded="false" aria-controls="controls-panel" title="Show or hide the Controls panel">Controls</button>
       </div>
 
       <!-- Mode Status Pill -->
@@ -822,51 +947,154 @@
       </div>
     </div>
 
-    <!-- Optional Coefficient Controls Drawer -->
-    <div id="coeff-drawer">
-      <div id="coeff-lock-notice" style="display:none; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:4px 8px; font-size:10px; margin-bottom:4px;">
-        🔒 Coefficients locked in Reference Mode. Switch to Explore to edit.
+    <!-- Controls panel (docked, closed by default) -->
+    <aside id="controls-panel" aria-label="Controls">
+      <div class="panel-head">
+        <span class="panel-title">Controls</span>
+        <button id="btn-controls-close" type="button" aria-label="Close controls panel" title="Close (Esc)">✕</button>
       </div>
-      <div style="font-size: 10px; color: #5577a3; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
-        Live Mobius Perturbation Controls
-      </div>
-      <div class="coeff-row">
-        <span class="coeff-name">ΔRe(a)</span>
-        <input type="range" class="coeff-slider" id="slider-a-re" min="-0.5" max="0.5" step="0.01" value="0">
-        <span class="coeff-val" id="lbl-a-re">0.00</span>
-      </div>
-      <div class="coeff-row">
-        <span class="coeff-name">ΔIm(b)</span>
-        <input type="range" class="coeff-slider" id="slider-b-im" min="-0.5" max="0.5" step="0.01" value="0">
-        <span class="coeff-val" id="lbl-b-im">0.00</span>
-      </div>
-      <div class="coeff-row">
-        <span class="coeff-name">ΔRe(c)</span>
-        <input type="range" class="coeff-slider" id="slider-c-re" min="-0.5" max="0.5" step="0.01" value="0">
-        <span class="coeff-val" id="lbl-c-re">0.00</span>
-      </div>
-      <div class="coeff-row">
-        <span class="coeff-name">ΔIm(d)</span>
-        <input type="range" class="coeff-slider" id="slider-d-im" min="-0.5" max="0.5" step="0.01" value="0">
-        <span class="coeff-val" id="lbl-d-im">0.00</span>
-      </div>
-      <div style="display:flex; justify-content: flex-end; margin-top: 4px;">
-        <button id="btn-reset-coeffs" style="padding: 3px 8px; font-size: 10px;">Reset Coefficients</button>
-      </div>
-    </div>
+
+      <section class="panel-section" id="panel-section-view">
+        <button class="panel-section-head" type="button" aria-expanded="true" aria-controls="panel-body-view"><span>View</span><span class="chev" aria-hidden="true">▾</span></button>
+        <div class="panel-section-body" id="panel-body-view">
+          <div class="panel-row">
+            <span class="panel-label">Palette</span>
+            <div class="dropdown-container" id="palette-container">
+              <button id="btn-palette-toggle" title="Color Grading Palette">Palette ▾</button>
+              <div id="palette-menu" class="dropdown-menu">
+                <div class="dropdown-header">Color Grading Palettes</div>
+                <button class="palette-select-btn active" data-pal="cobalt">Cobalt (Conradi Reference)</button>
+                <button class="palette-select-btn" data-pal="solar">Solar Amber</button>
+                <button class="palette-select-btn" data-pal="aurora">Aurora Emerald</button>
+                <button class="palette-select-btn" data-pal="amethyst">Amethyst Nebula</button>
+                <button class="palette-select-btn" data-pal="monochrome">Silver Monolith</button>
+              </div>
+            </div>
+          </div>
+          <div class="panel-row">
+            <span class="panel-label">Zoom</span>
+            <div class="btn-group">
+              <button id="btn-zoom-in" title="Zoom In (+)">+</button>
+              <button id="btn-zoom-out" title="Zoom Out (-)">−</button>
+              <button id="btn-zoom-reset" title="Reset Zoom">1×</button>
+            </div>
+          </div>
+          <div class="panel-row">
+            <span class="panel-label">Display</span>
+            <div class="btn-group">
+              <button id="btn-bloom" class="active">Bloom: ON</button>
+              <button id="btn-readout" class="active">Readout</button>
+            </div>
+          </div>
+          <div class="panel-row">
+            <button id="btn-reset" title="Reset framing and view">Reset</button>
+            <button id="btn-hide">Hide [H]</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-section" id="panel-section-math">
+        <button class="panel-section-head" type="button" aria-expanded="true" aria-controls="panel-body-math"><span>Mathematics</span><span class="chev" aria-hidden="true">▾</span></button>
+        <div class="panel-section-body" id="panel-body-math">
+          <div class="panel-row">
+            <span class="panel-label">Order n</span>
+            <div class="btn-group" id="symmetry-btn-group">
+              <button class="sym-btn" data-n="3">3</button>
+              <button class="sym-btn" data-n="5">5</button>
+              <button class="sym-btn" data-n="8">8</button>
+              <button class="sym-btn" data-n="12">12</button>
+              <button class="sym-btn active" data-n="16">16</button>
+              <button class="sym-btn" data-n="24">24</button>
+              <button class="sym-btn" data-n="32">32</button>
+            </div>
+          </div>
+          <div class="panel-row">
+            <span class="panel-label">Drift</span>
+            <button id="btn-pause" title="Toggle autonomous coefficient drift">Pause</button>
+          </div>
+          <div class="panel-row">
+            <button id="btn-coeff" type="button" aria-expanded="false" aria-controls="coeff-drawer">Coefficients</button>
+          </div>
+
+          <!-- Coefficient controls (the four existing sliders) -->
+          <div id="coeff-drawer">
+            <div id="coeff-lock-notice" style="display:none; color:#f59e0b; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:4px 8px; font-size:10px; margin-bottom:4px;">
+              🔒 Coefficients locked in Reference Mode. Switch to Explore to edit.
+            </div>
+            <div style="font-size: 10px; color: #8aa6cc; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
+              Live Mobius Perturbation Controls
+            </div>
+            <div class="coeff-row">
+              <span class="coeff-name">ΔRe(a)</span>
+              <input type="range" class="coeff-slider" id="slider-a-re" min="-0.5" max="0.5" step="0.01" value="0">
+              <span class="coeff-val" id="lbl-a-re">0.00</span>
+            </div>
+            <div class="coeff-row">
+              <span class="coeff-name">ΔIm(b)</span>
+              <input type="range" class="coeff-slider" id="slider-b-im" min="-0.5" max="0.5" step="0.01" value="0">
+              <span class="coeff-val" id="lbl-b-im">0.00</span>
+            </div>
+            <div class="coeff-row">
+              <span class="coeff-name">ΔRe(c)</span>
+              <input type="range" class="coeff-slider" id="slider-c-re" min="-0.5" max="0.5" step="0.01" value="0">
+              <span class="coeff-val" id="lbl-c-re">0.00</span>
+            </div>
+            <div class="coeff-row">
+              <span class="coeff-name">ΔIm(d)</span>
+              <input type="range" class="coeff-slider" id="slider-d-im" min="-0.5" max="0.5" step="0.01" value="0">
+              <span class="coeff-val" id="lbl-d-im">0.00</span>
+            </div>
+            <div style="display:flex; justify-content: flex-end; margin-top: 4px;">
+              <button id="btn-reset-coeffs" style="padding: 3px 8px; font-size: 10px;">Reset Coefficients</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-section" id="panel-section-quality">
+        <button class="panel-section-head" type="button" aria-expanded="true" aria-controls="panel-body-quality"><span>Quality</span><span class="chev" aria-hidden="true">▾</span></button>
+        <div class="panel-section-body" id="panel-body-quality">
+          <div class="btn-group" id="quality-btn-group">
+            <button class="quality-btn active" data-tier="auto" title="Auto (Empirical 60 FPS Headroom Ladder)">Auto</button>
+            <button class="quality-btn" data-tier="low" title="Low (75k x 8)">Low</button>
+            <button class="quality-btn" data-tier="standard" title="Standard (150k x 8)">Standard</button>
+            <button class="quality-btn" data-tier="high" title="High (250k x 8)">High</button>
+            <button class="quality-btn" data-tier="ultra" title="Ultra (400k x 10)">Ultra</button>
+            <button class="quality-btn" data-tier="extreme" title="Extreme (589k x 12)">Extreme</button>
+            <button class="quality-btn" data-tier="bruteforce" title="Manual Brute Force (589k x 16, 9.44M deposits/frame)">Brute Force</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-section" id="panel-section-developer">
+        <button class="panel-section-head" type="button" aria-expanded="false" aria-controls="panel-body-developer"><span>Developer</span><span class="chev" aria-hidden="true">▾</span></button>
+        <div class="panel-section-body" id="panel-body-developer" hidden>
+          <div class="panel-row">
+            <button id="btn-raw">Raw</button>
+            <button id="btn-debug">Debug [D]</button>
+          </div>
+        </div>
+      </section>
+    </aside>
 
     <!-- Live Mathematical Readout (Bottom Left) -->
     <div id="equation-readout">
-      <div class="eq-title">z → ω_k (az + b) / (cz + d)</div>
+      <div class="eq-head">
+        <div class="eq-title">z → ω_k (az + b) / (cz + d)</div>
+        <span class="eq-chip" id="eq-n-chip">n=16</span>
+        <button id="btn-readout-expand" type="button" aria-expanded="false" aria-controls="eq-body" title="Show coefficients" aria-label="Show coefficients">▸</button>
+      </div>
       <div class="eq-sub">ω_k = e^(2πik / n)</div>
-      <div class="eq-param"><span class="param-label">a:</span> <span class="param-val" id="val-a">-0.755 + 0.330i</span></div>
-      <div class="eq-param"><span class="param-label">b:</span> <span class="param-val" id="val-b">-0.376 + 0.026i</span></div>
-      <div class="eq-param"><span class="param-label">c:</span> <span class="param-val" id="val-c">6.401 + 0.803i</span></div>
-      <div class="eq-param"><span class="param-label">d:</span> <span class="param-val" id="val-d">1.520 + 0.840i</span></div>
-      <div class="eq-param"><span class="param-label">n:</span> <span class="param-val" id="val-n">16</span></div>
+      <div id="eq-body">
+        <div class="eq-param"><span class="param-label">a:</span> <span class="param-val" id="val-a">-0.755 + 0.330i</span></div>
+        <div class="eq-param"><span class="param-label">b:</span> <span class="param-val" id="val-b">-0.376 + 0.026i</span></div>
+        <div class="eq-param"><span class="param-label">c:</span> <span class="param-val" id="val-c">6.401 + 0.803i</span></div>
+        <div class="eq-param"><span class="param-label">d:</span> <span class="param-val" id="val-d">1.520 + 0.840i</span></div>
+        <div class="eq-param"><span class="param-label">n:</span> <span class="param-val" id="val-n">16</span></div>
+      </div>
     </div>
 
-    <!-- Diagnostic Debug Overlay (Top Right) -->
+    <!-- Diagnostic Debug Overlay (Top Left) -->
     <div id="debug-overlay">
       <div class="eq-title" style="color: #64f3d5; margin-bottom: 6px;">Adaptive Trajectory Engine Profiler</div>
       <div class="dbg-row" id="dbg-brute-banner" style="display:none; background:rgba(255,40,80,0.22); border:1px solid #ff4466; border-radius:4px; padding:3px 6px; margin-bottom:6px; color:#ffb0c0; font-weight:bold; text-align:center;">

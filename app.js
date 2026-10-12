@@ -167,12 +167,16 @@ export class App {
     this.valC = document.getElementById('val-c');
     this.valD = document.getElementById('val-d');
     this.valN = document.getElementById('val-n');
+    this.eqChip = document.getElementById('eq-n-chip');
     this.debugOverlay = document.getElementById('debug-overlay');
     this.coeffDrawer = document.getElementById('coeff-drawer');
     this.coeffLockNotice = document.getElementById('coeff-lock-notice');
     this.btnModeRef = document.getElementById('btn-mode-reference');
     this.btnModeExp = document.getElementById('btn-mode-explore');
     this.randomizeMenu = document.getElementById('randomize-menu');
+    this.exportMenu = document.getElementById('export-menu');
+    this.controlsPanel = document.getElementById('controls-panel');
+    this.panelOpen = false;
     this.paletteMenu = document.getElementById('palette-menu');
     this.btnPaletteToggle = document.getElementById('btn-palette-toggle');
     this.exportModal = document.getElementById('export-modal');
@@ -606,6 +610,8 @@ export class App {
     if (this.valC) this.valC.innerText = this.math.c.format(3);
     if (this.valD) this.valD.innerText = this.math.d.format(3);
     if (this.valN) this.valN.innerText = this.math.n;
+    const chip = document.getElementById('eq-n-chip');
+    if (chip) chip.innerText = `n=${this.math.n}`;
   }
 
   randomize(style = null) {
@@ -652,6 +658,49 @@ export class App {
   closeDropdowns() {
     if (this.randomizeMenu) this.randomizeMenu.classList.remove('visible');
     if (this.paletteMenu) this.paletteMenu.classList.remove('visible');
+    if (this.exportMenu) this.exportMenu.classList.remove('visible');
+  }
+
+  anyDropdownOpen() {
+    return [this.randomizeMenu, this.paletteMenu, this.exportMenu].some(m => m?.classList.contains('visible'));
+  }
+
+  // --- Controls panel ---
+  togglePanel(force) {
+    const open = force === undefined ? !this.panelOpen : !!force;
+    this.panelOpen = open;
+    this.controlsPanel?.classList.toggle('open', open);
+    const btn = document.getElementById('btn-controls');
+    if (btn) {
+      btn.classList.toggle('active', open);
+      btn.setAttribute('aria-expanded', String(open));
+    }
+    this.updateReadoutCompact();
+  }
+
+  closePanel() {
+    const hadFocus = this.controlsPanel?.contains(document.activeElement);
+    this.togglePanel(false);
+    if (hadFocus) document.getElementById('btn-controls')?.focus({ preventScroll: true });
+  }
+
+  setPanelSection(name, expanded) {
+    const section = document.getElementById(`panel-section-${name}`);
+    const head = section?.querySelector('.panel-section-head');
+    const body = section?.querySelector('.panel-section-body');
+    if (!head || !body) return;
+    head.setAttribute('aria-expanded', String(expanded));
+    body.hidden = !expanded;
+  }
+
+  openPanelSection(name) {
+    this.togglePanel(true);
+    this.setPanelSection(name, true);
+  }
+
+  // The equation readout shrinks to a one-line chip on short viewports or while the panel is open.
+  updateReadoutCompact() {
+    this.readoutEl?.classList.toggle('compact', window.innerHeight < 800 || this.panelOpen);
   }
 
   setupEvents() {
@@ -779,6 +828,11 @@ export class App {
         this.handleModalKeydown(e);
         return;
       }
+      if (e.key === 'Escape') {
+        if (this.anyDropdownOpen()) this.closeDropdowns();
+        else if (this.panelOpen) this.closePanel();
+        return;
+      }
       if (e.target.tagName === 'INPUT') return;
       const key = e.key.toLowerCase();
       // Space activates a focused button natively; do not steal it.
@@ -830,8 +884,9 @@ export class App {
     const btnRandToggle = document.getElementById('btn-randomize-toggle');
     btnRandToggle?.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.randomizeMenu?.classList.toggle('visible');
-      if (this.paletteMenu) this.paletteMenu.classList.remove('visible');
+      const wasOpen = this.randomizeMenu?.classList.contains('visible');
+      this.closeDropdowns();
+      if (!wasOpen) this.randomizeMenu?.classList.add('visible');
     });
 
     document.querySelectorAll('.rnd-style-btn').forEach(btn => {
@@ -844,8 +899,9 @@ export class App {
     // Palette dropdown toggle & selectors
     this.btnPaletteToggle?.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.paletteMenu?.classList.toggle('visible');
-      if (this.randomizeMenu) this.randomizeMenu.classList.remove('visible');
+      const wasOpen = this.paletteMenu?.classList.contains('visible');
+      this.closeDropdowns();
+      if (!wasOpen) this.paletteMenu?.classList.add('visible');
     });
 
     document.querySelectorAll('.palette-select-btn').forEach(btn => {
@@ -929,7 +985,30 @@ export class App {
     document.getElementById('btn-coeff')?.addEventListener('click', () => this.toggleCoeffDrawer());
 
     // Export & Presets Triggers
+    document.getElementById('btn-export-toggle')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasOpen = this.exportMenu?.classList.contains('visible');
+      this.closeDropdowns();
+      if (!wasOpen) this.exportMenu?.classList.add('visible');
+    });
+    document.getElementById('btn-export-image')?.addEventListener('click', () => this.openExportModal('standard'));
     document.getElementById('btn-export-trigger')?.addEventListener('click', () => this.openExportModal('standard'));
+
+    // Controls panel
+    document.getElementById('btn-controls')?.addEventListener('click', () => this.togglePanel());
+    document.getElementById('btn-controls-close')?.addEventListener('click', () => this.closePanel());
+    document.querySelectorAll('.panel-section-head').forEach(head => {
+      head.addEventListener('click', () => {
+        const section = head.closest('.panel-section');
+        this.setPanelSection(section.id.replace('panel-section-', ''), head.getAttribute('aria-expanded') !== 'true');
+      });
+    });
+    document.getElementById('btn-readout-expand')?.addEventListener('click', () => {
+      const expanded = this.readoutEl?.classList.toggle('expanded');
+      document.getElementById('btn-readout-expand')?.setAttribute('aria-expanded', String(!!expanded));
+    });
+    window.addEventListener('resize', () => this.updateReadoutCompact());
+    this.updateReadoutCompact();
     document.getElementById('btn-refmaster-trigger')?.addEventListener('click', () => this.openExportModal('reference_master'));
     document.getElementById('btn-preset-trigger')?.addEventListener('click', () => this.openPresetModal());
 
@@ -1035,6 +1114,7 @@ export class App {
 
   // --- Export Features ---
   openExportModal(type = 'standard') {
+    this.closeDropdowns();
     clearTimeout(this._exportCompletionTimeout);
     this._exportCompletionTimeout = null;
     this.setExportType(type);
@@ -1744,7 +1824,11 @@ export class App {
   toggleCoeffDrawer() {
     this.coeffDrawerVisible = !this.coeffDrawerVisible;
     this.coeffDrawer?.classList.toggle('visible', this.coeffDrawerVisible);
-    document.getElementById('btn-coeff')?.classList.toggle('active', this.coeffDrawerVisible);
+    const btn = document.getElementById('btn-coeff');
+    btn?.classList.toggle('active', this.coeffDrawerVisible);
+    btn?.setAttribute('aria-expanded', String(this.coeffDrawerVisible));
+    // Showing the coefficients opens the panel at Mathematics (key P / Coefficients button).
+    if (this.coeffDrawerVisible) this.openPanelSection('math');
   }
 
   toggleDebug() {
@@ -1945,6 +2029,7 @@ export class App {
     if (this.valC) this.valC.innerText = this.math.c.format(3);
     if (this.valD) this.valD.innerText = this.math.d.format(3);
     if (this.valN) this.valN.innerText = this.math.n;
+    if (this.eqChip) this.eqChip.innerText = `n=${this.math.n}`;
 
     // Update Profiler Overlay
     if (this.debugMode) {
