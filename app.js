@@ -750,7 +750,7 @@ export class App {
 
   // The equation readout shrinks to a one-line chip on short viewports or while the panel is open.
   updateReadoutCompact() {
-    this.readoutEl?.classList.toggle('compact', window.innerHeight < 800 || this.panelOpen);
+    this.readoutEl?.classList.toggle('compact', window.innerHeight < 800 || window.innerWidth < 820 || this.panelOpen);
   }
 
   setupEvents() {

@@ -600,10 +600,11 @@
     .modal-dialog {
       max-height: calc(100vh - 24px);
       overflow-y: auto;
+      overscroll-behavior: contain;
       background: rgba(5, 12, 28, 0.94);
       border: 1px solid rgba(60, 120, 210, 0.35);
       border-radius: 12px;
-      padding: 20px 24px;
+      padding: 0 24px 20px;
       max-width: 480px;
       width: 90%;
       box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8);
@@ -612,6 +613,11 @@
     }
 
     .modal-title {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      padding: 20px 0 6px;
+      background: rgb(5, 12, 28);
       font-size: 13px;
       font-weight: 600;
       color: #e2f0ff;
@@ -955,6 +961,93 @@
       margin-top: 6px;
       box-shadow: none;
       background: rgba(10, 20, 38, 0.55);
+    }
+
+    /* ---- Small screens / touch (Phase C) ---- */
+    #gl-canvas {
+      touch-action: none;
+    }
+
+    #controls-panel {
+      overscroll-behavior: contain;
+    }
+
+    /* The panel header (with its close button) stays visible while the panel scrolls. */
+    #controls-panel .panel-head {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      margin: -10px -14px 4px;
+      padding: 10px 14px 6px;
+      background: rgba(3, 7, 16, 0.96);
+    }
+
+    .dropdown-menu {
+      max-width: calc(100vw - 16px);
+    }
+
+    /* Dialog option groups wrap instead of overflowing on narrow screens. */
+    .modal-dialog .btn-group {
+      flex-wrap: wrap;
+      border-radius: 14px;
+    }
+
+    /* Narrow windows: Controls becomes a bottom sheet; artwork stays the dominant surface. */
+    @media (max-width: 820px) {
+      #controls-panel {
+        top: auto;
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        width: auto;
+        max-height: min(50vh, calc(100vh - var(--chrome-h) - 24px));
+        border-radius: 14px;
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      }
+
+      body.panel-open #equation-readout {
+        display: none;
+      }
+
+      #debug-overlay {
+        left: 8px;
+        right: 8px;
+        width: auto;
+        max-height: 30vh;
+        overflow: hidden;
+        pointer-events: none;
+      }
+
+      #toast-banner {
+        bottom: 64px;
+      }
+
+      #controls-bar {
+        justify-content: center;
+      }
+
+      #curated-presets-list {
+        grid-template-columns: minmax(0, 1fr) !important;
+      }
+    }
+
+    /* Real touch devices: practical hit targets without enlarging the desktop UI. */
+    @media (pointer: coarse) {
+      #controls-bar button,
+      #controls-panel button,
+      .dropdown-menu button,
+      .modal-dialog button {
+        min-height: 38px;
+        min-width: 38px;
+      }
+
+      #controls-panel .panel-label {
+        width: 60px;
+      }
+
+      .coeff-slider {
+        height: 28px;
+      }
     }
   </style>
 </head>
@@ -1350,8 +1443,8 @@
 
       <div class="modal-section">
         <div class="modal-section-title">Save Current Preset</div>
-        <div style="display:flex; gap:6px;">
-          <input type="text" id="preset-name-input" placeholder="Organism Name" style="flex:1; background:rgba(10,24,48,0.7); border:1px solid rgba(40,90,160,0.4); border-radius:6px; color:#c0daf8; padding:4px 8px; font-size:11px;">
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          <input type="text" id="preset-name-input" placeholder="Organism Name" style="flex:1; min-width:140px; background:rgba(10,24,48,0.7); border:1px solid rgba(40,90,160,0.4); border-radius:6px; color:#c0daf8; padding:4px 8px; font-size:11px;">
           <button id="btn-preset-save" class="btn-action-highlight">Save &amp; Download</button>
           <button id="btn-preset-copy">Copy JSON</button>
         </div>

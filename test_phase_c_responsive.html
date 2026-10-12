@@ -1,0 +1,59 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Phase C / C1: responsive layout. The real index.html runs in an iframe that is resized through
+// laptop, tablet and phone sizes; panel, bar, dialogs, toast and the page itself must stay inside
+// the viewport, scroll internally, and always offer a close path.
+import {boot,sleep,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+try{
+  const {frame,w,app}=await boot(),doc=w.document,$=id=>doc.getElementById(id);
+  const sizes=[[1920,1080],[1366,768],[1280,720],[1024,768],[768,1024],[430,932],[390,844],[320,568]];
+  const inside=(b,vw,vh)=>b.left>=-0.5&&b.right<=vw+0.5&&b.top>=-0.5&&b.bottom<=vh+0.5;
+  for(const [vw,vh] of sizes){
+    frame.style.width=vw+'px';frame.style.height=vh+'px';frame.width=vw;frame.height=vh;
+    w.dispatchEvent(new w.Event('resize'));await sleep(200);
+    const tag=vw+'x'+vh+': ';
+    check(tag+'no horizontal page overflow',!(doc.documentElement.scrollWidth>w.innerWidth),String(doc.documentElement.scrollWidth)+' vs '+w.innerWidth);
+    const bar=$('top-bar-container').getBoundingClientRect();
+    check(tag+'primary bar and caption inside the viewport',inside(bar,w.innerWidth,w.innerHeight)&&bar.height<w.innerHeight*0.3);
+    $('btn-mode-explore').click();$('btn-controls').click();
+    doc.querySelector('#panel-section-developer .panel-section-head').getAttribute('aria-expanded')==='false'&&doc.querySelector('#panel-section-developer .panel-section-head').click();
+    $('btn-coeff').getAttribute('aria-expanded')==='false'&&$('btn-coeff').click();
+    $('btn-readout-expand').click();
+    app.showToast('Export interrupted because the graphics context was lost. The renderer recovered; please try again.',30000);await sleep(60);
+    const panel=$('controls-panel'),pb=panel.getBoundingClientRect(),cs=w.getComputedStyle(panel);
+    check(tag+'Controls panel is inside the viewport',inside(pb,w.innerWidth,w.innerHeight),JSON.stringify([pb.left,pb.top,pb.right,pb.bottom]));
+    check(tag+'the panel never covers the primary bar',pb.top>=bar.bottom-1||pb.left>=bar.right||pb.right<=bar.left);
+    check(tag+'panel scrolls internally instead of growing past the viewport',/auto|scroll/.test(cs.overflowY)&&(panel.scrollHeight<=panel.clientHeight||pb.height<=w.innerHeight));
+    if(vw<=820)check(tag+'narrow: Controls is a bottom sheet (full width, anchored to the bottom)',Math.abs(pb.bottom-w.innerHeight)<=16&&pb.width>=Math.min(vw-24,300)&&pb.top>=bar.bottom-1);
+    else check(tag+'wide: Controls stays docked right',pb.right>=vw-24&&pb.width<=320);
+    panel.scrollTop=panel.scrollHeight;await sleep(30);
+    const lastBtn=$('btn-raw'),lb=lastBtn.getBoundingClientRect();let hit=doc.elementFromPoint(lb.x+lb.width/2,lb.y+lb.height/2);
+    check(tag+'the last panel control is reachable by scrolling the panel',hit===lastBtn||lastBtn.contains(hit)||panel.scrollHeight<=panel.clientHeight);
+    const essential=['btn-mode-reference','btn-mode-explore','btn-randomize-action','btn-preset-trigger','btn-export-trigger','btn-controls','btn-help','btn-controls-close'].filter(id=>{
+      const e=$(id);e.scrollIntoView({block:'nearest'});const b=e.getBoundingClientRect(),t=doc.elementFromPoint(b.x+b.width/2,b.y+b.height/2);return !(t===e||e.contains(t));});
+    check(tag+'essential controls stay hit-testable with the panel, readout and toast open',essential.length===0,JSON.stringify(essential));
+    const tb=$('toast-banner').getBoundingClientRect();
+    check(tag+'toast wraps inside the viewport and stays readable',inside(tb,w.innerWidth,w.innerHeight)&&tb.width<=w.innerWidth,JSON.stringify([tb.left,tb.right,tb.width]));
+    w.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    check(tag+'Esc closes the Controls panel',!panel.classList.contains('open'));
+    $('btn-controls').click();$('btn-controls-close').click();
+    check(tag+'the panel close button closes it',!panel.classList.contains('open'));
+    app.toastBanner.classList.remove('show');
+    for(const [name,open] of [['presets',()=>app.openPresetModal()],['export',()=>app.openExportModal()],['help',()=>app.openHelpModal()]]){
+      open();await sleep(40);
+      const d=doc.querySelector('.modal-backdrop.visible .modal-dialog'),db=d.getBoundingClientRect();
+      d.scrollTop=d.scrollHeight;const close=d.querySelector('[aria-label="Close"],#btn-export-close'),cb=close.getBoundingClientRect(),ch=doc.elementFromPoint(cb.x+cb.width/2,cb.y+cb.height/2);
+      check(tag+name+' dialog fits, has no horizontal overflow and its close button stays reachable',inside(db,w.innerWidth,w.innerHeight)&&!(d.scrollWidth>d.clientWidth+1)&&(ch===close||close.contains(ch)),JSON.stringify({fits:inside(db,w.innerWidth,w.innerHeight),sw:d.scrollWidth,cw:d.clientWidth}));
+      w.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+      check(tag+name+' dialog closes with Esc',!doc.querySelector('.modal-backdrop.visible'));
+    }
+    $('btn-mode-reference').click();
+    app.panelOpen&&app.togglePanel(false);
+  }
+  const rc=$('equation-readout');
+  frame.style.width='390px';frame.style.height='844px';w.dispatchEvent(new w.Event('resize'));await sleep(100);
+  check('readout is a compact chip on narrow screens',rc.classList.contains('compact'));
+  frame.style.width='1920px';frame.style.height='1080px';w.dispatchEvent(new w.Event('resize'));await sleep(100);
+  check('and a full readout on large screens',!rc.classList.contains('compact'));
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>
