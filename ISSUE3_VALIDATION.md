@@ -1,5 +1,7 @@
 # Issue 3: live Reference development and rest
 
+Historical validation for commit `54d6ad5`. The shared exposure policy below is superseded by [Issue 3B](ISSUE3B_VALIDATION.md), which scales total preview refinement by tier and retains photons across quality changes.
+
 Baseline: `7e93c9e88eaeba920deb5ccb3e537f63b2983b0e`. Measured before production edits on Windows, Chrome headless, ANGLE D3D11, 1200 x 800 canvas, DPR 1. Each quality mode ran alone from a fresh load for 60 real seconds. No formulas, coefficients, camera, quality definitions, shaders, photon intensity, tonemapping, resolution, or export rendering changed.
 
 ## Baseline measurements

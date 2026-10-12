@@ -2,7 +2,6 @@
 <pre style="margin-left:700px" id="results">Running (includes five real minutes of idle)...</pre>
 <script type="module">
 import { instrumentation } from './issue2_test_instrumentation.js';
-import { REFERENCE_DEPOSITS_PER_PIXEL } from './renderer.js';
 const results=[], sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const check=(name,passed,details='')=>results.push({name,passed:!!passed,details});
 async function until(fn,label,timeout=90000) {
@@ -34,7 +33,7 @@ try {
     if(program===renderer.blurProg)count.bloom++;
     return draw(...args);
   };
-  const budget=()=>REFERENCE_DEPOSITS_PER_PIXEL*r.accumWidth*r.accumHeight;
+  const budget=()=>r.getReferenceTargetDeposits();
   function pixels() {
     r.presentCurrentFrame();
     const a=new Uint8Array(app.canvas.width*app.canvas.height*4);
@@ -106,8 +105,12 @@ try {
   await wake('Canvas resize below allocation hysteresis',()=>{frame.style.width='660px';app.onResize();});
   await wake('Canvas resize reallocates targets',()=>{frame.style.width='800px';app.onResize();});
   await wake('DPR change',()=>{app.customDpr=1.25;app.onResize();});
-  await wake('Manual quality change',()=>r.adaptive.setMode('low'));
-  await wake('Return to Auto quality',()=>r.adaptive.setMode('auto'));
+  for(const mode of ['low','auto']) {
+    const exposure=r.referenceDeposits,age=r.accumulationFrames,commands=audit.glCommands;
+    r.adaptive.setMode(mode);await sleep(100);
+    check('Quality '+mode+': completed higher exposure is retained without GPU work',
+      r.referenceSettled && r.referenceDeposits===exposure && r.accumulationFrames===age && audit.glCommands===commands);
+  }
   for(const [name,action] of [
     ['Bloom toggle',()=>app.toggleBloom()],['Final/raw mode',()=>app.toggleRawTrajectories()],
     ['Gain',()=>{r.gain=3.5;}],['Palette',()=>r.setPalette('solar')],

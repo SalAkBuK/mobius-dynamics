@@ -6,20 +6,27 @@ const report = [];
 const params = new URLSearchParams(location.search);
 const tiers = (params.get('tiers') || 'potato,low,standard,auto').split(',');
 const times = (params.get('times') || '2,5,10,20,30,60').split(',').map(Number);
+const sharedBudgets = params.has('budgets') ? params.get('budgets').split(',').map(Number) : null;
+const captureSettled = params.has('settled');
+const tierBudgets = Object.fromEntries((params.get('tierBudgets') || '').split(',').filter(Boolean)
+  .map(value => value.split(':')));
 try {
   for (const tier of tiers) {
+    const budgets = tierBudgets[tier] ? [Number(tierBudgets[tier])] : sharedBudgets;
     const frame = document.createElement('iframe'); frame.width=1200; frame.height=800;
     frame.src='./index.html?tier='+tier;
     document.body.append(frame);
     await new Promise(r => frame.onload=r);
     const w=frame.contentWindow, app=w.__app, renderer=app.renderer, gl=renderer.gl;
+    app.customDpr=1; app.onResize();
     const started=performance.now();
     let renders=0, simulations=0, splats=0, deposits=0, program;
     const render=renderer.render.bind(renderer), begin=gl.beginTransformFeedback.bind(gl);
     const use=gl.useProgram.bind(gl), draw=gl.drawArrays.bind(gl);
+    let captureCandidate = () => {};
     renderer.render=(...args)=>{
       const before=renderer.accumulationFrames, result=render(...args);
-      if(renderer.accumulationFrames>before)renders++;
+      if(renderer.accumulationFrames>before){renders++;captureCandidate();}
       return result;
     };
     gl.beginTransformFeedback=(...args)=>{simulations++;return begin(...args);};
@@ -33,8 +40,7 @@ try {
     const original=state();
     const samples=[];
     let last={time:0,renders:0,simulations:0,splats:0,deposits:0};
-    for(const second of times) {
-      await sleep(Math.max(0,second*1000-(performance.now()-started)));
+    const capture = async (label) => {
       renderer.presentCurrentFrame();
       const width=app.canvas.width,height=app.canvas.height;
       const pixels=new Uint8Array(width*height*4);
@@ -45,16 +51,44 @@ try {
       ctx.putImageData(data,0,0);
       const time=(performance.now()-started)/1000, elapsed=time-last.time;
       const m=renderer.profiler.metrics;
-      const sample={tier,second,time,particles:renderer.numParticles,steps:renderer.stepsPerFrame,
+      const sample={tier,...label,time,particles:renderer.numParticles,steps:renderer.stepsPerFrame,
         depositsPerFrame:renderer.numParticles*renderer.stepsPerFrame,gpuMs:m.gpuMs,
         frameMs:m.frameMs,fps:m.fps,accumulationFrames:renderer.accumulationFrames,
         rendersPerSecond:(renders-last.renders)/elapsed,simulationsPerSecond:(simulations-last.simulations)/elapsed,
         splatsPerSecond:(splats-last.splats)/elapsed,depositsPerSecond:(deposits-last.deposits)/elapsed,
-        cumulativeDeposits:deposits,width,height,stateUnchanged:state()===original,
+        cumulativeDeposits:renderer.referenceDeposits,actualDpp:renderer.referenceDeposits/(renderer.accumWidth*renderer.accumHeight),
+        width,height,stateUnchanged:state()===original,
         settled:renderer.referenceSettled??false};
       samples.push(sample);
       await fetch('/capture',{method:'POST',body:JSON.stringify({...sample,png:canvas.toDataURL('image/png').split(',')[1]})});
       last={time,renders,simulations,splats,deposits};
+    };
+    if (captureSettled) {
+      let completion;
+      captureCandidate=()=>{
+        if(renderer.referenceSettled && !completion) {
+          completion=capture({dpp:renderer.getReferenceDepositsPerPixel()});
+        }
+      };
+      while(!completion) await sleep(100);
+      await completion;
+    } else if (budgets) {
+      let index=0;
+      const pending=[];
+      captureCandidate=()=>{
+        while(index<budgets.length && renderer.referenceDeposits >= budgets[index]*renderer.accumWidth*renderer.accumHeight) {
+          pending.push(capture({dpp:budgets[index++]}));
+        }
+      };
+      while(index<budgets.length) {
+        await sleep(100);
+        if(renderer.referenceSettled && renderer.referenceDeposits < budgets[index]*renderer.accumWidth*renderer.accumHeight)
+          throw Error('Production settled before requested candidate budget');
+      }
+      await Promise.all(pending);
+    } else for(const second of times) {
+      await sleep(Math.max(0,second*1000-(performance.now()-started)));
+      await capture({second});
     }
     report.push({tier,samples});frame.remove();
   }

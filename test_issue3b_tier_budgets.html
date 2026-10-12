@@ -1,0 +1,145 @@
+<!doctype html><meta charset="utf-8"><title>Issue 3B tier exposure regression</title>
+<pre id="results">Running natural tier exposures...</pre>
+<script type="module">
+import { instrumentation } from './issue2_test_instrumentation.js';
+import { REFERENCE_EXPOSURE_DPP } from './renderer.js';
+import { QUALITY_TIERS } from './adaptive.js';
+const results=[],sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const check=(name,passed,details='')=>results.push({name,passed:!!passed,details});
+async function until(fn,label,timeout=90000){
+  const end=performance.now()+timeout;
+  while(!fn()){if(performance.now()>end)throw Error('Timeout: '+label);await sleep(20);}
+}
+try{
+  const html=await(await fetch('./index.html')).text();
+  const frame=document.createElement('iframe');frame.width=320;frame.height=240;
+  frame.srcdoc=html.replace('<head>','<head>'+instrumentation);
+  document.body.append(frame);await new Promise(resolve=>frame.onload=resolve);
+  const w=frame.contentWindow,app=w.__app,audit=w.__audit,math=app.math;
+  let r=app.renderer;const gl=r.gl;
+  audit.errors=[];audit.traceError=true;audit.phase='initial';
+  app.customDpr=1;app.onResize();
+  const handlers=JSON.stringify(audit.handlers),counts={sim:0,splat:0,deposits:0,clear:0};
+  let program;const use=gl.useProgram.bind(gl),draw=gl.drawArrays.bind(gl);
+  const begin=gl.beginTransformFeedback.bind(gl),clear=gl.clear.bind(gl);
+  gl.useProgram=p=>{program=p;return use(p);};
+  gl.beginTransformFeedback=(...a)=>{counts.sim++;return begin(...a);};
+  gl.clear=(...a)=>{counts.clear++;return clear(...a);};
+  gl.drawArrays=(...a)=>{if(program===app.renderer.splatProg){counts.splat++;counts.deposits+=a[2];}return draw(...a);};
+  const area=()=>r.accumWidth*r.accumHeight;
+  const expected={potato:512,low:2048,standard:4096,high:8192,ultra:12288,extreme:16384,bruteforce:16384};
+  function pixels(){
+    r.presentCurrentFrame();const p=new Uint8Array(app.canvas.width*app.canvas.height*4);
+    gl.readPixels(0,0,app.canvas.width,app.canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,p);return p;
+  }
+  function canonical(){return math.mode==='reference'&&math.n===16&&!math.evolving&&math.time===0&&
+    math.a.r===-.755&&math.a.i===.330&&math.b.r===-.376&&math.b.i===.026&&
+    math.c.r===6.401&&math.c.i===.803&&math.d.r===1.520&&math.d.i===.840&&
+    r.zoom===1.65&&r.targetZoom===1.65&&r.activePalette==='cobalt';}
+  for(const [mode,dpp] of Object.entries(expected)){
+    audit.phase=mode;
+    r.adaptive.setMode(mode);app.setMode('reference');
+    const start=performance.now(),deposits=counts.deposits;
+    await until(()=>r.referenceSettled,mode+' natural settle');
+    check(mode+': intended policy and actual natural exposure budget',REFERENCE_EXPOSURE_DPP[mode.toUpperCase()]===dpp&&
+      r.getReferenceDepositsPerPixel()===dpp&&counts.deposits-deposits===r.referenceDeposits&&
+      r.referenceDeposits>=dpp*area()&&r.referenceDeposits<dpp*area()+r.numParticles*r.stepsPerFrame,
+      JSON.stringify({seconds:(performance.now()-start)/1000,frames:r.accumulationFrames,deposits:r.referenceDeposits,dpp}));
+    if(mode==='potato'||mode==='low')check(mode+': total work dramatically reduced',
+      r.referenceDeposits/(16384*area())<(mode==='potato'?.032:.126));
+    check(mode+': canonical artwork remains rendered',canonical()&&pixels().some((v,i)=>i%4===2&&v>30));
+    const before=pixels(),age=r.accumulationFrames,commands=audit.glCommands;
+    await sleep(350);
+    check(mode+': zero GPU commands and accumulation while settled',audit.glCommands===commands&&r.accumulationFrames===age);
+    const after=pixels();
+    check(mode+': no settled pixel or brightness drift',before.every((v,i)=>v===after[i]));
+  }
+  // Low -> High must preserve actual photons and finish only the additional work.
+  audit.phase='quality transitions';
+  r.adaptive.setMode('low');app.setMode('reference');await until(()=>r.referenceSettled,'Low base exposure');
+  const low=r.referenceDeposits,age=r.accumulationFrames,clears=counts.clear;
+  r.adaptive.setMode('high');await sleep(100);
+  check('Low settled -> High resumes without clearing photons',!r.referenceSettled&&
+    r.referenceDeposits>low&&r.accumulationFrames>age&&counts.clear===clears);
+  await until(()=>r.referenceSettled,'High extended exposure');
+  check('High finishes at its own budget with all earlier work retained',r.referenceDeposits>=8192*area()&&counts.clear===clears);
+  const high=r.referenceDeposits,highAge=r.accumulationFrames,highPixels=pixels(),commands=audit.glCommands;
+  r.adaptive.setMode('low');await sleep(150);
+  check('High settled -> Low retains better exposure with zero GPU commands',r.referenceSettled&&
+    r.referenceDeposits===high&&r.accumulationFrames===highAge&&counts.clear===clears&&audit.glCommands===commands);
+  const lowPixels=pixels();
+  check('High -> Low retains identical pixels',highPixels.every((v,i)=>v===lowPixels[i]));
+  // A quality change during development also retains valid accumulation.
+  app.setMode('reference');await until(()=>r.accumulationFrames>=30,'partly developed Low');
+  const partial=r.referenceDeposits,partialAge=r.accumulationFrames,partialClears=counts.clear;
+  r.adaptive.setMode('high');await sleep(100);
+  check('Low developing -> High retains partial exposure',r.referenceDeposits>partial&&
+    r.accumulationFrames>partialAge&&counts.clear===partialClears);
+
+  // Natural AUTO: target is a bounded high-water mark of validated tiers.
+  audit.phase='natural AUTO';
+  app.setMode('reference');r.adaptive.setMode('auto');
+  const targets=[],originalRender=r.render.bind(r);
+  r.render=(...args)=>{const result=originalRender(...args);targets.push(r.getReferenceDepositsPerPixel());return result;};
+  await until(()=>r.referenceSettled,'natural AUTO completion');
+  r.render=originalRender;
+  check('AUTO naturally settles and target never moves backward or exceeds cap',targets.length>40&&
+    targets.every((value,i)=>value<=16384&&(i===0||value>=targets[i-1]))&&r.referenceDeposits>=r.getReferenceTargetDeposits(),
+    JSON.stringify({targets:[...new Set(targets)],frames:r.accumulationFrames,deposits:r.referenceDeposits}));
+
+  app.isTabHidden=true;app.setMode('reference');
+  audit.phase='AUTO fixtures';
+  const a=r.adaptive;a.setMode('auto');
+  check('AUTO calibration begins at the minimum bounded target',r.getReferenceDepositsPerPixel()===512);
+  a.state='settled';a.currentTierKey='POTATO';a.currentTier=QUALITY_TIERS.POTATO;
+  check('Weak AUTO can use Potato exposure',r.getReferenceDepositsPerPixel()===512);
+  a.currentTierKey='LOW';a.currentTier=QUALITY_TIERS.LOW;
+  check('Weak AUTO can use Low exposure',r.getReferenceDepositsPerPixel()===2048);
+  a.validationState.active=true;a.validationState.promotedFrom='LOW';a.currentTierKey='HIGH';a.currentTier=QUALITY_TIERS.HIGH;
+  check('Unvalidated AUTO promotion does not raise exposure target',r.getReferenceDepositsPerPixel()===2048);
+  a.validationState.active=false;
+  let previous=2048;
+  for(const key of ['HIGH','LOW','ULTRA','STANDARD','EXTREME','POTATO']){
+    a.currentTierKey=key;a.currentTier=QUALITY_TIERS[key];
+    const target=r.getReferenceDepositsPerPixel();
+    check('AUTO '+key+': target is monotonic and bounded',target>=previous&&target<=16384);previous=target;
+  }
+  // Artificial repeated promotion/demotion cannot extend a finite exposure forever.
+  r.referenceDeposits=16384*area()-160000;
+  const update=a.update.bind(a);let switches=0;
+  a.update=()=>{a.currentTierKey=(switches++%2)?'EXTREME':'POTATO';a.currentTier=QUALITY_TIERS[a.currentTierKey];};
+  const promotionClears=counts.clear;
+  app.isTabHidden=false;await until(()=>r.referenceSettled,'bounded AUTO oscillations');a.update=update;
+  check('Repeated AUTO promotions/demotions cannot prevent settling or clear photons',
+    switches>0&&r.referenceDeposits>=16384*area()&&counts.clear===promotionClears);
+
+  r.adaptive.setMode('low');app.setMode('reference');await until(()=>r.referenceSettled,'Low before restore');
+  audit.phase='context recovery';
+  const old=r,ext=gl.getExtension('WEBGL_lose_context');ext.loseContext();
+  await until(()=>app.contextLost,'loss');ext.restoreContext();await until(()=>!app.contextLost&&app.renderer!==old,'restore');r=app.renderer;
+  check('Context restore starts fresh Low development with intended budget',!r.referenceSettled&&
+    r.referenceDeposits<2048*area()&&r.getReferenceDepositsPerPixel()===2048&&canonical());
+  await until(()=>r.referenceSettled,'Low recovered settles');
+  check('Recovered Low naturally settles at its own budget',r.referenceDeposits>=2048*area()&&canonical());
+
+  app.exportType='standard';app.exportWidth=64;app.exportHeight=48;app.exportPasses=3;
+  audit.phase='export';
+  const exportSim=counts.sim,exportSplats=counts.splat,exportDeposits=r.referenceDeposits;
+  const blob=await app.startExport();await sleep(100);
+  const bitmap=blob?await w.createImageBitmap(blob):null;
+  check('Settled Low Standard export runs all requested passes at requested resolution',
+    counts.sim-exportSim===36&&counts.splat-exportSplats===36&&bitmap?.width===64&&bitmap?.height===48);
+  bitmap?.close();
+  check('Low live budget survives export and display hold cleans up',r.referenceSettled&&
+    r.referenceDeposits===exportDeposits&&!app.isExporting&&!r.isExporting&&!app.displayHoldActive&&!app._pendingHoldRemoval);
+  app.setMode('explore');const exploreSim=counts.sim;await sleep(200);
+  check('Settled Low -> Explore remains live',!r.referenceSettled&&counts.sim>exploreSim&&math.mode==='explore');
+  await until(()=>audit.timers.size===0,'normal one-shot timers drain',15000);
+  check('One RAF, no timer/handler leaks or lost-context calls',audit.pending.size===1&&audit.timers.size===0&&
+    JSON.stringify(audit.handlers)===handlers&&audit.lostGL.length===0);
+  const finalError=gl.getError();
+  check('No WebGL errors',finalError===gl.NO_ERROR&&audit.errors.length===0,JSON.stringify({finalError,errors:audit.errors}));
+}catch(error){check('Suite runtime',false,error.stack);}
+document.getElementById('results').textContent=JSON.stringify(results,null,2);
+await fetch('/test_report',{method:'POST',body:JSON.stringify(results)});
+</script>

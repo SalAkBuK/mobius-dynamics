@@ -8,9 +8,19 @@
 import { Profiler } from './profiler.js';
 import { AdaptiveManager, QUALITY_TIERS } from './adaptive.js';
 
-// Live Reference exposure, independent of FPS, quality tier, and export passes.
-// See ISSUE3_VALIDATION.md for measured development and later unlimited comparisons.
-export const REFERENCE_DEPOSITS_PER_PIXEL = 16384;
+// Total live preview refinement, independent of FPS and offscreen export passes.
+// See ISSUE3B_VALIDATION.md and ISSUE3B_MEASUREMENTS.md for measured tradeoffs.
+export const REFERENCE_EXPOSURE_DPP = Object.freeze({
+  POTATO: 512,
+  LOW: 2048,
+  STANDARD: 4096,
+  HIGH: 8192,
+  ULTRA: 12288,
+  EXTREME: 16384,
+  BRUTEFORCE: 16384
+});
+// Maximum live exposure; AUTO can earn this target through validated promotions.
+export const REFERENCE_DEPOSITS_PER_PIXEL = REFERENCE_EXPOSURE_DPP.EXTREME;
 
 export const PALETTES = {
   cobalt: {
@@ -117,6 +127,7 @@ export class MobiusRenderer {
       this.accumulationFrames = 0;
       this.referenceSettled = false;
       this.referenceDeposits = 0;
+      this.referenceAutoDpp = REFERENCE_EXPOSURE_DPP.POTATO;
       this._referenceDevelopmentKey = null;
       this._referencePresentationKey = null;
       this.persistence = 0.9985;
@@ -948,13 +959,41 @@ export class MobiusRenderer {
   wakeReference() {
     this.referenceSettled = false;
     this.referenceDeposits = 0;
+    this.referenceAutoDpp = REFERENCE_EXPOSURE_DPP.POTATO;
+  }
+
+  getReferenceDepositsPerPixel() {
+    if (this.adaptive.mode !== 'auto') {
+      return REFERENCE_EXPOSURE_DPP[this.adaptive.currentTierKey] ?? REFERENCE_EXPOSURE_DPP.LOW;
+    }
+    if (this.adaptive.state !== 'calibrating') {
+      // Failed provisional promotions must not leave a weak device with a large
+      // exposure target. Once earned, the target stays monotonic for this image.
+      const validation = this.adaptive.validationState;
+      const key = validation.active ? validation.promotedFrom : this.adaptive.currentTierKey;
+      this.referenceAutoDpp = Math.max(this.referenceAutoDpp,
+        REFERENCE_EXPOSURE_DPP[key] ?? REFERENCE_EXPOSURE_DPP.POTATO);
+    }
+    return this.referenceAutoDpp;
+  }
+
+  getReferenceTargetDeposits() {
+    return this.getReferenceDepositsPerPixel() * this.accumWidth * this.accumHeight;
+  }
+
+  isReferenceDeveloped() {
+    const enough = this.referenceDeposits >= this.getReferenceTargetDeposits();
+    const autoPending = this.adaptive.mode === 'auto' &&
+      (this.adaptive.state === 'calibrating' || this.adaptive.validationState.active);
+    // Let calibration/validation finish, but even repeated promotions cannot
+    // extend an exposure beyond the fixed maximum amount of live work.
+    return enough && (!autoPending || this.referenceDeposits >=
+      REFERENCE_DEPOSITS_PER_PIXEL * this.accumWidth * this.accumHeight);
   }
 
   referenceDevelopmentKey() {
     return [this.canvas.width, this.canvas.height, this.accumWidth, this.accumHeight,
-      this.aspect, this.zoom, this.targetZoom, ...this.viewCenter, ...this.targetViewCenter,
-      this.adaptive.mode, this.adaptive.currentTierKey, this.particlesOverride,
-      this.stepsOverride].join('|');
+      this.aspect, this.zoom, this.targetZoom, ...this.viewCenter, ...this.targetViewCenter].join('|');
   }
 
   referencePresentationKey() {
@@ -979,6 +1018,9 @@ export class MobiusRenderer {
         this._referenceDevelopmentKey = developmentKey;
       }
       const presentationKey = this.referencePresentationKey();
+      // Quality changes alter the remaining budget, not the validity of photons
+      // already accumulated. Upgrades resume; downgrades retain the better image.
+      this.referenceSettled = this.isReferenceDeveloped();
       if (this.referenceSettled) {
         if (presentationKey !== this._referencePresentationKey) {
           // Visible controls do not need another exposure or simulation.
@@ -1050,6 +1092,12 @@ export class MobiusRenderer {
       if (this.stepsOverride === null) {
         this.stepsPerFrame = workload.steps;
       }
+    }
+
+    // beginFrame polls earlier timings before adaptive changes the workload.
+    // Only poll step queries that this frame will actually submit.
+    if (this.profiler?.curSlot) {
+      this.profiler.curSlot.steps = Math.min(this.profiler.maxSteps, this.stepsPerFrame);
     }
 
     // Drift-Aware Dynamic Progressive Refinement Persistence:
@@ -1226,11 +1274,10 @@ export class MobiusRenderer {
     if (isReference) {
       // Count actual live work only; exports have independent rendering loops.
       this.referenceDeposits += this.numParticles * this.stepsPerFrame;
-      // Auto may have promoted during this frame. Keep that frame's new tier as
-      // the baseline, rather than clearing a valid exposure on the following RAF.
+      // Remember the camera geometry used by this completed frame. Workload/tier
+      // changes do not invalidate the exposure and never clear it on their own.
       this._referenceDevelopmentKey = this.referenceDevelopmentKey();
-      this.referenceSettled = this.referenceDeposits >=
-        REFERENCE_DEPOSITS_PER_PIXEL * this.accumWidth * this.accumHeight;
+      this.referenceSettled = this.isReferenceDeveloped();
     }
   }
 
