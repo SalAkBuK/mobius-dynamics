@@ -1796,9 +1796,15 @@ export class App {
     });
   }
 
+  /** The one rule for naming a preset from the name field (Save & Download and Copy JSON both use it). */
+  presetNameFromInput() {
+    const input = document.getElementById('preset-name-input');
+    return input?.value.trim() || `Preset ${new Date().toLocaleTimeString()}`;
+  }
+
   saveUserPreset() {
     const input = document.getElementById('preset-name-input');
-    const name = input?.value.trim() || `Preset ${new Date().toLocaleTimeString()}`;
+    const name = this.presetNameFromInput();
     const preset = this.getPresetObject(name);
 
     // Save to localStorage
@@ -1954,7 +1960,7 @@ export class App {
   }
 
   copyPresetJSON() {
-    const preset = this.getPresetObject();
+    const preset = this.getPresetObject(this.presetNameFromInput());
     const str = JSON.stringify(preset, null, 2);
     if (navigator.clipboard) {
       navigator.clipboard.writeText(str).then(() => {

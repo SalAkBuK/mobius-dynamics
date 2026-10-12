@@ -1,0 +1,71 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Copy JSON must use the same preset-name rule as Save & Download (the typed name; a shared fallback when blank).
+import {boot,explore,state,sleep,until,reporter} from './hardening_test_helpers.js';
+import {validatePreset} from './preset_validation.js';
+const {check,finish}=reporter();
+try{
+  const {app,w,audit}=await boot(),d=w.document,$=id=>d.getElementById(id);
+  explore(app);app.setMode('explore');
+  // ---- capture what Copy puts on the clipboard and what Save hands to the browser as a file
+  let clip=null;Object.defineProperty(w.navigator,'clipboard',{configurable:true,value:{writeText:async t=>{clip=t;}}});
+  const files=[];const realCreate=w.URL.createObjectURL.bind(w.URL);w.URL.createObjectURL=b=>{files.push({blob:b});return realCreate(b);};
+  w.HTMLAnchorElement.prototype.click=function(){audit.downloads++;const f=files.at(-1);if(f)f.download=this.download;};
+  const toasts=[];const show=app.showToast.bind(app);app.showToast=t=>{toasts.push(t);show(t);};
+  const FIXED='9:09:09 TEST';const nativeTime=w.Date.prototype.toLocaleTimeString;w.Date.prototype.toLocaleTimeString=function(){return FIXED;};
+  const stored=()=>JSON.parse(w.localStorage.getItem('mobius_custom_presets')||'[]');
+  w.localStorage.removeItem('mobius_custom_presets');
+  const copy=async name=>{$('preset-name-input').value=name;clip=null;app.copyPresetJSON();await until(()=>clip!==null,'clipboard write');return clip;};
+  const save=async name=>{$('preset-name-input').value=name;const n=files.length;app.saveUserPreset();await until(()=>files.length>n,'download');await sleep(20);const f=files.at(-1);return {file:f.download,json:JSON.parse(await f.blob.text()),list:stored()};};
+
+  // ================= 1 + 2. typed name appears in Copy JSON, and it is valid JSON =================
+  const text=await copy('Real Flow Test');
+  let parsed=null;try{parsed=JSON.parse(text);}catch(e){}
+  check('Copy JSON is valid JSON',parsed!==null&&typeof parsed==='object');
+  check('Copy JSON uses the typed name ("Real Flow Test"), not "Custom Mobius Organism"',parsed?.name==='Real Flow Test'&&!/Custom Mobius Organism/.test(text),parsed?.name);
+  let valid=true;try{validatePreset(parsed);}catch(e){valid=false;}
+  check('the copied preset passes the existing preset validation',valid);
+  check('the typed name is trimmed exactly as Save & Download trims it',(JSON.parse(await copy('   Padded Name  '))).name==='Padded Name');
+  check('names with quotes, markup and non-ASCII survive as literal text',(JSON.parse(await copy('He said "hi" <b>x</b> Möbius ∑'))).name==='He said "hi" <b>x</b> Möbius ∑');
+
+  // ================= 4. Save & Download unchanged =================
+  const s1=await save('Real Flow Test');
+  check('Save & Download: JSON carries the typed name',s1.json.name==='Real Flow Test');
+  check('Save & Download: file name is unchanged (<name>.mobius.json, spaces -> underscores, lower-case)',s1.file==='real_flow_test.mobius.json',s1.file);
+  check('Save & Download: stored in the browser list under the typed name',s1.list[0]?.name==='Real Flow Test');
+  check('Save & Download: the name field is cleared afterwards (as before)',$('preset-name-input').value==='');
+  check('Save & Download: still announces "Saved preset"',toasts.some(t=>t==='Saved preset: "Real Flow Test"'),JSON.stringify(toasts.slice(-3)));
+
+  // ================= schema: Copy and Save produce the same preset shape =================
+  const c1=JSON.parse(await copy('Real Flow Test'));
+  check('no schema change: Copy and Save & Download serialize the same keys',JSON.stringify(Object.keys(c1))===JSON.stringify(Object.keys(s1.json))&&c1.version==='1.0',Object.keys(c1).join());
+  const norm=o=>JSON.stringify({...o,timestamp:0});
+  check('...and identical content apart from the timestamp',norm(c1)===norm(s1.json));
+
+  // ================= 3. blank-name fallback matches Save & Download =================
+  const blankCopy=JSON.parse(await copy(''));
+  const blankSave=await save('');
+  check('blank name: Copy JSON falls back to the same "Preset <time>" rule as Save & Download',blankCopy.name===`Preset ${FIXED}`&&blankSave.json.name===`Preset ${FIXED}`&&blankCopy.name===blankSave.json.name,blankCopy.name+' | '+blankSave.json.name);
+  check('whitespace-only name is blank for both',JSON.parse(await copy('    ')).name===`Preset ${FIXED}`&&(await save('   ')).json.name===`Preset ${FIXED}`);
+  check('there is one naming rule: both call presetNameFromInput()',typeof app.presetNameFromInput==='function'&&(()=>{$('preset-name-input').value='  X  ';return app.presetNameFromInput()==='X';})());
+  w.Date.prototype.toLocaleTimeString=nativeTime;
+
+  // ================= 5. copying does not mutate the current preset / session =================
+  w.localStorage.setItem('mobius_custom_presets',JSON.stringify(s1.list));
+  const before=state(app),beforeList=w.localStorage.getItem('mobius_custom_presets'),beforePreset=JSON.stringify({...app.getPresetObject('x'),timestamp:0}),dl0=audit.downloads;
+  $('preset-name-input').value='Copy Only';clip=null;app.copyPresetJSON();await until(()=>clip!==null,'clip');await sleep(30);
+  check('Copy does not change the session (mode, math, camera, palette, quality)',state(app)===before);
+  check('Copy does not change the current preset object',JSON.stringify({...app.getPresetObject('x'),timestamp:0})===beforePreset);
+  check('Copy does not save anything and does not download a file',w.localStorage.getItem('mobius_custom_presets')===beforeList&&audit.downloads===dl0);
+  check('Copy leaves the typed name in the field (it only reads it)',$('preset-name-input').value==='Copy Only');
+  check('Copy still announces itself',toasts.at(-1)==='Preset JSON copied to clipboard!',toasts.at(-1));
+
+  // ================= 6. importing the copied JSON retains the copied name =================
+  const copied=await copy('Round Trip Name');
+  app.setMode('reference');
+  app.importPresetFile(new w.File([copied],'round-trip.json',{type:'application/json'}));
+  await until(()=>toasts.some(t=>/Loaded preset: Round Trip Name/.test(t)),'import toast');
+  check('importing the copied JSON loads it under the copied name',toasts.some(t=>t==='Loaded preset: Round Trip Name'||/^Loaded preset: Round Trip Name( · Quality: .+)?$/.test(t)),JSON.stringify(toasts.slice(-2)));
+  check('the imported preset is applied (Explore, same coefficients as the copied JSON)',app.mode==='explore'&&app.math.n===JSON.parse(copied).symmetry&&app.math.baseA.r===JSON.parse(copied).coefficients.a.r);
+  w.localStorage.removeItem('mobius_custom_presets');
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>
