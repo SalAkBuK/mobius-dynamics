@@ -1212,10 +1212,10 @@
       <div id="controls-bar" role="toolbar" aria-label="Primary controls">
         <!-- Mode -->
         <div class="mode-btn-group" id="mode-btn-group">
-          <button id="btn-mode-reference" class="mode-btn active ref-mode" title="Faithful Simone Conradi Artwork (Formula Protected)">
+          <button id="btn-mode-reference" class="mode-btn active ref-mode" title="The published Simone Conradi artwork: fixed formula and framing">
             <span class="mode-dot ref-dot"></span>Reference
           </button>
-          <button id="btn-mode-explore" class="mode-btn exp-mode" title="Interactive Mathematical Sandbox">
+          <button id="btn-mode-explore" class="mode-btn exp-mode" title="Change the mathematics: coefficients, order, palette, zoom">
             <span class="mode-dot exp-dot"></span>Explore
           </button>
         </div>
@@ -1237,7 +1237,7 @@
           </div>
         </div>
 
-        <button id="btn-preset-trigger" title="Save &amp; Load Presets">💾 Presets</button>
+        <button id="btn-preset-trigger" title="Presets: save, load, import (S)">💾 Presets</button>
 
         <!-- Export: one primary action; Reference Master lives in the menu -->
         <div class="dropdown-container btn-group" style="padding:1px;">
@@ -1275,9 +1275,9 @@
           <div class="panel-row">
             <span class="panel-label">Palette</span>
             <div class="dropdown-container" id="palette-container">
-              <button id="btn-palette-toggle" title="Color Grading Palette" aria-haspopup="true" aria-expanded="false">Palette ▾</button>
+              <button id="btn-palette-toggle" title="Color palette" aria-haspopup="true" aria-expanded="false">Palette ▾</button>
               <div id="palette-menu" class="dropdown-menu">
-                <div class="dropdown-header">Color Grading Palettes</div>
+                <div class="dropdown-header">Color palettes</div>
                 <button class="palette-select-btn active" data-pal="cobalt">Cobalt (Conradi Reference)</button>
                 <button class="palette-select-btn" data-pal="solar">Solar Amber</button>
                 <button class="palette-select-btn" data-pal="aurora">Aurora Emerald</button>
@@ -1290,21 +1290,21 @@
           <div class="panel-row">
             <span class="panel-label">Zoom</span>
             <div class="btn-group">
-              <button id="btn-zoom-in" title="Zoom In (+)">+</button>
-              <button id="btn-zoom-out" title="Zoom Out (-)">−</button>
-              <button id="btn-zoom-reset" title="Reset Zoom">1×</button>
+              <button id="btn-zoom-in" title="Zoom in">+</button>
+              <button id="btn-zoom-out" title="Zoom out">−</button>
+              <button id="btn-zoom-reset" title="Reset zoom">1×</button>
             </div>
           </div>
           <div class="panel-row">
             <span class="panel-label">Display</span>
             <div class="btn-group">
-              <button id="btn-bloom" class="active">Bloom: ON</button>
-              <button id="btn-readout" class="active">Readout</button>
+              <button id="btn-bloom" class="active" title="Soft glow around the brightest filaments (B)">Bloom: On</button>
+              <button id="btn-readout" class="active" title="Show the live equation and coefficients (O)">Readout</button>
             </div>
           </div>
           <div class="panel-row">
             <button id="btn-reset" title="Reset framing and offsets">Reset view</button>
-            <button id="btn-hide">Hide [H]</button>
+            <button id="btn-hide" title="Hide all controls; H or the corner button brings them back">Hide controls [H]</button>
           </div>
         </div>
       </section>
@@ -1327,7 +1327,7 @@
           </div>
           <div class="panel-row">
             <span class="panel-label">Drift</span>
-            <button id="btn-pause" title="Toggle autonomous coefficient drift">Pause</button>
+            <button id="btn-pause" title="Pause or resume the slow autonomous drift of the coefficients (Space)">Pause</button>
           </div>
           <div class="panel-row">
             <button id="btn-coeff" type="button" aria-expanded="false" aria-controls="coeff-drawer">Coefficients</button>
@@ -1340,7 +1340,7 @@
               🔒 Coefficients locked in Reference Mode. Switch to Explore to edit.
             </div>
             <div style="font-size: 10.5px; color: #8aa6cc; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px;">
-              Live Mobius Perturbation Controls
+              Coefficient offsets (live)
             </div>
             <div class="coeff-explain">Offsets are added to the base coefficients. Edits apply live.</div>
             <div class="coeff-row">
@@ -1368,7 +1368,7 @@
             </div>
             <div class="coeff-eff" title="Im(d): base value, then the effective value after offset and drift">Im(d) base <span id="coeff-base-d-im">0.840</span> → <span id="coeff-live-d-im">0.840</span></div>
             <div style="display:flex; justify-content: flex-end; margin-top: 4px;">
-              <button id="btn-reset-coeffs" style="padding: 3px 8px; font-size: 10.5px;">Reset offsets</button>
+              <button id="btn-reset-coeffs" title="Set the four offsets back to 0" style="padding: 3px 8px; font-size: 10.5px;">Reset offsets</button>
             </div>
           </div>
         </div>
@@ -1379,13 +1379,13 @@
         <div class="panel-section-body" id="panel-body-quality">
           <p class="panel-note" id="quality-helper">Live preview only. Standard Export and Reference Master use their own settings and are not affected.</p>
           <div class="btn-group" id="quality-btn-group">
-            <button class="quality-btn active" data-tier="auto" title="Auto (Empirical 60 FPS Headroom Ladder)">Auto</button>
-            <button class="quality-btn" data-tier="low" title="Low (75k x 8)">Low</button>
-            <button class="quality-btn" data-tier="standard" title="Standard (150k x 8)">Standard</button>
-            <button class="quality-btn" data-tier="high" title="High (250k x 8)">High</button>
-            <button class="quality-btn" data-tier="ultra" title="Ultra (400k x 10)">Ultra</button>
-            <button class="quality-btn" data-tier="extreme" title="Extreme (589k x 12)">Extreme</button>
-            <button class="quality-btn" data-tier="bruteforce" title="Maximum live GPU load — high-end hardware recommended. (589k particles x 16 steps, 9.44M deposits/frame)">Brute Force</button>
+            <button class="quality-btn active" data-tier="auto" title="Auto: picks the highest tier that holds 60 FPS">Auto</button>
+            <button class="quality-btn" data-tier="low" title="Low: 75k particles × 8 steps per frame">Low</button>
+            <button class="quality-btn" data-tier="standard" title="Standard: 150k particles × 8 steps per frame">Standard</button>
+            <button class="quality-btn" data-tier="high" title="High: 250k particles × 8 steps per frame">High</button>
+            <button class="quality-btn" data-tier="ultra" title="Ultra: 400k particles × 10 steps per frame">Ultra</button>
+            <button class="quality-btn" data-tier="extreme" title="Extreme: 589k particles × 12 steps per frame">Extreme</button>
+            <button class="quality-btn" data-tier="bruteforce" title="Maximum live GPU load — high-end hardware recommended. (589k particles × 16 steps, 9.44M deposits per frame)">Brute Force</button>
           </div>
           <p class="panel-note" id="quality-current-tier" hidden></p>
           <div class="panel-warn" id="quality-warning" role="note" hidden>Maximum live GPU load — high-end hardware recommended.</div>
@@ -1396,8 +1396,8 @@
         <button class="panel-section-head" type="button" aria-expanded="false" aria-controls="panel-body-developer"><span>Developer</span><span class="chev" aria-hidden="true">▾</span></button>
         <div class="panel-section-body" id="panel-body-developer" hidden>
           <div class="panel-row">
-            <button id="btn-raw">Raw</button>
-            <button id="btn-debug">Debug [D]</button>
+            <button id="btn-raw" title="Show raw particle trajectories before accumulation (T)">Raw trajectories</button>
+            <button id="btn-debug" title="Show the debug overlay (D)">Debug overlay [D]</button>
           </div>
         </div>
       </section>
@@ -1443,7 +1443,7 @@
       <div class="dbg-row"><span>Zoom Level:</span> <span class="dbg-val" id="dbg-zoom">1.00x</span></div>
       <div class="dbg-row"><span>Render Resolution:</span> <span class="dbg-val" id="dbg-res">--</span></div>
       <div style="margin-top: 8px; font-size: 10.5px; color: #86a3ca; border-top: 1px solid rgba(40, 80, 140, 0.2); padding-top: 4px;">
-        Click to perturb • Drag (Right-click/Shift) to Pan • Scroll to Zoom • [D] Toggle Debug
+        Hover to bend • Click for a shock • Shift/right-drag to pan • Wheel to zoom • [D] toggles this overlay
       </div>
     </div>
   </div>
@@ -1595,31 +1595,31 @@
   <div id="preset-modal" class="modal-backdrop">
     <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-modal-title" tabindex="-1" style="max-width:540px;">
       <div class="modal-title">
-        <span id="preset-modal-title">Attractor Preset Library</span>
+        <span id="preset-modal-title">Presets</span>
         <button id="btn-preset-close" aria-label="Close" style="font-size:14px; padding:2px 6px;">✕</button>
       </div>
-      <div class="modal-sub">Save current organism configuration or load curated mathematical presets.</div>
+      <div class="modal-sub">Save the current state, or load a curated preset or one saved in this browser.</div>
 
       <div class="modal-section">
-        <div class="modal-section-title">Curated Masterpiece Presets</div>
+        <div class="modal-section-title">Curated presets</div>
         <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:6px;" id="curated-presets-list">
           <!-- Populated dynamically -->
         </div>
       </div>
 
       <div class="modal-section">
-        <div class="modal-section-title">Save Current Preset</div>
+        <div class="modal-section-title">Save current state</div>
         <div style="display:flex; flex-wrap:wrap; gap:6px;">
-          <input type="text" id="preset-name-input" placeholder="Organism Name" style="flex:1; min-width:140px; background:rgba(10,24,48,0.7); border:1px solid rgba(40,90,160,0.4); border-radius:6px; color:#c0daf8; padding:4px 8px; font-size:11px;">
+          <input type="text" id="preset-name-input" placeholder="Preset name" style="flex:1; min-width:140px; background:rgba(10,24,48,0.7); border:1px solid rgba(40,90,160,0.4); border-radius:6px; color:#c0daf8; padding:4px 8px; font-size:11px;">
           <button id="btn-preset-save" class="btn-action-highlight">Save &amp; Download</button>
           <button id="btn-preset-copy">Copy JSON</button>
         </div>
       </div>
 
       <div class="modal-section" id="saved-presets-section">
-        <div class="modal-section-title">My Saved Presets</div>
+        <div class="modal-section-title">Saved in this browser</div>
         <div id="user-presets-list" style="max-height:clamp(120px, 26vh, 240px); overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
-          <div style="font-size: 10.5px; color:#86a3ca;">No custom presets saved yet.</div>
+          <div style="font-size: 10.5px; color:#86a3ca;">Nothing saved in this browser yet.</div>
         </div>
       </div>
 

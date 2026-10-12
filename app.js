@@ -548,14 +548,15 @@ export class App {
         btnPause.disabled = false;
         btnPause.innerText = this.math.evolving ? 'Pause' : 'Resume';
         btnPause.classList.toggle('active', !this.math.evolving);
-        btnPause.title = 'Toggle autonomous coefficient drift';
+        btnPause.title = 'Pause or resume the slow autonomous drift of the coefficients (Space)';
       }
     }
 
     // Palette button: update active item
     if (this.btnPaletteToggle) {
       const curPal = PALETTES[this.renderer.activePalette] || PALETTES.cobalt;
-      this.btnPaletteToggle.innerText = `Palette: ${curPal.name.split(' ')[0]} ▾`;
+      const shortName = { cobalt: 'Cobalt', solar: 'Solar', aurora: 'Aurora', amethyst: 'Amethyst', monochrome: 'Silver' }[this.renderer.activePalette] || curPal.name.split(' ')[0];
+      this.btnPaletteToggle.innerText = `Palette: ${shortName} ▾`;
     }
 
     this.syncControlState();
@@ -606,7 +607,7 @@ export class App {
 
     const bloomBtn = document.getElementById('btn-bloom');
     if (bloomBtn) {
-      bloomBtn.innerText = `Bloom: ${r.bloomEnabled ? 'ON' : 'OFF'}`;
+      bloomBtn.innerText = `Bloom: ${r.bloomEnabled ? 'On' : 'Off'}`;
       bloomBtn.classList.toggle('active', !!r.bloomEnabled);
     }
     this.updateQualityInfo();
@@ -614,7 +615,7 @@ export class App {
     const rawBtn = document.getElementById('btn-raw');
     if (rawBtn) {
       const rawOn = r.viewMode === 2;
-      rawBtn.innerText = rawOn ? 'Raw: ON' : 'Raw';
+      rawBtn.innerText = rawOn ? 'Raw trajectories: On' : 'Raw trajectories';
       rawBtn.classList.toggle('active', rawOn);
     }
   }
@@ -1755,7 +1756,7 @@ export class App {
     if (!list) return;
     const presets = this.getUserPresets();
     if (presets.length === 0) {
-      list.innerHTML = '<div style="font-size:10.5px; color:#86a3ca; padding:4px;">No custom presets saved yet.</div>';
+      list.innerHTML = '<div style="font-size:10.5px; color:#86a3ca; padding:4px;">Nothing saved in this browser yet.</div>';
       return;
     }
     list.innerHTML = '';
@@ -1893,7 +1894,7 @@ export class App {
       }
       // Authoritative Reference reset establishes canonical math, framing, palette, sliders, and UI state LAST
       this.setMode('reference');
-      this.showToast(`Loaded preset: ${preset.name || 'Simone Conradi (Reference Artwork)'}`);
+      this.showToast(`Loaded preset: ${preset.name || 'Simone Conradi (Reference Artwork)'}${this.presetQualityNote(preset)}`);
       return;
     }
 
@@ -1937,7 +1938,15 @@ export class App {
     this.renderer.clearAccumulation();
     this.updateModeUI();
     this.updateReadout();
-    this.showToast(`Loaded preset: ${preset.name || 'Unnamed'}`);
+    this.showToast(`Loaded preset: ${preset.name || 'Unnamed'}${this.presetQualityNote(preset)}`);
+  }
+
+  /** " · Quality: High" when a preset switched live quality to a manual tier, so it is not a surprise. */
+  presetQualityNote(preset) {
+    const tier = String(preset?.rendering?.tier || '').toLowerCase();
+    if (!tier || tier === 'auto') return '';
+    const names = { potato: 'Potato', low: 'Low', standard: 'Standard', high: 'High', ultra: 'Ultra', extreme: 'Extreme', brute: 'Brute Force', bruteforce: 'Brute Force', brute_force: 'Brute Force' };
+    return ` · Quality: ${names[tier] || tier}`;
   }
 
   copyPresetJSON() {
