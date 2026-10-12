@@ -1,0 +1,6 @@
+<!doctype html><script type="module">
+const frame=document.createElement('iframe');frame.src='./test_math_units.html';document.body.append(frame);
+await new Promise(resolve=>frame.onload=resolve);
+const results=JSON.parse(frame.contentDocument.getElementById('results').innerText);
+await fetch('/test_report',{method:'POST',body:JSON.stringify(results)});
+</script>

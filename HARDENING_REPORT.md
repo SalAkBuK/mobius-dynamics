@@ -59,3 +59,22 @@ Reproduced: harmless image onerror payloads executed from user preset names and 
 Files: app.js, test_issue11_metadata.html, this report. Baseline 1/1; post-fix 5/5 including literal text, no image/SVG execution, imports/toasts and existing handlers. Previous preset validation, Reference invariant and modes/export tests pass (96 total).
 
 Issue 10 pushed and confirmed: `9dc300b8c6f31d445a747f79223d267e6bf295b2`.
+
+## Issue 12 ? stochastic randomizer stability
+
+No functional instability reproduced; production ranges unchanged. test_issue12_randomizer.html uses fixed PRNG seed 0x12adbeef, 1000 consecutive generations per family (including cumulative subtle mutations). Every state checks integer supported symmetry, finite roots/base/effective/inverse/second-iterate transforms, finite CPU orbit evaluation and math.update, determinant range, real GPU simulation/deposits, finite particle readback, GL errors and zero new handles. Each case uses 1024 particles, four 16-step frames at 64-square display, with accumulation reset and particle seed reset; this is a broad transform stress sample, not a full-tier performance benchmark.
+
+6006 assertions pass, zero blank or near-all-white cases, observed determinant magnitude 0.22889?1.81838. Per-family end-sample metrics (divergence >radius5; respawn proxy age<50; out-of-view based on camera clip bounds):
+
+| Family | Divergence rate | Age<50 rate | Out of view | Max case CPU + GPU readback ms |
+|---|---:|---:|---:|---:|
+| conradi-like | 0.00004590 | 0.00177930 | 0.00402344 | 127.9 |
+| subtle | 0.00001660 | 0.00054590 | 0.00081348 | 10.3 |
+| organic | 0.00007129 | 0.00218066 | 0.00534473 | 12.9 |
+| dense lace | 0.00004102 | 0.00293066 | 0.00341699 | 11.6 |
+| symmetric | 0.00003418 | 0.00302832 | 0.00419922 | 10.5 |
+| chaotic | 0.00008594 | 0.00523535 | 0.00688574 | 10.2 |
+
+No cases exceeded 250 ms. Timings include synchronous readback and are not isolated GPU timer measurements. No JS heap/VRAM stability claim. Reference transition is canonical after every family. Previous math, Reference, modes/export, preset validation and metadata suites pass: 6107 assertions total. Files: test_issue12_randomizer.html, test_math_reporting.html (report adapter for existing unchanged five math tests), this report.
+
+Issue 11 pushed and confirmed: `aad0528c2d88b28faecbc16df8be5fb92264a47d`.

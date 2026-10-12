@@ -1,0 +1,33 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,sleep,trackResources,reporter} from './hardening_test_helpers.js';
+import {RANDOM_STYLES,MobiusTransform,Complex} from './math.js';
+const {check,finish}=reporter();
+try{const {app,w}=await boot(),r=app.renderer,m=app.math,gl=r.gl;r.resize(64,64);r.particlesOverride=1024;r.stepsOverride=16;r.adaptive.setMode('potato');
+ const resources=trackResources(gl),pixels=new Uint8Array(64*64*4),photons=new Float32Array(r.accumWidth*r.accumHeight*4),particles=new Float32Array(1024*4),initial=new Float32Array(1024*4);
+ for(let i=0;i<1024;i++){const angle=i*Math.PI/512;initial[i*4]=.4*Math.cos(angle);initial[i*4+1]=.4*Math.sin(angle);initial[i*4+2]=0;initial[i*4+3]=(i*1973+97)&0xffffff;}
+ let rng=0x12adbeef; // replaced below with a fixed reproducible uint seed
+ w.Math.random=()=>{rng=(Math.imul(rng,1664525)+1013904223)>>>0;return rng/4294967296;};
+ for(const family of RANDOM_STYLES){m.resetToReference();let blanks=0,white=0,diverged=0,respawn=0,outside=0,maxMs=0,slow=0,minDet=Infinity,maxDet=0;
+  for(let i=0;i<1000;i++){
+   const start=performance.now();m.randomize(family);m.evolving=true;m.update(.016,1.65);m.update(10,1.65);
+   const fields=['a','b','c','d','invA','invB','invC','invD','a2','b2','c2','d2','baseA','baseB','baseC','baseD'];
+   const det=m.a.mul(m.d).sub(m.b.mul(m.c)).abs();minDet=Math.min(minDet,det);maxDet=Math.max(maxDet,det);
+   const orbit=new MobiusTransform(m.a,m.b,m.c,m.d).eval(new Complex(.3,-.2));
+   const cpu=Number.isInteger(m.n)&&m.n>=1&&m.n<=64&&m.omegas.length===m.n&&m.omegas.every(z=>Number.isFinite(z.r)&&Number.isFinite(z.i))&&fields.every(k=>Number.isFinite(m[k].r)&&Number.isFinite(m[k].i))&&det>1e-9&&det<1e9&&Number.isFinite(orbit.r)&&Number.isFinite(orbit.i);
+   r.zoom=r.targetZoom=1.65;r.viewCenter=[0,0];r.targetViewCenter=[0,0];r.clearAccumulation();r.respawnRequested=false;
+   for(const vbo of r.simVbos){gl.bindBuffer(gl.COPY_WRITE_BUFFER,vbo);gl.bufferSubData(gl.COPY_WRITE_BUFFER,0,initial);}gl.bindBuffer(gl.COPY_WRITE_BUFFER,null);
+   for(let j=0;j<4;j++)r.render(m,.016);
+   gl.bindFramebuffer(gl.FRAMEBUFFER,r.accumFbos[r.accumReadIdx]);gl.readPixels(0,0,r.accumWidth,r.accumHeight,gl.RGBA,gl.FLOAT,photons);
+   const signal=photons.some((v,index)=>index%4===0&&v>0);if(!signal)blanks++;
+   gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.readPixels(0,0,64,64,gl.RGBA,gl.UNSIGNED_BYTE,pixels);let bright=0;
+   for(let p=0;p<pixels.length;p+=4)if(pixels[p]>250&&pixels[p+1]>250&&pixels[p+2]>250)bright++;if(bright>64*64*.95)white++;
+   gl.bindBuffer(gl.COPY_READ_BUFFER,r.simVbos[r.vboCur]);gl.getBufferSubData(gl.COPY_READ_BUFFER,0,particles);gl.bindBuffer(gl.COPY_READ_BUFFER,null);
+   let finite=true;for(let p=0;p<particles.length;p+=4){const x=particles[p],y=particles[p+1],age=particles[p+2];finite&&=Number.isFinite(x)&&Number.isFinite(y)&&Number.isFinite(age);if(x*x+y*y>25)diverged++;if(age<50)respawn++;if(Math.abs(x)>1/1.65||Math.abs(y)>1/1.65)outside++;}
+   const error=gl.getError(),elapsed=performance.now()-start;maxMs=Math.max(maxMs,elapsed);if(elapsed>250)slow++;
+   check(family+' sample '+i,cpu&&finite&&signal&&error===gl.NO_ERROR&&resources.empty(),(!cpu||!finite||!signal||error)?JSON.stringify({cpu,finite,signal,error}):'');
+   if(i%25===0){document.title=family+' '+i;await sleep(0);}
+  }
+  app.setMode('reference');check(family+' summary and canonical transition',m.n===16&&m.time===0&&m.a.r===-.755&&r.zoom===1.65&&r.activePalette==='cobalt',JSON.stringify({samples:1000,blanks,nearAllWhite:white,particleDivergenceRate:diverged/1024000,respawnAgeBelow50Rate:respawn/1024000,outOfViewRate:outside/1024000,minDet,maxDet,maxCaseCpuAndGpuReadbackMs:maxMs,casesOver250ms:slow,temporaryHandles:resources.counts()}));
+ }
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>
