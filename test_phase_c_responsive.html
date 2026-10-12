@@ -22,6 +22,7 @@ try{
     app.showToast('Export interrupted because the graphics context was lost. The renderer recovered; please try again.',30000);await sleep(60);
     const panel=$('controls-panel'),pb=panel.getBoundingClientRect(),cs=w.getComputedStyle(panel);
     check(tag+'Controls panel is inside the viewport',inside(pb,w.innerWidth,w.innerHeight),JSON.stringify([pb.left,pb.top,pb.right,pb.bottom]));
+    check(tag+'body.panel-open follows the panel, and on narrow screens the readout chip is hidden behind the open sheet',doc.body.classList.contains('panel-open')&&(vw>820||w.getComputedStyle($('equation-readout')).display==='none'));
     check(tag+'the panel never covers the primary bar',pb.top>=bar.bottom-1||pb.left>=bar.right||pb.right<=bar.left);
     check(tag+'panel scrolls internally instead of growing past the viewport',/auto|scroll/.test(cs.overflowY)&&(panel.scrollHeight<=panel.clientHeight||pb.height<=w.innerHeight));
     if(vw<=820)check(tag+'narrow: Controls is a bottom sheet (full width, anchored to the bottom)',Math.abs(pb.bottom-w.innerHeight)<=16&&pb.width>=Math.min(vw-24,300)&&pb.top>=bar.bottom-1);
@@ -37,6 +38,7 @@ try{
     w.dispatchEvent(new w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
     check(tag+'Esc closes the Controls panel',!panel.classList.contains('open'));
     $('btn-controls').click();$('btn-controls-close').click();
+    check(tag+'closing the panel restores the readout chip and clears body.panel-open',!doc.body.classList.contains('panel-open')&&w.getComputedStyle($('equation-readout')).display!=='none');
     check(tag+'the panel close button closes it',!panel.classList.contains('open'));
     app.toastBanner.classList.remove('show');
     for(const [name,open] of [['presets',()=>app.openPresetModal()],['export',()=>app.openExportModal()],['help',()=>app.openHelpModal()]]){

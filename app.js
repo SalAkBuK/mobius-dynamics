@@ -736,6 +736,7 @@ export class App {
     const open = force === undefined ? !this.panelOpen : !!force;
     this.panelOpen = open;
     this.controlsPanel?.classList.toggle('open', open);
+    document.body.classList.toggle('panel-open', open);
     const btn = document.getElementById('btn-controls');
     if (btn) {
       btn.classList.toggle('active', open);
