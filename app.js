@@ -611,7 +611,9 @@ export class App {
           this.renderer.targetViewCenter[1] = this.dragCenterStart[1] + dy * scale;
         }
       } else {
-        if (this.mode === 'explore') {
+        // Canvas = interactive surface, UI = safe surface: hover only perturbs the
+        // artwork while the pointer is actually over the canvas.
+        if (this.mode === 'explore' && e.target === this.canvas) {
           const normX = (e.clientX / window.innerWidth) * 2 - 1;
           const normY = 1 - (e.clientY / window.innerHeight) * 2;
           this.math.setPointer(normX, normY);
@@ -643,6 +645,13 @@ export class App {
     });
 
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Leaving the canvas returns the pointer target to neutral; the existing damping in
+    // MathSystem.update() then relaxes the current influence smoothly (no hard reset).
+    this.canvas.addEventListener('pointerleave', () => {
+      if (this.isExporting || this.renderer?.isExporting) return;
+      if (this.mode === 'explore') this.math.setPointer(0, 0);
+    });
 
     // Wheel zoom: in Reference mode, framing is strictly preserved
     this.canvas.addEventListener('wheel', (e) => {
