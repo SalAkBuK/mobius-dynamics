@@ -35,3 +35,12 @@ export function explore(app){app.setMode('explore');const r=app.renderer,m=app.m
   r.targetViewCenter=[.07,-.03];r.activePalette='solar';r.bloomEnabled=true;r.viewMode=0;r.gain=3;r.clearAccumulation();seed(r);}
 export function reporter(){const results=[];return {results,check:(name,passed,details='')=>results.push({name,passed:!!passed,details}),
   async finish(){document.body.textContent=JSON.stringify(results,null,2);await fetch('/test_report',{method:'POST',body:JSON.stringify(results)});}};}
+export function trackResources(gl){const sets={};
+  for(const kind of ['Buffer','Texture','Framebuffer','VertexArray','Program','Shader','Query']){
+    const set=sets[kind]=new Set(),create=gl['create'+kind].bind(gl),remove=gl['delete'+kind].bind(gl);
+    gl['create'+kind]=(...args)=>{const value=create(...args);if(value)set.add(value);return value;};
+    gl['delete'+kind]=value=>{set.delete(value);return remove(value);};
+  }
+  return {sets,counts:()=>Object.fromEntries(Object.entries(sets).map(([k,v])=>[k,v.size])),
+    empty:()=>Object.values(sets).every(set=>set.size===0),clear:()=>Object.values(sets).forEach(set=>set.clear())};
+}

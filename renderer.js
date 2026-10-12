@@ -200,26 +200,33 @@ export class MobiusRenderer {
     this._interruptExport?.();
   }
 
-  waitForExport(start) {
+  assertExportAvailable() {
     this.assertContextAvailable();
+    if (this._exportSignal?.aborted) throw new DOMException('Export canceled.', 'AbortError');
+  }
+
+  waitForExport(start) {
+    this.assertExportAvailable();
     return new Promise((resolve, reject) => {
       let cleanup;
       let settled = false;
       const finish = (value, error) => {
         if (settled) return;
         settled = true;
+        this._exportSignal?.removeEventListener('abort', interrupt);
         this._interruptExport = null;
         cleanup?.();
         if (error) reject(error);
         else {
-          try { this.assertContextAvailable(); resolve(value); }
+          try { this.assertExportAvailable(); resolve(value); }
           catch (lost) { reject(lost); }
         }
       };
-      this._interruptExport = () => {
-        try { this.assertContextAvailable(); }
+      const interrupt = this._interruptExport = () => {
+        try { this.assertExportAvailable(); }
         catch (lost) { finish(null, lost); }
       };
+      this._exportSignal?.addEventListener('abort', interrupt, { once: true });
       try { cleanup = start(value => finish(value)); }
       catch (error) { finish(null, error); }
     });
@@ -227,10 +234,10 @@ export class MobiusRenderer {
 
   async encodeExport(canvas, filename, onProgress, message) {
     const blob = await this.waitForExport(done => { canvas.toBlob(done, 'image/png'); });
-    this.assertContextAvailable();
+    this.assertExportAvailable();
     if (!blob || !blob.size) throw new Error('PNG encoding failed.');
     onProgress(100, message);
-    this.assertContextAvailable();
+    this.assertExportAvailable();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -1470,16 +1477,17 @@ export class MobiusRenderer {
     const height = options.height || 2160;
     const accumFrames = options.accumFrames || 60;
     const filename = options.filename || 'simone_conradi_reference_4k.png';
-    this.assertContextAvailable();
+    this.assertExportAvailable();
     const onProgress = (pct, message) => {
-      this.assertContextAvailable();
+      this.assertExportAvailable();
       options.onProgress?.(pct, message);
-      this.assertContextAvailable();
+      this.assertExportAvailable();
     };
 
     if (this.isExporting) throw new Error('An export is already in progress.');
     const session = this.captureExportSession(mathSys);
     const image = session.renderer;
+    this._exportSignal = options.signal || null;
     this.isExporting = true;
     const gl = this.gl;
 
@@ -1588,7 +1596,7 @@ export class MobiusRenderer {
       while (framesDone < totalFrames) {
         const chunk = Math.min(chunkSize, totalFrames - framesDone);
         for (let c = 0; c < chunk; c++) {
-          this.assertContextAvailable();
+          this.assertExportAvailable();
           const readTex = this.accumTextures[this.accumReadIdx];
           const writeFbo = this.accumFbos[1 - this.accumReadIdx];
 
@@ -1625,7 +1633,7 @@ export class MobiusRenderer {
           gl.uniform1f(this.simUniforms.respawnAll, 0.0);
 
           for (let s = 0; s < exportSteps; s++) {
-            this.assertContextAvailable();
+            this.assertExportAvailable();
             gl.useProgram(this.simProg);
             gl.uniform1f(this.simUniforms.step, s);
             gl.enable(gl.RASTERIZER_DISCARD);
@@ -1775,6 +1783,7 @@ export class MobiusRenderer {
       this.vboCur = origVboCur;
       mathSys.evolving = origEvolving;
       this.restoreExportSession(mathSys, session);
+      this._exportSignal = null;
       this.isExporting = false;
 
       if (!this.isContextUnavailable()) {
@@ -1795,11 +1804,11 @@ export class MobiusRenderer {
     const height = 4096;
     const accumPasses = options.accumPasses || options.accumFrames || 120;
     const filename = options.filename || 'mobius-reference-master-4096.png';
-    this.assertContextAvailable();
+    this.assertExportAvailable();
     const onProgress = (pct, message) => {
-      this.assertContextAvailable();
+      this.assertExportAvailable();
       options.onProgress?.(pct, message);
-      this.assertContextAvailable();
+      this.assertExportAvailable();
     };
 
     const gl = this.gl;
@@ -1812,6 +1821,7 @@ export class MobiusRenderer {
     if (this.isExporting) throw new Error('An export is already in progress.');
     const session = this.captureExportSession(mathSys);
     const image = session.renderer;
+    this._exportSignal = options.signal || null;
     this.isExporting = true;
 
     // 1. Save original renderer state and math state
@@ -1981,7 +1991,7 @@ export class MobiusRenderer {
       // Attractor convergence
       gl.uniform1f(this.simUniforms.respawnAll, 0.0);
       for (let w = 1; w <= 60; w++) {
-        this.assertContextAvailable();
+        this.assertExportAvailable();
         gl.bindVertexArray(this.simVaos[this.vboCur]);
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.simVbos[1 - this.vboCur]);
         gl.beginTransformFeedback(gl.POINTS);
@@ -2000,7 +2010,7 @@ export class MobiusRenderer {
       while (passesDone < totalPasses) {
         const chunk = Math.min(chunkSize, totalPasses - passesDone);
         for (let c = 0; c < chunk; c++) {
-          this.assertContextAvailable();
+          this.assertExportAvailable();
           const readTex = this.accumTextures[this.accumReadIdx];
           const writeFbo = this.accumFbos[1 - this.accumReadIdx];
 
@@ -2037,7 +2047,7 @@ export class MobiusRenderer {
           gl.uniform1f(this.simUniforms.respawnAll, 0.0);
 
           for (let s = 0; s < exportSteps; s++) {
-            this.assertContextAvailable();
+            this.assertExportAvailable();
             gl.useProgram(this.simProg);
             gl.uniform1f(this.simUniforms.step, s);
             gl.enable(gl.RASTERIZER_DISCARD);
@@ -2208,6 +2218,7 @@ export class MobiusRenderer {
       this.stepsPerFrame = origStepsPerFrame;
       this.vboCur = origVboCur;
       this.restoreExportSession(mathSys, session);
+      this._exportSignal = null;
       this.isExporting = false;
 
       if (!this.isContextUnavailable()) {

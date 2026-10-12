@@ -15,3 +15,11 @@ Files: `renderer.js`, `app.js`, `hardening_test_helpers.js`, `test_issue5_input_
 ## Commit and verification ledger
 
 The final consolidated ledger and integrated totals will be filled after all issues complete.
+
+## Issue 6 — cooperative cancellation
+
+Reproduced: yes. The existing Cancel control was disabled throughout a long Standard export; clicking it did not stop rendering or download (1/1 baseline assertion). Fix: optional AbortSignal per renderer export, checked at safe progress/draw boundaries, and abort-aware asynchronous waits which detach their listener and reject once. The existing App Cancel button now aborts its controller. AbortError produces canceled status, no success toast/download, restores the complete session/VBOs, clears flags/token/waiter and removes display hold. Context loss retains precedence over ordinary abort and Issue 2 owns reconstruction.
+
+Files: `renderer.js`, `app.js`, `hardening_test_helpers.js`, `test_issue6_cancellation.html`, this report. Tests cover Standard and full Master 120/240, each canceled at initialization, early development, 25%, 50%, 90%, and PNG encoding; late encoder callbacks, full VBO equality, session equality, all temporary GPU resource types, actual Cancel control, and immediate successful next export. Previous Issues 4/5, context loss, display hold and Master are rerun. Final assertion count and commit are entered in the ledger.
+
+Issue 5 pushed and confirmed at origin/main: `b7974f5f5eed3a1fee93a7bfc1c0ccf5055fac75`.

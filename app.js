@@ -737,7 +737,7 @@ export class App {
 
     // Export Modal Controls
     document.getElementById('btn-export-close')?.addEventListener('click', () => this.closeExportModal());
-    document.getElementById('btn-export-cancel')?.addEventListener('click', () => this.closeExportModal());
+    document.getElementById('btn-export-cancel')?.addEventListener('click', () => this.isExporting ? this.cancelExport() : this.closeExportModal());
     document.getElementById('btn-export-start')?.addEventListener('click', () => this.startExport());
 
     document.getElementById('tab-export-standard')?.addEventListener('click', () => this.setExportType('standard'));
@@ -930,8 +930,13 @@ export class App {
 
   async startExport() {
     if (this.isExporting || this.contextLost || this.renderer.isContextUnavailable()) return;
+    this._exportAbortController = new AbortController();
     this._exportTask = this.runExport();
     return this._exportTask;
+  }
+
+  cancelExport() {
+    this._exportAbortController?.abort();
   }
 
   async runExport() {
@@ -955,7 +960,7 @@ export class App {
     if (statusPct) statusPct.innerText = '0%';
     if (progFill) progFill.style.width = '0%';
     if (btnStart) btnStart.disabled = true;
-    if (btnCancel) btnCancel.disabled = true;
+    if (btnCancel) btnCancel.disabled = false;
 
     // REFERENCE MASTER EXPORT BRANCH
     if (this.exportType === 'reference_master') {
@@ -1027,6 +1032,7 @@ export class App {
       try {
         const blob = await this.renderer.exportReferenceMaster(this.math, {
           accumPasses: passes,
+          signal: this._exportAbortController?.signal,
           filename,
           onProgress: (pct, msg) => {
             if (statusLbl) statusLbl.innerText = msg;
@@ -1042,11 +1048,11 @@ export class App {
         }, 700);
         return blob;
       } catch (err) {
-        console.error('Reference Master Export error:', err);
+        if (err?.name !== 'AbortError') console.error('Reference Master Export error:', err);
         if (err?.name === 'WebGLContextLostError') this._exportInterrupted = true;
         const errMsg = err?.message || 'Export failed';
-        if (statusLbl) statusLbl.innerText = 'Export failed: ' + errMsg;
-        this.showToast('Reference Master Export failed: ' + errMsg);
+        if (statusLbl) statusLbl.innerText = err?.name === 'AbortError' ? 'Export canceled.' : 'Export failed: ' + errMsg;
+        this.showToast(err?.name === 'AbortError' ? 'Export canceled.' : 'Reference Master Export failed: ' + errMsg);
         if (btnStart) btnStart.disabled = false;
         if (btnCancel) btnCancel.disabled = false;
       } finally {
@@ -1093,7 +1099,9 @@ export class App {
         this.updateReadout();
         this.updateSliderInputs();
         this.isExporting = false;
-        this.scheduleDisplayHoldRemoval();
+        const canceled = this._exportAbortController?.signal.aborted;
+        this._exportAbortController = null;
+        if (canceled) this.hideExportDisplayHold(); else this.scheduleDisplayHoldRemoval();
       }
       return;
     }
@@ -1110,6 +1118,7 @@ export class App {
         width,
         height,
         accumFrames: passes,
+        signal: this._exportAbortController?.signal,
         filename,
         onProgress: (pct, msg) => {
           if (statusLbl) statusLbl.innerText = msg;
@@ -1125,17 +1134,19 @@ export class App {
       }, 700);
       return blob;
     } catch (err) {
-      console.error('Export error:', err);
+      if (err?.name !== 'AbortError') console.error('Export error:', err);
       if (err?.name === 'WebGLContextLostError') this._exportInterrupted = true;
       const errMsg = err?.message || 'Export failed';
-      if (statusLbl) statusLbl.innerText = 'Export failed: ' + errMsg;
-      this.showToast('Export failed: ' + errMsg);
+      if (statusLbl) statusLbl.innerText = err?.name === 'AbortError' ? 'Export canceled.' : 'Export failed: ' + errMsg;
+      this.showToast(err?.name === 'AbortError' ? 'Export canceled.' : 'Export failed: ' + errMsg);
       if (btnStart) btnStart.disabled = false;
       if (btnCancel) btnCancel.disabled = false;
     } finally {
       this.updateReadout();
       this.isExporting = false;
-      this.scheduleDisplayHoldRemoval();
+      const canceled = this._exportAbortController?.signal.aborted;
+      this._exportAbortController = null;
+      if (canceled) this.hideExportDisplayHold(); else this.scheduleDisplayHoldRemoval();
     }
   }
 

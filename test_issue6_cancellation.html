@@ -1,0 +1,43 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,explore,buffers,equal,state,png,sleep,reporter,trackResources} from './hardening_test_helpers.js';
+const {check,finish}=reporter(),baseline=location.search.includes('baseline');
+try{const {app,w,audit}=await boot(),r=app.renderer,m=app.math;
+  if(baseline){
+    explore(app);app.exportWidth=96;app.exportHeight=64;app.exportPasses=30;
+    const original=r.exportPNG.bind(r);let disabled,attempted=false;
+    r.exportPNG=(math,opts)=>original(math,{...opts,onProgress(p,msg){opts.onProgress(p,msg);if(p>=35&&!attempted){
+      attempted=true;disabled=w.document.getElementById('btn-export-cancel').disabled;w.document.getElementById('btn-export-cancel').click();}}});
+    const blob=await app.startExport();
+    check('Pre-fix Cancel disabled and export downloads despite click',disabled&&attempted&&!!blob&&audit.downloads===1);
+  }else{
+    const resources=trackResources(r.gl);
+    for(const [type,passes] of [['standard',30],['master',120],['master',240]]){
+      for(const stage of [0,15,25,50,90,'encode']){
+        explore(app);const before=state(app),vbos=buffers(r),downloads=audit.downloads,controller=new AbortController();
+        let error,success=false,requested=false,late;
+        const toBlob=w.HTMLCanvasElement.prototype.toBlob;
+        if(stage==='encode')w.HTMLCanvasElement.prototype.toBlob=function(callback){late=callback;requested=true;controller.abort();};
+        const opts={width:96,height:64,accumFrames:passes,accumPasses:passes,signal:controller.signal,onProgress(p){
+          if(p===100)success=true;
+          if(stage!=='encode'&&p>=stage&&!requested){requested=true;controller.abort();}
+        }};
+        try{await (type==='standard'?r.exportPNG(m,opts):r.exportReferenceMaster(m,opts));}catch(e){error=e;}
+        finally{w.HTMLCanvasElement.prototype.toBlob=toBlob;}
+        const label=type+' '+passes+' at '+stage;
+        check(label+': cooperative AbortError with no success/download',requested&&error?.name==='AbortError'&&!success&&audit.downloads===downloads,error?.message);
+        check(label+': exact live state and VBO restoration',state(app)===before&&buffers(r).every((a,i)=>equal(a,vbos[i])));
+        check(label+': flags and export waiter cleared',!r.isExporting&&!r._interruptExport&&!r._exportSignal);
+        check(label+': temporary GPU resources released',resources.empty(),JSON.stringify(resources.counts()));
+        if(late){late(new w.Blob(['late'],{type:'image/png'}));await sleep(10);check(label+': late callback cannot download',audit.downloads===downloads);}
+      }
+    }
+    explore(app);app.exportType='standard';app.exportWidth=96;app.exportHeight=64;app.exportPasses=30;
+    const method=r.exportPNG.bind(r);let once=false;
+    r.exportPNG=(math,opts)=>method(math,{...opts,onProgress(p,msg){opts.onProgress(p,msg);if(p>=35&&!once){once=true;w.document.getElementById('btn-export-cancel').click();}}});
+    const downloads=audit.downloads,blob=await app.startExport();r.exportPNG=method;
+    check('Actual Cancel control clears App flags, token and hold without download',!blob&&!app.isExporting&&!r.isExporting&&!app.displayHoldActive&&!app._exportAbortController&&audit.downloads===downloads);
+    app.exportPasses=1;const next=await app.startExport(),output=await png(next);
+    check('Cancel -> immediately start another export -> success',!!next&&output.width===96&&audit.downloads===downloads+1);
+  }
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>
