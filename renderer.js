@@ -161,6 +161,7 @@ export class MobiusRenderer {
     const resource = this.gl['create' + kind](...args);
     if (!resource) throw new Error('Unable to allocate WebGL ' + kind);
     this._initialResources?.push([kind, resource]);
+    this._exportResources?.push([kind, resource]);
     return resource;
   }
 
@@ -889,6 +890,7 @@ export class MobiusRenderer {
       this.floatCap.format, this.floatCap.type,
       data
     );
+    if (this._exportResources) this.checkExportGL('texture allocation');
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -1446,6 +1448,29 @@ export class MobiusRenderer {
    * Renders at pristine high resolution in dedicated offscreen framebuffers.
    * Performs an accumulation/develop pass without altering interactive screen state.
    */
+  validateExportDimensions(width, height) {
+    const gl = this.gl;
+    const textureLimit = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 ||
+        width > textureLimit || height > textureLimit || width > viewport[0] || height > viewport[1]) {
+      throw new Error('Requested export dimensions exceed supported texture/viewport limits.');
+    }
+  }
+
+  checkExportGL(stage) {
+    this.assertExportAvailable();
+    const error = this.gl.getError();
+    if (error !== this.gl.NO_ERROR) throw new Error(`Export ${stage} failed (WebGL error ${error}).`);
+  }
+
+  releaseExportResources() {
+    if (!this.isContextUnavailable()) {
+      for (const [kind, resource] of (this._exportResources || []).reverse()) this.gl['delete' + kind](resource);
+    }
+    this._exportResources = null;
+  }
+
   captureExportSession(mathSys) {
     const clone = value => {
       if (value === null || typeof value !== 'object') return value;
@@ -1487,6 +1512,8 @@ export class MobiusRenderer {
     if (this.isExporting) throw new Error('An export is already in progress.');
     const session = this.captureExportSession(mathSys);
     const image = session.renderer;
+    this.validateExportDimensions(width, height);
+    this._exportResources = [];
     this._exportSignal = options.signal || null;
     this.isExporting = true;
     const gl = this.gl;
@@ -1525,6 +1552,7 @@ export class MobiusRenderer {
         vboBackups[i] = this.createResource('Buffer');
         gl.bindBuffer(gl.COPY_WRITE_BUFFER, vboBackups[i]);
         gl.bufferData(gl.COPY_WRITE_BUFFER, particleBytes, gl.STATIC_COPY);
+        this.checkExportGL('particle backup allocation');
         if (gl.getBufferParameter(gl.COPY_WRITE_BUFFER, gl.BUFFER_SIZE) !== particleBytes) {
           throw new Error('Unable to allocate export particle backup.');
         }
@@ -1562,9 +1590,10 @@ export class MobiusRenderer {
       ];
 
       // RGBA8 output texture & FBO for final tonemapped post composite
-      expPostTex = gl.createTexture();
+      expPostTex = this.createResource('Texture');
       gl.bindTexture(gl.TEXTURE_2D, expPostTex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      this.checkExportGL('output texture allocation');
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       expPostFbo = this.createFbo(expPostTex);
@@ -1718,6 +1747,7 @@ export class MobiusRenderer {
       onProgress(95, 'Reading 4K framebuffer...');
       const pixels = new Uint8Array(width * height * 4);
       gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      this.checkExportGL('pixel readback');
 
       // 7. Convert to PNG via offscreen 2D canvas with vertical row flip
       onProgress(98, 'Encoding PNG...');
@@ -1725,6 +1755,7 @@ export class MobiusRenderer {
       offCanvas.width = width;
       offCanvas.height = height;
       const ctx = offCanvas.getContext('2d');
+      if (!ctx) throw new Error('Unable to allocate PNG canvas context.');
       const imgData = ctx.createImageData(width, height);
       const rowBytes = width * 4;
       for (let y = 0; y < height; y++) {
@@ -1746,27 +1777,12 @@ export class MobiusRenderer {
             gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.simVbos[i]);
             gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
           }
-          gl.deleteBuffer(vboBackups[i]);
         }
         gl.bindBuffer(gl.COPY_READ_BUFFER, null);
         gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
-
-        // 9. Clean up temporary 4K GL resources safely
-        if (expAccumTex) {
-          for (let i = 0; i < 2; i++) {
-            if (expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
-            if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
-          }
-        }
-        if (expBloomTex) {
-          for (let i = 0; i < 2; i++) {
-            if (expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
-            if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
-          }
-        }
-        if (expPostTex) gl.deleteTexture(expPostTex);
-        if (expPostFbo) gl.deleteFramebuffer(expPostFbo);
       }
+
+      this.releaseExportResources();
 
       // 10. Restore original renderer state
       this.accumWidth = origAccumWidth;
@@ -1821,6 +1837,8 @@ export class MobiusRenderer {
     if (this.isExporting) throw new Error('An export is already in progress.');
     const session = this.captureExportSession(mathSys);
     const image = session.renderer;
+    this.validateExportDimensions(width, height);
+    this._exportResources = [];
     this._exportSignal = options.signal || null;
     this.isExporting = true;
 
@@ -1899,11 +1917,15 @@ export class MobiusRenderer {
       onProgress(2, 'Allocating 4096×4096 floating-point master framebuffers...');
 
       // Backup active VBO state so interactive particles are 100% bit-exact on resume
-      vboBackups[0] = gl.createBuffer();
-      vboBackups[1] = gl.createBuffer();
+      vboBackups[0] = this.createResource('Buffer');
+      vboBackups[1] = this.createResource('Buffer');
       for (let i = 0; i < 2; i++) {
         gl.bindBuffer(gl.COPY_WRITE_BUFFER, vboBackups[i]);
         gl.bufferData(gl.COPY_WRITE_BUFFER, this.maxParticleCapacity * 16, gl.STATIC_COPY);
+        this.checkExportGL('particle backup allocation');
+        if (gl.getBufferParameter(gl.COPY_WRITE_BUFFER, gl.BUFFER_SIZE) !== this.maxParticleCapacity * 16) {
+          throw new Error('Unable to allocate export particle backup.');
+        }
         gl.bindBuffer(gl.COPY_READ_BUFFER, this.simVbos[i]);
         gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
       }
@@ -1932,9 +1954,10 @@ export class MobiusRenderer {
       expBloomFbo[1] = this.createFbo(expBloomTex[1]);
 
       // RGBA8 output texture & FBO for final tonemapped post composite (4096x4096)
-      expPostTex = gl.createTexture();
+      expPostTex = this.createResource('Texture');
       gl.bindTexture(gl.TEXTURE_2D, expPostTex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      this.checkExportGL('output texture allocation');
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       expPostFbo = this.createFbo(expPostTex);
@@ -2131,6 +2154,7 @@ export class MobiusRenderer {
       onProgress(97, 'Reading 4096×4096 framebuffer...');
       const pixels = new Uint8Array(width * height * 4);
       gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      this.checkExportGL('pixel readback');
 
       // 7. Convert to PNG via offscreen 2D canvas with vertical flip
       onProgress(99, 'Encoding 4096×4096 PNG...');
@@ -2138,6 +2162,7 @@ export class MobiusRenderer {
       offCanvas.width = width;
       offCanvas.height = height;
       const ctx = offCanvas.getContext('2d');
+      if (!ctx) throw new Error('Unable to allocate PNG canvas context.');
       const imgData = ctx.createImageData(width, height);
       const rowBytes = width * 4;
       for (let y = 0; y < height; y++) {
@@ -2151,18 +2176,6 @@ export class MobiusRenderer {
       return await this.encodeExport(offCanvas, filename, onProgress, 'Reference Master complete!');
     } finally {
       if (!this.isContextUnavailable()) {
-        // 9. Clean up temporary 4096 GL resources safely
-        for (let i = 0; i < 2; i++) {
-          if (expAccumTex && expAccumTex[i]) gl.deleteTexture(expAccumTex[i]);
-          if (expAccumFbo && expAccumFbo[i]) gl.deleteFramebuffer(expAccumFbo[i]);
-        }
-        for (let i = 0; i < 2; i++) {
-          if (expBloomTex && expBloomTex[i]) gl.deleteTexture(expBloomTex[i]);
-          if (expBloomFbo && expBloomFbo[i]) gl.deleteFramebuffer(expBloomFbo[i]);
-        }
-        if (expPostTex) gl.deleteTexture(expPostTex);
-        if (expPostFbo) gl.deleteFramebuffer(expPostFbo);
-
         // Restore particle VBO data
         if (vboBackups) {
           for (let i = 0; i < 2; i++) {
@@ -2172,7 +2185,6 @@ export class MobiusRenderer {
                 gl.bindBuffer(gl.COPY_WRITE_BUFFER, this.simVbos[i]);
                 gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, this.maxParticleCapacity * 16);
               }
-              gl.deleteBuffer(vboBackups[i]);
             }
           }
           gl.bindBuffer(gl.COPY_READ_BUFFER, null);
@@ -2201,6 +2213,8 @@ export class MobiusRenderer {
         if (typeof mathSys.updateRootsOfUnity === 'function') mathSys.updateRootsOfUnity();
         if (typeof mathSys.computeTransforms === 'function') mathSys.computeTransforms();
       }
+
+      this.releaseExportResources();
 
       // 10. Restore original renderer state
       this.accumWidth = origAccumWidth;

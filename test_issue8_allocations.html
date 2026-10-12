@@ -1,0 +1,45 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,explore,buffers,equal,state,trackResources,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter(),baseline=location.search.includes('baseline');
+try{const {app,w,audit}=await boot(),r=app.renderer,m=app.math,gl=r.gl,resources=trackResources(gl);
+  let unsafe=0;
+  for(const type of ['standard','master'])for(const stage of ['texture cap','viewport cap','second texture','second FBO','incomplete FBO',
+    'texture allocation error','second particle backup','TypedArray allocation','readPixels','2D context','ImageData','PNG']){
+    explore(app);const before=state(app),vbos=buffers(r),downloads=audit.downloads;
+    const saved={},save=(obj,key,value)=>{saved[key]=[obj,obj[key]];obj[key]=value;};let calls=0,pendingError=false,error,blob;
+    if(stage==='texture cap'||stage==='viewport cap'){
+      const get=gl.getParameter.bind(gl);save(gl,'getParameter',p=>p===(stage==='texture cap'?gl.MAX_TEXTURE_SIZE:gl.MAX_VIEWPORT_DIMS)?(stage==='texture cap'?64:[64,64]):get(p));
+    }
+    if(stage==='second texture'||stage==='second FBO'||stage==='second particle backup'){
+      const name=stage==='second texture'?'createTexture':stage==='second FBO'?'createFramebuffer':'createBuffer',create=gl[name].bind(gl);
+      save(gl,name,(...args)=>++calls===2?null:create(...args));
+    }
+    if(stage==='incomplete FBO'){const status=gl.checkFramebufferStatus.bind(gl);save(gl,'checkFramebufferStatus',(...args)=>++calls===2?gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT:status(...args));}
+    if(stage==='texture allocation error'){
+      const image=gl.texImage2D.bind(gl),get=gl.getError.bind(gl);
+      save(gl,'texImage2D',(...args)=>{if(++calls===1){pendingError=true;return;}return image(...args);});
+      save(gl,'getError',()=>{if(pendingError){pendingError=false;return gl.OUT_OF_MEMORY;}return get();});
+    }
+    if(stage==='TypedArray allocation'){
+      const Native=w.Uint8Array,bytes=(type==='standard'?96*64:4096*4096)*4;
+      save(w,'Uint8Array',new Proxy(Native,{construct(target,args){if(args[0]===bytes)throw new RangeError('Injected readback allocation');return Reflect.construct(target,args);}}));
+    }
+    if(stage==='readPixels')save(gl,'readPixels',()=>{throw Error('Injected readPixels failure');});
+    if(stage==='2D context'){const get=w.HTMLCanvasElement.prototype.getContext;save(w.HTMLCanvasElement.prototype,'getContext',function(kind,...args){return kind==='2d'?null:get.call(this,kind,...args);});}
+    if(stage==='ImageData')save(w.CanvasRenderingContext2D.prototype,'createImageData',()=>{throw new RangeError('Injected ImageData allocation');});
+    if(stage==='PNG')save(w.HTMLCanvasElement.prototype,'toBlob',function(callback){callback(null);});
+    try{blob=await (type==='standard'?r.exportPNG(m,{width:96,height:64,accumFrames:1}):r.exportReferenceMaster(m,{accumPasses:1}));}
+    catch(e){error=e;}finally{for(const [key,[obj,value]] of Object.entries(saved))obj[key]=value;}
+    const liveEqual=state(app)===before&&buffers(r).every((a,i)=>equal(a,vbos[i])),leaks=resources.counts();
+    const safe=!!error&&!blob&&liveEqual&&!r.isExporting&&!r._interruptExport&&audit.downloads===downloads&&resources.empty();
+    if(baseline){unsafe+=!safe;check(type+' '+stage+': baseline audit',true,JSON.stringify({error:error?.message,downloaded:!!blob,liveEqual,leaks}));}
+    else check(type+' '+stage+': clear failure, exact state, no download/leaks',safe,JSON.stringify({error:error?.message,liveEqual,leaks}));
+    // Dispose deliberately leaked pre-fix resources and restore corrupted baseline VBOs before the next probe.
+    if(baseline){for(const [kind,set] of Object.entries(resources.sets))for(const handle of [...set])gl['delete'+kind](handle);
+      for(let i=0;i<2;i++){gl.bindBuffer(gl.COPY_WRITE_BUFFER,r.simVbos[i]);gl.bufferSubData(gl.COPY_WRITE_BUFFER,0,vbos[i]);}gl.bindBuffer(gl.COPY_WRITE_BUFFER,null);
+      for(let i=0;i<8&&gl.getError()!==gl.NO_ERROR;i++);}
+  }
+  if(baseline)check('Unsafe allocation paths reproduced',unsafe>0,'unsafe paths: '+unsafe);
+  else{explore(app);const blob=await r.exportPNG(m,{width:96,height:64,accumFrames:1});check('Usable after all failures, no silent resolution/pass fallback',!!blob&&!r.isExporting&&resources.empty());}
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

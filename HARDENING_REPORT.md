@@ -31,3 +31,11 @@ Reproduced: yes, with actual Chrome tabs and `document.hidden=true`, not only a 
 After the fix, observed hidden progress advanced Standard 66% -> 85% and Master 18% -> 22% across the same interval, with decoded outputs identical to foreground controls. The expanded real-tab fixture additionally checks cancellation and actual context loss/recovery while hidden. Files: `renderer.js`, `test_issue7_background.html`, `run_issue7_background.py`, this report. Cancellation, snapshot isolation, full VBO equality and context recovery suites are rerun.
 
 Issue 6 pushed and confirmed at origin/main: `827fbed17deedb663902baa3b284042d8e25a5ba` (77 new cancellation assertions, 289 relevant assertions total).
+
+## Issue 8 ? allocation failure safety
+
+Reproduced ten unsafe paths across Standard/Master: ignored texture/viewport limits, partial texture/FBO leaks, ignored texture allocation errors, and a failed second Master backup buffer that still downloaded and corrupted live VBO state. Baseline fixture classified 25/25 cases. Fix: validate requested dimensions against real texture and viewport limits, track every temporary handle at creation (including partial array allocations), check actual GL allocation/readback errors and backup buffer sizes, and reject unavailable 2D canvas contexts. Cleanup restores healthy live resources before releasing the export allocation scope; context loss still belongs to Issue 2. No VRAM estimate or resolution/pass reduction.
+
+Files: renderer.js, test_issue8_allocations.html, this report. Forced failures at twelve stages per export path now reject clearly with exact session/VBO restoration and zero temporary handles/downloads. A final successful export proves continued usability (25/25). Previous cancellation, snapshot, VBO, Master and context/rebuild suites pass.
+
+Issue 7 pushed and confirmed: `26902b7eb294c781f3a22a0a8122481a8131fcf0` (16 real-tab assertions; 284 relevant assertions total).
