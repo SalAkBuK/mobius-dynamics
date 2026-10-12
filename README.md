@@ -31,15 +31,22 @@ Trajectories are generated on the GPU using WebGL2 Transform Feedback and accumu
 
 | Action | Control |
 | :--- | :--- |
-| **Pointer Drag** | Perturb complex coefficients in real-time |
-| **Click / Tap** | Inject topological shock disturbance with smooth relaxation |
-| **Mouse Wheel / Pinch** | Continuous deep multi-scale zoom |
-| **Keys 1 – 6** | Switch morphology presets (`lace`, `knot`, `crown`, `storm`, `braid`, `specimen`) |
-| **N / Shift + N** | Change rotational symmetry order $n$ |
-| **P** | Pause / resume autonomous coefficient drift |
-| **R** | Reset zoom and view position |
-| **D** | Toggle development profiler HUD |
-| **H** | Hide / show live mathematical equation readout |
+| **Hover over the artwork** (Explore) | Bend the complex coefficients in real time |
+| **Click** (Explore) | Inject a topological shock with smooth relaxation |
+| **Shift-drag / right-drag** (Explore) | Pan |
+| **Mouse wheel** (Explore) | Continuous deep multi-scale zoom (framing is locked in Reference) |
+| **1 / 2 / 3** | Reference / Explore / Randomize |
+| **Space** | Pause / resume autonomous coefficient drift (Explore) |
+| **R** | Reset view |
+| **P** | Coefficient sliders (opens the Controls panel) |
+| **B / O** | Toggle bloom / equation readout |
+| **E / S** | Export / Presets |
+| **H** | Hide / show the controls |
+| **?** | Controls & shortcuts help |
+| **Esc** | Close a dialog, menu or the Controls panel |
+| **T / D / X** | Developer: raw trajectories / debug overlay / Brute Force live quality on-off |
+
+Everything else (palette, zoom buttons, order *n*, live-preview quality, display options) lives in the **Controls** panel. Touch pinch/pan gestures are not implemented.
 
 ## Local Development
 

@@ -731,6 +731,53 @@
       display: none !important;
     }
 
+    /* Mode caption (below the primary bar): short, wraps instead of clipping */
+    #mode-status-pill {
+      max-width: min(94vw, 680px);
+      white-space: normal;
+      text-align: center;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    /* Help sheet */
+    #help-modal .help-grid {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 5px 16px;
+      font-size: 11.5px;
+      line-height: 1.4;
+      color: #9cb5db;
+    }
+
+    #help-modal .help-grid dt {
+      color: #e2f0ff;
+      white-space: nowrap;
+    }
+
+    #help-modal .help-grid dd {
+      margin: 0;
+    }
+
+    #help-modal kbd {
+      display: inline-block;
+      min-width: 20px;
+      padding: 1px 6px;
+      text-align: center;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 11px;
+      color: #e2f0ff;
+      background: rgba(30, 60, 110, 0.45);
+      border: 1px solid rgba(60, 120, 210, 0.4);
+      border-radius: 5px;
+    }
+
+    #help-modal .help-note {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #8aa6cc;
+    }
+
     /* ---- Primary bar (mode, randomize, presets, export, controls) ---- */
     #controls-bar {
       gap: 6px;
@@ -971,11 +1018,12 @@
         <div class="divider"></div>
 
         <button id="btn-controls" type="button" aria-expanded="false" aria-controls="controls-panel" title="Show or hide the Controls panel">Controls</button>
+        <button id="btn-help" type="button" aria-label="Controls and shortcuts" title="Controls &amp; shortcuts (?)">?</button>
       </div>
 
       <!-- Mode Status Pill -->
       <div id="mode-status-pill" class="pill-reference">
-        <span class="mode-dot ref-dot"></span><strong>REFERENCE MODE</strong> &bull; Exact Simone Conradi 2026 Artwork (Formula Protected &bull; Drift Paused)
+        <span class="mode-dot ref-dot"></span><strong>Reference</strong> &middot; the published artwork, locked
       </div>
     </div>
 
@@ -1242,6 +1290,44 @@
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
         <button id="btn-export-cancel">Cancel</button>
         <button id="btn-export-start" class="btn-action-highlight" style="padding:6px 14px; font-weight:600;">Download PNG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help: gestures and shortcuts -->
+  <div id="help-modal" class="modal-backdrop">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="help-modal-title" tabindex="-1" style="max-width:520px;">
+      <div class="modal-title">
+        <span id="help-modal-title">Controls &amp; shortcuts</span>
+        <button id="btn-help-close" aria-label="Close" style="font-size:14px; padding:2px 6px;">✕</button>
+      </div>
+      <div class="modal-sub">Reference is the fixed published artwork. Explore lets you change the mathematics.</div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">On the artwork (Explore)</div>
+        <dl class="help-grid">
+          <dt>Hover</dt><dd>Bend the coefficients by moving the pointer over the artwork</dd>
+          <dt>Click</dt><dd>Send a shock through the pattern</dd>
+          <dt>Shift-drag / right-drag</dt><dd>Pan</dd>
+          <dt>Mouse wheel</dt><dd>Zoom (the zoom buttons are in Controls &rarr; View)</dd>
+        </dl>
+        <div class="help-note">Moving over the toolbar or panels never affects the artwork. In Reference the formula and framing are locked.</div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Keyboard</div>
+        <dl class="help-grid">
+          <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>Reference &middot; Explore &middot; Randomize</dd>
+          <dt><kbd>Space</kbd></dt><dd>Pause or resume drift (Explore)</dd>
+          <dt><kbd>R</kbd></dt><dd>Reset view</dd>
+          <dt><kbd>P</kbd></dt><dd>Coefficient sliders (opens Controls)</dd>
+          <dt><kbd>B</kbd> <kbd>O</kbd></dt><dd>Bloom &middot; equation readout</dd>
+          <dt><kbd>E</kbd> <kbd>S</kbd></dt><dd>Export &middot; Presets</dd>
+          <dt><kbd>H</kbd></dt><dd>Hide or show the controls</dd>
+          <dt><kbd>?</kbd></dt><dd>This help</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Close a dialog, menu or the Controls panel</dd>
+        </dl>
+        <div class="help-note">Advanced: <kbd>T</kbd> raw trajectories &middot; <kbd>D</kbd> debug overlay &middot; <kbd>X</kbd> Brute Force live quality on/off.</div>
       </div>
     </div>
   </div>

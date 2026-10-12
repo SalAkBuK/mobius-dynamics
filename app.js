@@ -181,6 +181,7 @@ export class App {
     this.btnPaletteToggle = document.getElementById('btn-palette-toggle');
     this.exportModal = document.getElementById('export-modal');
     this.presetModal = document.getElementById('preset-modal');
+    this.helpModal = document.getElementById('help-modal');
     this.toastBanner = document.getElementById('toast-banner');
 
     // Debug fields
@@ -466,13 +467,13 @@ export class App {
         this.modeStatusPill.className = 'pill-reference';
         this.modeStatusPill.innerHTML = `
           <span class="mode-dot ref-dot"></span>
-          <strong>REFERENCE MODE</strong> &bull; Exact Simone Conradi 2026 Artwork (Formula Protected &bull; Drift Paused)
+          <strong>Reference</strong> &middot; the published artwork, locked
         `;
       } else {
         this.modeStatusPill.className = 'pill-explore';
         this.modeStatusPill.innerHTML = `
           <span class="mode-dot exp-dot"></span>
-          <strong>EXPLORE MODE</strong> &bull; Interactive Sandbox (Pointer Perturbations &amp; Sliders Active)
+          <strong>Explore</strong> &middot; change the mathematics &mdash; hover to bend, click to shock, Shift-drag to pan
         `;
       }
     }
@@ -911,6 +912,8 @@ export class App {
         this.toggleCoeffDrawer();
       } else if (key === 'e') {
         this.openExportModal();
+      } else if (key === '?') {
+        this.openHelpModal();
       } else if (key === 's') {
         this.openPresetModal();
       } else if (key === 'x') {
@@ -1043,6 +1046,10 @@ export class App {
     });
     document.getElementById('btn-export-image')?.addEventListener('click', () => this.openExportModal('standard'));
     document.getElementById('btn-export-trigger')?.addEventListener('click', () => this.openExportModal('standard'));
+
+    // Help (gestures and shortcuts)
+    document.getElementById('btn-help')?.addEventListener('click', () => this.openHelpModal());
+    document.getElementById('btn-help-close')?.addEventListener('click', () => this.closeHelpModal());
 
     // Controls panel
     document.getElementById('btn-controls')?.addEventListener('click', () => this.togglePanel());
@@ -1179,7 +1186,7 @@ export class App {
 
   // --- Dialog focus management / keyboard ---
   isModalOpen() {
-    return [this.exportModal, this.presetModal].some(m => m?.classList.contains('visible'));
+    return [this.exportModal, this.presetModal, this.helpModal].some(m => m?.classList.contains('visible'));
   }
 
   rememberFocus() {
@@ -1199,10 +1206,11 @@ export class App {
   }
 
   handleModalKeydown(e) {
-    const modal = [this.exportModal, this.presetModal].find(m => m?.classList.contains('visible'));
+    const modal = [this.exportModal, this.presetModal, this.helpModal].find(m => m?.classList.contains('visible'));
     if (e.key === 'Escape') {
       // A running export is stopped only through the explicit Cancel button.
       if (modal === this.presetModal) this.closePresetModal();
+      else if (modal === this.helpModal) this.closeHelpModal();
       else if (!this.isExporting) this.closeExportModal();
       return;
     }
@@ -1556,6 +1564,19 @@ export class App {
       this.presetModal.classList.add('visible');
       this.focusDialog(this.presetModal);
     }
+  }
+
+  openHelpModal() {
+    if (!this.helpModal || this.isModalOpen()) return;
+    this.closeDropdowns();
+    this.rememberFocus();
+    this.helpModal.classList.add('visible');
+    this.focusDialog(this.helpModal);
+  }
+
+  closeHelpModal() {
+    this.helpModal?.classList.remove('visible');
+    this.restoreFocus();
   }
 
   closePresetModal() {

@@ -13,7 +13,7 @@ try{
   const all=[...doc.querySelectorAll('[id]')].map(e=>e.id),dupes=all.filter((id,i)=>all.indexOf(id)!==i);
   check('no duplicate ids after moving the DOM',dupes.length===0,JSON.stringify(dupes));
   const bar=[...doc.querySelectorAll('#controls-bar button')].filter(b=>!b.closest('.dropdown-menu')).map(b=>b.id);
-  check('primary bar contains only mode, Randomize, Presets, Export and Controls',JSON.stringify(bar)===JSON.stringify(['btn-mode-reference','btn-mode-explore','btn-randomize-action','btn-randomize-toggle','btn-preset-trigger','btn-export-trigger','btn-export-toggle','btn-controls']),JSON.stringify(bar));
+  check('primary bar contains only mode, Randomize, Presets, Export, Controls and Help',JSON.stringify(bar)===JSON.stringify(['btn-mode-reference','btn-mode-explore','btn-randomize-action','btn-randomize-toggle','btn-preset-trigger','btn-export-trigger','btn-export-toggle','btn-controls','btn-help']),JSON.stringify(bar));
   check('Reference Master is reachable from the Export menu',$('export-menu').contains($('btn-refmaster-trigger'))&&$('export-menu').contains($('btn-export-image')));
   check('every previously-toolbar control now lives in the Controls panel',['btn-palette-toggle','btn-zoom-in','btn-zoom-out','btn-zoom-reset','btn-bloom','btn-readout','btn-reset','btn-hide','btn-pause','btn-coeff','btn-raw','btn-debug']
     .every(id=>$('controls-panel').contains($(id)))&&doc.querySelectorAll('#controls-panel .sym-btn').length===7&&doc.querySelectorAll('#controls-panel .quality-btn').length===7&&doc.querySelectorAll('#controls-panel .coeff-slider').length===4);
