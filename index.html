@@ -1112,6 +1112,13 @@
 
     #controls-panel {
       overscroll-behavior: contain;
+      /* keep focused / scrolled-to controls clear of the sticky header */
+      scroll-padding-top: 56px;
+      scroll-padding-bottom: 12px;
+    }
+
+    .modal-dialog {
+      scroll-padding-top: 64px;
     }
 
     /* The panel header (with its close button) stays visible while the panel scrolls. */

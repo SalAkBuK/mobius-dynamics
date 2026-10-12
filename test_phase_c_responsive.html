@@ -30,6 +30,8 @@ try{
     panel.scrollTop=panel.scrollHeight;await sleep(30);
     const lastBtn=$('btn-raw'),lb=lastBtn.getBoundingClientRect();let hit=doc.elementFromPoint(lb.x+lb.width/2,lb.y+lb.height/2);
     check(tag+'the last panel control is reachable by scrolling the panel',hit===lastBtn||lastBtn.contains(hit)||panel.scrollHeight<=panel.clientHeight);
+    panel.scrollTop=panel.scrollHeight;const first=$('btn-palette-toggle');first.scrollIntoView({block:'nearest'});await sleep(30);const fb=first.getBoundingClientRect(),fh=doc.elementFromPoint(fb.x+fb.width/2,fb.y+fb.height/2);
+    check(tag+'a control scrolled/focused into view is not hidden under the sticky panel header',fh===first||first.contains(fh));
     const essential=['btn-mode-reference','btn-mode-explore','btn-randomize-action','btn-preset-trigger','btn-export-trigger','btn-controls','btn-help','btn-controls-close'].filter(id=>{
       const e=$(id);e.scrollIntoView({block:'nearest'});const b=e.getBoundingClientRect(),t=doc.elementFromPoint(b.x+b.width/2,b.y+b.height/2);return !(t===e||e.contains(t));});
     check(tag+'essential controls stay hit-testable with the panel, readout and toast open',essential.length===0,JSON.stringify(essential));
