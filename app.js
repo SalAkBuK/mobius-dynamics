@@ -742,6 +742,7 @@ export class App {
     document.getElementById('btn-reset')?.addEventListener('click', () => this.resetView());
     document.getElementById('btn-debug')?.addEventListener('click', () => this.toggleDebug());
     document.getElementById('btn-hide')?.addEventListener('click', () => this.toggleUI());
+    document.getElementById('btn-show-ui')?.addEventListener('click', () => this.toggleUI());
     document.getElementById('btn-bloom')?.addEventListener('click', () => this.toggleBloom());
     document.getElementById('btn-raw')?.addEventListener('click', () => this.toggleRawTrajectories());
     document.getElementById('btn-readout')?.addEventListener('click', () => this.toggleReadout());
@@ -1451,7 +1452,15 @@ export class App {
   toggleUI() {
     this.uiHidden = !this.uiHidden;
     this.uiContainer?.classList.toggle('hidden', this.uiHidden);
-    document.getElementById('hint-unhide')?.classList.toggle('visible', this.uiHidden);
+    document.body.classList.toggle('ui-hidden', this.uiHidden);
+    const hint = document.getElementById('hint-unhide');
+    clearTimeout(this._hintTimeout);
+    hint?.classList.toggle('visible', this.uiHidden);
+    if (this.uiHidden) {
+      // The corner button stays; the longer key hint fades after a few seconds.
+      this._hintTimeout = setTimeout(() => hint?.classList.remove('visible'), 4000);
+      document.getElementById('btn-show-ui')?.focus({ preventScroll: true });
+    }
   }
 
   toggleReadout() {

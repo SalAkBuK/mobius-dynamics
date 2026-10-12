@@ -56,13 +56,16 @@
       width: 100%;
       height: 100%;
       pointer-events: none;
-      transition: opacity 0.3s ease;
+      transition: opacity 0.3s ease, visibility 0s linear 0s;
       z-index: 5;
     }
 
     #ui-container.hidden {
       opacity: 0;
       pointer-events: none;
+      /* Keep hidden controls out of the tab order / accessibility tree. */
+      visibility: hidden;
+      transition: opacity 0.3s ease, visibility 0s linear 0.3s;
     }
 
     /* Live Mathematical Readout (Bottom Left) */
@@ -301,13 +304,43 @@
     /* Unhide Hint */
     #hint-unhide {
       position: absolute;
-      bottom: 16px;
+      bottom: 52px;
       right: 20px;
-      font-size: 10px;
-      color: rgba(90, 130, 180, 0.45);
+      font-size: 11px;
+      color: rgba(140, 175, 220, 0.8);
       letter-spacing: 0.05em;
       pointer-events: none;
       display: none;
+      z-index: 50;
+    }
+
+    #hint-unhide.visible {
+      display: block;
+    }
+
+    /* Always-available way back after Hide (touch devices have no H key). */
+    #btn-show-ui {
+      display: none;
+      position: fixed;
+      bottom: 16px;
+      right: 20px;
+      z-index: 50;
+      padding: 6px 12px;
+      font-size: 11px;
+      border: 1px solid rgba(60, 130, 220, 0.35);
+      border-radius: 16px;
+      background: rgba(3, 7, 16, 0.55);
+      color: #9cb5db;
+      opacity: 0.55;
+    }
+
+    #btn-show-ui:hover,
+    #btn-show-ui:focus-visible {
+      opacity: 1;
+    }
+
+    body.ui-hidden #btn-show-ui {
+      display: block;
     }
 
     /* Mode Switcher */
@@ -924,6 +957,7 @@
   <div id="toast-banner">Toast Notification</div>
 
   <div id="hint-unhide">Press H to restore controls</div>
+  <button id="btn-show-ui" type="button" title="Show controls (H)">Show controls</button>
   <div id="capture-container" style="display:none;"></div>
 
   <script type="module" src="./app.js"></script>
