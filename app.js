@@ -153,6 +153,9 @@ export class App {
 
     // Primary mode state: 'reference' (default faithful art) | 'explore' (interactive sandbox)
     this.mode = 'reference';
+    // In-memory snapshot of the Explore session, taken when leaving Explore for Reference
+    // and resumed automatically on the way back. Never applied while in Reference.
+    this._exploreStash = null;
 
     // UI elements
     this.uiContainer = document.getElementById('ui-container');
@@ -336,8 +339,86 @@ export class App {
     this.setMode(mode);
   }
 
+  /**
+   * Copies exactly the state that Reference intentionally overwrites (organism, offsets,
+   * order, morphology, drift flag/time, framing, palette). Quality tier, bloom/raw view and
+   * transient pointer/shock state are deliberately not part of an Explore session.
+   */
+  snapshotExploreSession() {
+    const m = this.math;
+    const r = this.renderer;
+    return {
+      n: m.n,
+      activeMorphology: m.activeMorphology,
+      baseA: m.baseA.clone(), baseB: m.baseB.clone(), baseC: m.baseC.clone(), baseD: m.baseD.clone(),
+      userOffsetA: m.userOffsetA.clone(), userOffsetB: m.userOffsetB.clone(),
+      userOffsetC: m.userOffsetC.clone(), userOffsetD: m.userOffsetD.clone(),
+      evolving: m.evolving,
+      time: m.time,
+      zoom: r.zoom,
+      targetZoom: r.targetZoom,
+      viewCenter: [...r.viewCenter],
+      targetViewCenter: [...r.targetViewCenter],
+      activePalette: r.activePalette
+    };
+  }
+
+  restoreExploreSession(s) {
+    const m = this.math;
+    const r = this.renderer;
+    const previousN = m.n;
+    m.n = s.n;
+    m.activeMorphology = s.activeMorphology;
+    m.baseA = s.baseA.clone(); m.baseB = s.baseB.clone(); m.baseC = s.baseC.clone(); m.baseD = s.baseD.clone();
+    m.userOffsetA = s.userOffsetA.clone(); m.userOffsetB = s.userOffsetB.clone();
+    m.userOffsetC = s.userOffsetC.clone(); m.userOffsetD = s.userOffsetD.clone();
+    m.evolving = s.evolving;
+    m.time = s.time;
+    m.updateRootsOfUnity();
+    m.computeTransforms();
+    r.zoom = s.zoom;
+    r.targetZoom = s.targetZoom;
+    r.viewCenter = [...s.viewCenter];
+    r.targetViewCenter = [...s.targetViewCenter];
+    r.setPalette(s.activePalette);
+    r.clearAccumulation();
+    if (m.n !== previousN) r.startSymmetryTransition();
+    this.updateSliderInputs();
+  }
+
+  /**
+   * Explicitly discards the saved Explore session and restarts Explore from the same
+   * baseline it has on first entry (canonical coefficients, zero offsets, drift off,
+   * cobalt, default framing). Only acts while in Explore; Reference is never touched.
+   */
+  startFreshExplore() {
+    if (this.isExporting || this.renderer?.isExporting) return;
+    this._exploreStash = null;
+    if (this.mode !== 'explore') return;
+    const m = this.math;
+    const r = this.renderer;
+    const previousN = m.n;
+    m.resetToReference();
+    m.setMode('explore');
+    r.zoom = 1.65;
+    r.targetZoom = 1.65;
+    r.viewCenter = [0.0, 0.0];
+    r.targetViewCenter = [0.0, 0.0];
+    r.setPalette('cobalt');
+    r.clearAccumulation();
+    if (m.n !== previousN) r.startSymmetryTransition();
+    this.updateSliderInputs();
+    this.updateModeUI();
+    this.updateReadout();
+    this.showToast('Explore restarted from the Reference baseline.');
+  }
+
   setMode(mode) {
     if (this.isExporting || this.renderer?.isExporting) return;
+    if (mode === 'reference' && this.mode === 'explore') {
+      this._exploreStash = this.snapshotExploreSession();
+    }
+    const resumeStash = (mode === 'explore' && this.mode === 'reference') ? this._exploreStash : null;
     this.mode = mode;
     this.math.setMode(mode);
 
@@ -355,8 +436,13 @@ export class App {
       this.resetSliderDisplay();
       this.showToast('Reference Mode activated • Exact Conradi artwork restored');
     } else {
-      // MODE 2 — EXPLORE:
-      this.showToast('Explore Mode activated • Interactive sandbox unlocked');
+      // MODE 2 — EXPLORE: resume the previous Explore session if one was saved.
+      if (resumeStash) {
+        this.restoreExploreSession(resumeStash);
+        this.showToast('Explore Mode • previous session resumed');
+      } else {
+        this.showToast('Explore Mode activated • Interactive sandbox unlocked');
+      }
     }
 
     this.updateModeUI();
@@ -524,7 +610,8 @@ export class App {
 
   randomize(style = null) {
     if (this.isExporting || this.renderer?.isExporting) return;
-    // Mode 3: Randomize switches to explore sandbox mode
+    // Mode 3: Randomize switches to explore sandbox mode and replaces the Explore session
+    this._exploreStash = null;
     this.mode = 'explore';
     const res = this.math.randomize(style);
     this.renderer.clearAccumulation();
@@ -1529,7 +1616,8 @@ export class App {
       return;
     }
 
-    // MODE: EXPLORE
+    // MODE: EXPLORE — the preset replaces any saved Explore session
+    this._exploreStash = null;
     this.setMode('explore');
 
     // Restore mathematical parameters (coefficients, symmetry, offsets, drift)

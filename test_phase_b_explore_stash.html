@@ -1,0 +1,87 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// Phase B / B1: Explore session stash. Reference stays canonical; leaving Explore snapshots only
+// what Reference overwrites; returning resumes it; Randomize / Explore presets / Start fresh replace it.
+import {boot,sleep,reporter} from './hardening_test_helpers.js';
+import {CONRADI_REFERENCE as C} from './math.js';
+import {CURATED_PRESETS} from './app.js';
+const {check,finish}=reporter();
+try{
+  const {w,app}=await boot(),m=app.math,r=app.renderer,doc=w.document;
+  const click=id=>doc.getElementById(id).click();
+  const pal=key=>{click('btn-palette-toggle');doc.querySelector(`.palette-select-btn[data-pal="${key}"]`).click();};
+  const slider=(id,v)=>{const s=doc.getElementById(id);s.value=v;s.dispatchEvent(new w.Event('input',{bubbles:true}));};
+  const toast=()=>doc.getElementById('toast-banner').innerText;
+  const c=z=>[z.r,z.i];
+  const session=()=>JSON.stringify({n:m.n,morph:m.activeMorphology,base:[m.baseA,m.baseB,m.baseC,m.baseD].map(c),off:[m.userOffsetA,m.userOffsetB,m.userOffsetC,m.userOffsetD].map(c),
+    evolving:m.evolving,zoom:r.targetZoom,vc:[...r.targetViewCenter],pal:r.activePalette});
+  const eq=(z,k)=>z.r===k.r&&z.i===k.i;
+  const canonical=()=>app.mode==='reference'&&m.mode==='reference'&&m.n===C.n&&eq(m.baseA,C.a)&&eq(m.baseB,C.b)&&eq(m.baseC,C.c)&&eq(m.baseD,C.d)&&
+    eq(m.a,C.a)&&eq(m.b,C.b)&&eq(m.c,C.c)&&eq(m.d,C.d)&&[m.userOffsetA,m.userOffsetB,m.userOffsetC,m.userOffsetD].every(o=>o.r===0&&o.i===0)&&!m.evolving&&m.time===0&&
+    r.targetZoom===1.65&&r.targetViewCenter[0]===0&&r.targetViewCenter[1]===0&&r.activePalette==='cobalt'&&m.pointerTarget.r===0&&m.shockMag===0;
+  const build=async()=>{click('btn-mode-explore');doc.querySelector('.sym-btn[data-n="24"]').click();slider('slider-a-re',0.21);slider('slider-c-re',-0.33);
+    pal('solar');click('btn-zoom-in');click('btn-zoom-in');m.time=12.5;m.evolving=false;await sleep(30);};
+
+  check('initial state is canonical Reference',canonical()&&app._exploreStash===null);
+  click('btn-mode-explore');
+  check('first Explore entry uses the normal baseline',app.mode==='explore'&&m.n===16&&r.activePalette==='cobalt'&&/activated/.test(toast()));
+  click('btn-mode-reference');click('btn-mode-explore');
+  check('an untouched Explore session resumes as the baseline',m.n===16&&r.activePalette==='cobalt'&&r.targetZoom===1.65);
+  click('btn-mode-reference');
+
+  await build();const A=session();
+  check('Explore session built through the UI',m.n===24&&r.activePalette==='solar'&&r.targetZoom>1.65&&m.userOffsetA.r>0.2&&m.userOffsetC.r<-0.3);
+  r.adaptive.setMode('low');r.bloomEnabled=false;r.viewMode=2;
+  click('btn-mode-reference');
+  check('Reference is exactly canonical after leaving an edited Explore',canonical());
+  check('Reference holds no stashed values (stash is a separate snapshot)',app._exploreStash&&app._exploreStash.n===24&&m.n===16&&app._exploreStash.baseA!==m.baseA&&app._exploreStash.userOffsetA!==m.userOffsetA&&app._exploreStash.userOffsetA.r===0.21&&m.userOffsetA.r===0);
+  r.adaptive.setMode('high');r.bloomEnabled=true;r.viewMode=0;
+  click('btn-mode-explore');
+  check('Explore -> Reference -> Explore restores the previous session',session()===A);
+  check('quality, bloom and raw view are not part of the stash',r.adaptive.mode==='high'&&r.bloomEnabled===true&&r.viewMode===0);
+  check('transient pointer/shock state is zero after resume',m.pointerTarget.r===0&&m.pointerTarget.i===0&&m.pointerCurrent.r===0&&m.pointerCurrent.i===0&&m.shockMag===0);
+  check('resume is announced and the controls reflect the session',/resumed/.test(toast())&&doc.getElementById('lbl-a-re').innerText==='0.21'&&doc.querySelector('.sym-btn.active')?.dataset.n==='24');
+
+  const toasts=[];const showToast=app.showToast.bind(app);app.showToast=t=>{toasts.push(t);showToast(t);};
+  click('btn-mode-explore');w.dispatchEvent(new w.KeyboardEvent('keydown',{key:'2',bubbles:true}));
+  check('redundant Explore click/key is a no-op',toasts.length===0&&session()===A);
+  click('btn-mode-reference');toasts.length=0;click('btn-mode-reference');w.dispatchEvent(new w.KeyboardEvent('keydown',{key:'1',bubbles:true}));
+  check('redundant Reference click/key is a no-op and keeps the stash',toasts.length===0&&canonical()&&app._exploreStash?.n===24);
+
+  doc.querySelector('.sym-btn[data-n="8"]').click();
+  check('Order-n from Reference resumes the stash, then applies n',app.mode==='explore'&&m.n===8&&r.activePalette==='solar'&&m.userOffsetA.r===0.21&&r.targetZoom>1.65);
+  click('btn-mode-reference');
+  check('Reference canonical again',canonical());
+  pal('amethyst');
+  check('Palette from Reference resumes the stash, then applies the palette',app.mode==='explore'&&r.activePalette==='amethyst'&&m.n===8&&m.userOffsetA.r===0.21);
+
+  click('btn-mode-reference');click('btn-randomize-action');
+  const randomized=session();
+  check('Randomize creates a new session and discards the stash',app.mode==='explore'&&app._exploreStash===null&&randomized!==A);
+  click('btn-mode-reference');click('btn-mode-explore');
+  check('after Randomize the randomized session (not the old one) is resumed',session()===randomized);
+
+  click('btn-mode-reference');
+  app.loadPresetObject(CURATED_PRESETS[2]);
+  const presetSession=JSON.stringify([m.n,r.activePalette]);
+  check('Explore preset load from Reference replaces the Explore session',app.mode==='explore'&&app._exploreStash===null&&m.n===24&&r.activePalette==='amethyst');
+  click('btn-mode-reference');click('btn-mode-explore');
+  check('the preset session is what comes back',JSON.stringify([m.n,r.activePalette])===presetSession);
+  click('btn-mode-reference');app.loadPresetObject(CURATED_PRESETS[0]);
+  check('loading the Reference preset keeps Reference canonical',canonical());
+  click('btn-mode-explore');
+  check('and the Explore session from before it is resumed',JSON.stringify([m.n,r.activePalette])===presetSession);
+
+  m.setCoefficientOffset('b',0,0.4);m.setSymmetry(32);
+  app.startFreshExplore();
+  check('Start fresh in Explore restarts at the baseline and clears the stash',app.mode==='explore'&&m.n===16&&r.activePalette==='cobalt'&&r.targetZoom===1.65&&
+    [m.userOffsetA,m.userOffsetB,m.userOffsetC,m.userOffsetD].every(o=>o.r===0&&o.i===0)&&!m.evolving&&m.time===0&&app._exploreStash===null);
+  click('btn-mode-reference');
+  check('Reference canonical after Start fresh',canonical());
+  click('btn-mode-explore');
+  check('the previous session is gone: Explore re-enters at the baseline',m.n===16&&r.activePalette==='cobalt'&&m.userOffsetA.r===0);
+  m.setSymmetry(12);click('btn-mode-reference');app.startFreshExplore();
+  check('Start fresh while in Reference leaves Reference untouched and drops the stash',canonical()&&app._exploreStash===null);
+  click('btn-mode-explore');
+  check('so the next Explore entry is the baseline',m.n===16);
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>
