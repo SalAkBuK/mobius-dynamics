@@ -963,6 +963,100 @@
       background: rgba(10, 20, 38, 0.55);
     }
 
+    /* ---- Export dialog states (Phase C) ---- */
+    #export-modal .export-summary {
+      margin: 0 0 10px;
+      color: #c0daf8;
+      font-size: 11.5px;
+      line-height: 1.45;
+    }
+
+    #export-modal .export-help {
+      margin: 6px 0 0;
+      color: #86a3ca;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    #export-modal .export-heavy {
+      margin: 0 0 10px;
+      padding: 8px 10px;
+      color: #cbe7fb;
+      background: rgba(14, 116, 144, 0.16);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 8px;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    #export-modal .export-heavy strong {
+      color: #e0f2fe;
+    }
+
+    #export-modal .export-notice,
+    #export-modal .export-result {
+      margin: 12px 0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+
+    #export-modal .export-notice.is-canceled {
+      color: #fcd9a0;
+      background: rgba(48, 30, 6, 0.7);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
+    #export-modal .export-notice.is-error {
+      color: #fecaca;
+      background: rgba(52, 12, 18, 0.85);
+      border: 1px solid rgba(248, 113, 113, 0.55);
+    }
+
+    #export-modal .export-notice .export-detail {
+      margin-top: 4px;
+      font-size: 11px;
+      opacity: 0.9;
+      overflow-wrap: anywhere;
+    }
+
+    #export-modal .export-result {
+      color: #c8f7de;
+      background: rgba(6, 60, 38, 0.55);
+      border: 1px solid rgba(52, 211, 153, 0.5);
+    }
+
+    #export-modal .export-result .export-result-head {
+      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #e8fff3;
+    }
+
+    #export-modal .export-result dl {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 3px 12px;
+      margin: 0;
+    }
+
+    #export-modal .export-result dt {
+      color: #9fe7c2;
+    }
+
+    #export-modal .export-result dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    #export-modal .export-result .export-result-note {
+      margin-top: 6px;
+      color: #9fe7c2;
+      font-size: 11px;
+    }
+
     /* ---- Accessibility polish (Phase C) ---- */
     /* Every control is at least 24x24 CSS px (WCAG 2.2 target size minimum). */
     button {
@@ -1358,79 +1452,103 @@
   <div id="export-modal" class="modal-backdrop">
     <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="export-modal-title" tabindex="-1">
       <div class="modal-title">
-        <span id="export-modal-title">Image Export</span>
-        <button id="btn-export-close" aria-label="Close" style="font-size:14px; padding:2px 6px;">✕</button>
+        <span id="export-modal-title">Export image</span>
+        <button id="btn-export-close" aria-label="Close" title="Close" style="font-size:14px; padding:2px 6px;">✕</button>
       </div>
 
-      <!-- Export Mode Switcher -->
-      <div class="btn-group" id="export-type-group" style="margin-bottom: 12px; width: 100%; display: flex;">
-        <button id="tab-export-standard" class="export-type-btn active" style="flex:1;">STANDARD EXPORT</button>
-        <button id="tab-export-refmaster" class="export-type-btn" style="flex:1;">REFERENCE MASTER</button>
+      <div id="export-options">
+        <!-- Export type -->
+        <div class="btn-group" id="export-type-group" style="margin-bottom: 12px; width: 100%; display: flex;">
+          <button id="tab-export-standard" class="export-type-btn active" style="flex:1;">Image</button>
+          <button id="tab-export-refmaster" class="export-type-btn" style="flex:1;">Reference Master</button>
+        </div>
+
+        <div id="export-summary" class="export-summary" aria-live="polite"></div>
+
+        <!-- Image export -->
+        <div id="export-standard-panel">
+          <div class="modal-sub">Renders your view offscreen at the size you choose. The live session is left exactly as it was.</div>
+
+          <div class="modal-section">
+            <div class="modal-section-title">Resolution</div>
+            <div class="btn-group" id="export-res-group">
+              <button class="export-res-btn active" data-w="3840" data-h="2160">3840 × 2160 (4K UHD)</button>
+              <button class="export-res-btn" data-w="1920" data-h="1080">1920 × 1080 (FHD)</button>
+              <button class="export-res-btn" data-w="viewport" data-h="viewport">Current View</button>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <div class="modal-section-title">Develop passes</div>
+            <div class="btn-group" id="export-passes-group">
+              <button class="export-pass-btn" data-passes="30">Fast · 30 passes</button>
+              <button class="export-pass-btn active" data-passes="60">Default · 60 passes</button>
+              <button class="export-pass-btn" data-passes="120">Deep · 120 passes</button>
+            </div>
+            <p class="export-help">More passes resolve finer filaments and take longer. Relative cost: lighter than a Reference Master &mdash; even Deep does less particle work than a Master&rsquo;s 120 passes.</p>
+          </div>
+        </div>
+
+        <!-- Reference Master -->
+        <div id="export-refmaster-panel" style="display:none;">
+          <div class="modal-sub" style="color: #38bdf8; font-weight: 500; margin-bottom: 10px;">
+            Exact reference formula • Square master • Maximum trajectory density
+          </div>
+
+          <div class="export-heavy">
+            <strong>Heavier than an image export.</strong> A dedicated 4096 × 4096 render of the canonical artwork: more particle work per pass (16 steps instead of 12) and 120 or 240 passes. It keeps the GPU busy until it finishes, and you can cancel at any time. Live preview quality does not affect it.
+          </div>
+
+          <div class="refmaster-info-box" style="background: rgba(8, 22, 48, 0.6); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 10.5px; line-height: 1.6; color: #94a3b8;">
+            <div style="color: #e0f2fe; font-weight: 600; margin-bottom: 4px;">
+              Resolution: 4096 × 4096 (square master, centre [0.0, 0.0])
+            </div>
+            <div>Formula: Canonical Simone Conradi 2026 Reference (n=16)</div>
+            <div>Workload: 589,824 particles × 16 IFS steps = 9,437,184 deposits/pass</div>
+            <div>Rendered offscreen from a blank start, independent of what is on screen.</div>
+            <div style="color: #94a3b8; font-size: 10.5px; margin-top: 4px; border-top: 1px solid rgba(56, 189, 248, 0.15); padding-top: 4px;">
+              Zero drift, pointer perturbation, or user offsets. Your interactive session is restored afterwards.
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <div class="modal-section-title">Develop passes</div>
+            <div class="btn-group" id="refmaster-passes-group">
+              <button class="refmaster-pass-btn active" data-passes="120">120 passes · Recommended</button>
+              <button class="refmaster-pass-btn" data-passes="240">240 passes · Maximum detail, twice the work</button>
+            </div>
+            <p class="export-help">A pass is one accumulation round. More passes resolve finer filaments and cost in proportion; the output size is the same.</p>
+          </div>
+        </div>
       </div>
 
-      <!-- Panel 1: Standard Export -->
-      <div id="export-standard-panel">
-        <div class="modal-sub">Renders offscreen at pristine resolution with pre-export accumulation passes. Session state is 100% preserved.</div>
+      <!-- Canceled / failed -->
+      <div id="export-notice" class="export-notice" hidden></div>
 
-        <div class="modal-section">
-          <div class="modal-section-title">Resolution</div>
-          <div class="btn-group" id="export-res-group">
-            <button class="export-res-btn active" data-w="3840" data-h="2160">3840 × 2160 (4K UHD)</button>
-            <button class="export-res-btn" data-w="1920" data-h="1080">1920 × 1080 (FHD)</button>
-            <button class="export-res-btn" data-w="viewport" data-h="viewport">Current View</button>
-          </div>
-        </div>
-
-        <div class="modal-section">
-          <div class="modal-section-title">Pre-Export Develop Passes</div>
-          <div class="btn-group" id="export-passes-group">
-            <button class="export-pass-btn" data-passes="30">Fast (30 passes)</button>
-            <button class="export-pass-btn active" data-passes="60">Standard (60 passes)</button>
-            <button class="export-pass-btn" data-passes="120">Deep Caustics (120 passes)</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Panel 2: Reference Master -->
-      <div id="export-refmaster-panel" style="display:none;">
-        <div class="modal-sub" style="color: #38bdf8; font-weight: 500; margin-bottom: 10px;">
-          Exact reference formula • Square master • Maximum trajectory density
-        </div>
-
-        <div class="refmaster-info-box" style="background: rgba(8, 22, 48, 0.6); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 10.5px; line-height: 1.6; color: #94a3b8;">
-          <div style="color: #e0f2fe; font-weight: 600; margin-bottom: 4px;">
-            Resolution: 4096 × 4096 (Square Master • Center [0.0, 0.0])
-          </div>
-          <div>Formula: Canonical Simone Conradi 2026 Reference (n=16)</div>
-          <div>Workload: 589,824 particles × 16 IFS steps = 9,437,184 deposits/pass</div>
-          <div>Isolated offscreen accumulation • Starts from black • Persistence = 1.0</div>
-          <div style="color: #94a3b8; font-size: 10.5px; margin-top: 4px; border-top: 1px solid rgba(56, 189, 248, 0.15); padding-top: 4px;">
-            Zero drift, pointer perturbation, or user offsets. Interactive session is 100% restored afterward.
-          </div>
-        </div>
-
-        <div class="modal-section">
-          <div class="modal-section-title">Develop Quality</div>
-          <div class="btn-group" id="refmaster-passes-group">
-            <button class="refmaster-pass-btn active" data-passes="120">120 — High</button>
-            <button class="refmaster-pass-btn" data-passes="240">240 — Maximum</button>
-          </div>
-        </div>
-      </div>
-
+      <!-- Progress: stage + percentage only -->
       <div id="export-progress-area" style="display:none; margin: 12px 0;">
         <div style="display:flex; justify-content:space-between; font-size: 10.5px; color:#93c5fd;">
           <span id="export-status-label">Initializing...</span>
           <span id="export-status-pct">0%</span>
         </div>
-        <div class="progress-bar-track">
+        <div class="progress-bar-track" id="export-progress-track" role="progressbar" aria-label="Export progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div id="export-progress-fill" class="progress-bar-fill"></div>
         </div>
       </div>
 
+      <!-- Success: stays until dismissed -->
+      <div id="export-result" class="export-result" role="status" hidden>
+        <div class="export-result-head">✓ Export complete</div>
+        <dl>
+          <dt>File</dt><dd id="export-result-file"></dd>
+          <dt>Size</dt><dd id="export-result-size"></dd>
+        </dl>
+        <div class="export-result-note">Your browser saves the PNG to its downloads location.</div>
+      </div>
+
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
-        <button id="btn-export-cancel">Cancel</button>
-        <button id="btn-export-start" class="btn-action-highlight" style="padding:6px 14px; font-weight:600;">Download PNG</button>
+        <button id="btn-export-cancel">Close</button>
+        <button id="btn-export-start" class="btn-action-highlight" style="padding:6px 14px; font-weight:600;">Export PNG</button>
       </div>
     </div>
   </div>

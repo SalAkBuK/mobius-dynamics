@@ -1110,6 +1110,7 @@ export class App {
           this.exportWidth = parseInt(w, 10);
           this.exportHeight = parseInt(h, 10);
         }
+        this.refreshExportDialog();
       });
     });
 
@@ -1194,8 +1195,14 @@ export class App {
   // --- Export Features ---
   openExportModal(type = 'standard') {
     this.closeDropdowns();
-    clearTimeout(this._exportCompletionTimeout);
-    this._exportCompletionTimeout = null;
+    if (!this.isExporting) {
+      this.setExportUiState('idle');
+      // "Current View" always means the view as it is now, not as it was when the option was clicked.
+      if (document.querySelector('.export-res-btn.active')?.dataset.w === 'viewport' && this.canvas) {
+        this.exportWidth = this.canvas.width;
+        this.exportHeight = this.canvas.height;
+      }
+    }
     this.setExportType(type);
     if (this.exportModal) {
       this.rememberFocus();
@@ -1260,33 +1267,144 @@ export class App {
   }
 
   setExportType(type) {
+    // The export type cannot change under a running export.
+    if (this.isExporting) return;
     this.exportType = type;
     const tabStd = document.getElementById('tab-export-standard');
     const tabRef = document.getElementById('tab-export-refmaster');
     const panelStd = document.getElementById('export-standard-panel');
     const panelRef = document.getElementById('export-refmaster-panel');
-    const btnStart = document.getElementById('btn-export-start');
 
     if (type === 'reference_master') {
       if (tabStd) tabStd.classList.remove('active');
       if (tabRef) tabRef.classList.add('active');
       if (panelStd) panelStd.style.display = 'none';
       if (panelRef) panelRef.style.display = 'block';
-      if (btnStart) btnStart.innerText = 'Develop Reference Master';
     } else {
       if (tabStd) tabStd.classList.add('active');
       if (tabRef) tabRef.classList.remove('active');
       if (panelStd) panelStd.style.display = 'block';
       if (panelRef) panelRef.style.display = 'none';
-      if (btnStart) btnStart.innerText = 'Download PNG';
     }
+    this.refreshExportDialog();
+  }
+
+  /** One line saying exactly what the next export will produce. */
+  describeExportOutput() {
+    if (this.exportType === 'reference_master') {
+      return 'Output: PNG · 4096 × 4096 · the canonical Reference artwork (your Explore edits are ignored)';
+    }
+    const width = this.exportWidth || 3840;
+    const height = this.exportHeight || 2160;
+    const source = this.mode === 'reference' ? 'the Reference artwork' : 'your current Explore view';
+    return `Output: PNG · ${width} × ${height} · ${source}`;
+  }
+
+  /** Title, output summary and primary-button label for the current type and dialog state. */
+  refreshExportDialog() {
+    const master = this.exportType === 'reference_master';
+    const title = document.getElementById('export-modal-title');
+    if (title) title.textContent = master ? 'Export Reference Master' : 'Export image';
+    const summary = document.getElementById('export-summary');
+    if (summary) summary.textContent = this.describeExportOutput();
+    const start = document.getElementById('btn-export-start');
+    if (start) start.textContent = this._exportUiState === 'failed' ? 'Try again' : (master ? 'Export Reference Master' : 'Export PNG');
+  }
+
+  describeExportFailure(err) {
+    const detail = err?.message || 'Unknown error';
+    if (err?.name === 'WebGLContextLostError') {
+      return { title: 'the graphics context was lost during the export.', detail: 'Wait for the renderer to recover, then try again.' };
+    }
+    if (/memory|texture|unsupported|limit/i.test(detail)) {
+      return { title: 'this device could not provide the graphics memory the export needs.', detail: `${detail} Try a smaller size or fewer passes.` };
+    }
+    return { title: 'the export could not be completed.', detail };
+  }
+
+  /**
+   * Single source of truth for the export dialog's state:
+   * idle | running | canceled | failed | success.
+   * Stale progress is cleared outside 'running'; success stays until the user dismisses it.
+   */
+  setExportUiState(state, info = {}) {
+    this._exportUiState = state;
+    const el = id => document.getElementById(id);
+    const running = state === 'running';
+    const success = state === 'success';
+
+    const options = el('export-options');
+    if (options) options.hidden = success;
+    document.querySelectorAll('#export-options button').forEach(b => { b.disabled = running; });
+
+    const closeBtn = el('btn-export-close');
+    if (closeBtn) {
+      closeBtn.disabled = running;
+      closeBtn.title = running ? 'Export in progress — use Cancel export to stop it' : 'Close';
+    }
+
+    const progress = el('export-progress-area');
+    if (progress) progress.style.display = running ? 'block' : 'none';
+    const label = el('export-status-label');
+    const pct = el('export-status-pct');
+    const fill = el('export-progress-fill');
+    const track = el('export-progress-track');
+    if (label) label.innerText = running ? 'Initializing...' : '';
+    if (pct) pct.innerText = running ? '0%' : '';
+    if (fill) fill.style.width = '0%';
+    if (track) track.setAttribute('aria-valuenow', '0');
+
+    const notice = el('export-notice');
+    if (notice) {
+      const show = state === 'canceled' || state === 'failed';
+      notice.hidden = !show;
+      notice.replaceChildren();
+      if (show) {
+        notice.className = 'export-notice ' + (state === 'failed' ? 'is-error' : 'is-canceled');
+        notice.setAttribute('role', state === 'failed' ? 'alert' : 'status');
+        const head = document.createElement('div');
+        const detail = document.createElement('div');
+        detail.className = 'export-detail';
+        if (state === 'failed') {
+          const f = this.describeExportFailure(info.error);
+          head.textContent = `⚠ Export failed — ${f.title}`;
+          detail.textContent = f.detail;
+        } else {
+          head.textContent = 'Export canceled.';
+          detail.textContent = 'Nothing was downloaded. Your session is unchanged.';
+        }
+        notice.append(head, detail);
+      }
+    }
+
+    const result = el('export-result');
+    if (result) {
+      result.hidden = !success;
+      if (success) {
+        const file = el('export-result-file');
+        const size = el('export-result-size');
+        if (file) file.textContent = info.filename || '';
+        if (size) size.textContent = `${info.width} × ${info.height} px`;
+      }
+    }
+
+    const start = el('btn-export-start');
+    if (start) {
+      start.hidden = success;
+      start.disabled = running;
+    }
+    const cancel = el('btn-export-cancel');
+    if (cancel) {
+      cancel.disabled = false;
+      cancel.textContent = running ? 'Cancel export' : (success ? 'Done' : 'Close');
+    }
+    this.refreshExportDialog();
   }
 
   closeExportModal() {
     if (this.isExporting) return;
     if (this.exportModal) this.exportModal.classList.remove('visible');
-    const progArea = document.getElementById('export-progress-area');
-    if (progArea) progArea.style.display = 'none';
+    this.setExportUiState('idle');
     this.restoreFocus();
   }
 
@@ -1351,8 +1469,6 @@ export class App {
 
   async startExport() {
     if (this.isExporting || this.contextLost || this.renderer.isContextUnavailable()) return;
-    clearTimeout(this._exportCompletionTimeout);
-    this._exportCompletionTimeout = null;
     this._exportAbortController = new AbortController();
     this._exportTask = this.runExport();
     return this._exportTask;
@@ -1360,6 +1476,11 @@ export class App {
 
   cancelExport() {
     this._exportAbortController?.abort();
+  }
+
+  /** After a finished export, put keyboard focus on the dismiss button so the result is announced and Enter closes it. */
+  focusExportDismiss() {
+    if (this.exportModal?.classList.contains('visible')) document.getElementById('btn-export-cancel')?.focus({ preventScroll: true });
   }
 
   async runExport() {
@@ -1371,19 +1492,14 @@ export class App {
     // 1. Capture current visible artwork and display as temporary visual overlay over WebGL canvas
     this.showExportDisplayHold();
 
-    const progArea = document.getElementById('export-progress-area');
     const statusLbl = document.getElementById('export-status-label');
     const statusPct = document.getElementById('export-status-pct');
     const progFill = document.getElementById('export-progress-fill');
-    const btnStart = document.getElementById('btn-export-start');
-    const btnCancel = document.getElementById('btn-export-cancel');
+    const progTrack = document.getElementById('export-progress-track');
 
-    if (progArea) progArea.style.display = 'block';
-    if (statusLbl) statusLbl.innerText = 'Initializing...';
-    if (statusPct) statusPct.innerText = '0%';
-    if (progFill) progFill.style.width = '0%';
-    if (btnStart) btnStart.disabled = true;
-    if (btnCancel) btnCancel.disabled = false;
+    // Dialog state: options and close locked, progress shown (stage + percentage), Cancel export available.
+    this.setExportUiState('running');
+    if (this.exportModal?.classList.contains('visible')) this.focusDialog(this.exportModal);
 
     // REFERENCE MASTER EXPORT BRANCH
     if (this.exportType === 'reference_master') {
@@ -1461,24 +1577,20 @@ export class App {
             if (statusLbl) statusLbl.innerText = msg;
             if (statusPct) statusPct.innerText = `${pct}%`;
             if (progFill) progFill.style.width = `${pct}%`;
+            if (progTrack) progTrack.setAttribute('aria-valuenow', String(pct));
           }
         });
         this.showToast('Reference Master 4096×4096 exported successfully!');
-        this._exportCompletionTimeout = setTimeout(() => {
-          this._exportCompletionTimeout = null;
-          if (btnStart) btnStart.disabled = false;
-          if (btnCancel) btnCancel.disabled = false;
-          this.closeExportModal();
-        }, 700);
+        // Success stays open until the user dismisses it (no timer).
+        this.setExportUiState('success', { filename, width: 4096, height: 4096 });
+        this.focusExportDismiss();
         return blob;
       } catch (err) {
         if (err?.name !== 'AbortError') console.error('Reference Master Export error:', err);
         if (err?.name === 'WebGLContextLostError') this._exportInterrupted = true;
         const errMsg = err?.message || 'Export failed';
-        if (statusLbl) statusLbl.innerText = err?.name === 'AbortError' ? 'Export canceled.' : 'Export failed: ' + errMsg;
+        this.setExportUiState(err?.name === 'AbortError' ? 'canceled' : 'failed', { error: err });
         this.showToast(err?.name === 'AbortError' ? 'Export canceled.' : 'Reference Master Export failed: ' + errMsg);
-        if (btnStart) btnStart.disabled = false;
-        if (btnCancel) btnCancel.disabled = false;
       } finally {
         // Complete session state restoration
         this.mode = sessionState.mode;
@@ -1548,24 +1660,20 @@ export class App {
           if (statusLbl) statusLbl.innerText = msg;
           if (statusPct) statusPct.innerText = `${pct}%`;
           if (progFill) progFill.style.width = `${pct}%`;
+          if (progTrack) progTrack.setAttribute('aria-valuenow', String(pct));
         }
       });
       this.showToast(`Successfully exported ${width}×${height} PNG!`);
-      this._exportCompletionTimeout = setTimeout(() => {
-        this._exportCompletionTimeout = null;
-        if (btnStart) btnStart.disabled = false;
-        if (btnCancel) btnCancel.disabled = false;
-        this.closeExportModal();
-      }, 700);
+      // Success stays open until the user dismisses it (no timer).
+      this.setExportUiState('success', { filename, width, height });
+      this.focusExportDismiss();
       return blob;
     } catch (err) {
       if (err?.name !== 'AbortError') console.error('Export error:', err);
       if (err?.name === 'WebGLContextLostError') this._exportInterrupted = true;
       const errMsg = err?.message || 'Export failed';
-      if (statusLbl) statusLbl.innerText = err?.name === 'AbortError' ? 'Export canceled.' : 'Export failed: ' + errMsg;
+      this.setExportUiState(err?.name === 'AbortError' ? 'canceled' : 'failed', { error: err });
       this.showToast(err?.name === 'AbortError' ? 'Export canceled.' : 'Export failed: ' + errMsg);
-      if (btnStart) btnStart.disabled = false;
-      if (btnCancel) btnCancel.disabled = false;
     } finally {
       this.updateReadout();
       this.isExporting = false;
@@ -1956,8 +2064,6 @@ export class App {
 
   onContextLost(event) {
     event.preventDefault();
-    clearTimeout(this._exportCompletionTimeout);
-    this._exportCompletionTimeout = null;
     clearTimeout(this._contextRecoveryTimer);
     this._contextRecoveryTimer = null;
     this._contextRecoveryAttempts = 0;
