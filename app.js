@@ -601,8 +601,17 @@ export class App {
 
     // Keyboard shortcuts
     window.addEventListener('keydown', (e) => {
+      // Browser/OS combinations (Ctrl+S, Ctrl+R, ...) are not app shortcuts.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // While a dialog is open it owns the keyboard: no shortcuts fire behind it.
+      if (this.isModalOpen()) {
+        this.handleModalKeydown(e);
+        return;
+      }
       if (e.target.tagName === 'INPUT') return;
       const key = e.key.toLowerCase();
+      // Space activates a focused button natively; do not steal it.
+      if (key === ' ' && e.target?.closest?.('button, a, select, summary, [role="button"]')) return;
       if (key === '1') {
         this.setMode('reference');
       } else if (key === '2') {
@@ -800,9 +809,11 @@ export class App {
     document.getElementById('btn-preset-copy')?.addEventListener('click', () => this.copyPresetJSON());
 
     const fileInput = document.getElementById('preset-file-input');
+    document.getElementById('btn-preset-import')?.addEventListener('click', () => fileInput?.click());
     fileInput?.addEventListener('change', (e) => {
       const file = e.target.files?.[0];
       if (file) this.importPresetFile(file);
+      e.target.value = '';
     });
 
     // Coefficient Sliders
@@ -856,7 +867,65 @@ export class App {
     clearTimeout(this._exportCompletionTimeout);
     this._exportCompletionTimeout = null;
     this.setExportType(type);
-    if (this.exportModal) this.exportModal.classList.add('visible');
+    if (this.exportModal) {
+      this.rememberFocus();
+      this.exportModal.classList.add('visible');
+      this.focusDialog(this.exportModal);
+    }
+  }
+
+  // --- Dialog focus management / keyboard ---
+  isModalOpen() {
+    return [this.exportModal, this.presetModal].some(m => m?.classList.contains('visible'));
+  }
+
+  rememberFocus() {
+    if (this.isModalOpen()) return;
+    const el = document.activeElement;
+    this._modalReturnFocus = el && el !== document.body ? el : null;
+  }
+
+  focusDialog(modal) {
+    modal?.querySelector('.modal-dialog')?.focus({ preventScroll: true });
+  }
+
+  restoreFocus() {
+    const el = this._modalReturnFocus;
+    this._modalReturnFocus = null;
+    if (el && el.isConnected && !this.isModalOpen()) el.focus({ preventScroll: true });
+  }
+
+  handleModalKeydown(e) {
+    const modal = [this.exportModal, this.presetModal].find(m => m?.classList.contains('visible'));
+    if (e.key === 'Escape') {
+      // A running export is stopped only through the explicit Cancel button.
+      if (modal === this.presetModal) this.closePresetModal();
+      else if (!this.isExporting) this.closeExportModal();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const dialog = modal?.querySelector('.modal-dialog');
+    if (!dialog) return;
+    const focusable = [...dialog.querySelectorAll('button, input, select, textarea, a[href]')]
+      .filter(el => !el.disabled && el.offsetParent !== null);
+    if (!focusable.length) {
+      e.preventDefault();
+      dialog.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (!dialog.contains(active) || active === dialog) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
   }
 
   setExportType(type) {
@@ -887,6 +956,7 @@ export class App {
     if (this.exportModal) this.exportModal.classList.remove('visible');
     const progArea = document.getElementById('export-progress-area');
     if (progArea) progArea.style.display = 'none';
+    this.restoreFocus();
   }
 
   showExportDisplayHold() {
@@ -1178,11 +1248,16 @@ export class App {
   openPresetModal() {
     this.populateCuratedPresets();
     this.renderUserPresets();
-    if (this.presetModal) this.presetModal.classList.add('visible');
+    if (this.presetModal) {
+      this.rememberFocus();
+      this.presetModal.classList.add('visible');
+      this.focusDialog(this.presetModal);
+    }
   }
 
   closePresetModal() {
     if (this.presetModal) this.presetModal.classList.remove('visible');
+    this.restoreFocus();
   }
 
   populateCuratedPresets() {

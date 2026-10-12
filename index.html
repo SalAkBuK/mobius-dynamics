@@ -199,6 +199,17 @@
       background: rgba(40, 90, 160, 0.25);
     }
 
+    /* Keyboard focus indicator (the base button rule removes the default outline). */
+    button:focus-visible,
+    input:focus-visible {
+      outline: 2px solid rgba(125, 190, 255, 0.95);
+      outline-offset: 2px;
+    }
+
+    .modal-dialog:focus {
+      outline: none;
+    }
+
     button.active {
       background: rgba(30, 120, 255, 0.35);
       color: #f0f7ff;
@@ -833,10 +844,10 @@
 
   <!-- Export Modal -->
   <div id="export-modal" class="modal-backdrop">
-    <div class="modal-dialog">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="export-modal-title" tabindex="-1">
       <div class="modal-title">
-        <span>Image Export</span>
-        <button id="btn-export-close" style="font-size:14px; padding:2px 6px;">✕</button>
+        <span id="export-modal-title">Image Export</span>
+        <button id="btn-export-close" aria-label="Close" style="font-size:14px; padding:2px 6px;">✕</button>
       </div>
 
       <!-- Export Mode Switcher -->
@@ -914,10 +925,10 @@
 
   <!-- Presets Modal -->
   <div id="preset-modal" class="modal-backdrop">
-    <div class="modal-dialog" style="max-width:540px;">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-modal-title" tabindex="-1" style="max-width:540px;">
       <div class="modal-title">
-        <span>Attractor Preset Library</span>
-        <button id="btn-preset-close" style="font-size:14px; padding:2px 6px;">✕</button>
+        <span id="preset-modal-title">Attractor Preset Library</span>
+        <button id="btn-preset-close" aria-label="Close" style="font-size:14px; padding:2px 6px;">✕</button>
       </div>
       <div class="modal-sub">Save current organism configuration or load curated mathematical presets.</div>
 
@@ -931,7 +942,7 @@
       <div class="modal-section">
         <div class="modal-section-title">Save Current Preset</div>
         <div style="display:flex; gap:6px;">
-          <input type="text" id="preset-name-input" placeholder="Organism Name" style="flex:1; background:rgba(10,24,48,0.7); border:1px solid rgba(40,90,160,0.4); border-radius:6px; color:#c0daf8; padding:4px 8px; font-size:11px; outline:none;">
+          <input type="text" id="preset-name-input" placeholder="Organism Name" style="flex:1; background:rgba(10,24,48,0.7); border:1px solid rgba(40,90,160,0.4); border-radius:6px; color:#c0daf8; padding:4px 8px; font-size:11px;">
           <button id="btn-preset-save" class="btn-action-highlight">Save &amp; Download</button>
           <button id="btn-preset-copy">Copy JSON</button>
         </div>
@@ -945,9 +956,10 @@
       </div>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; border-top:1px solid rgba(40,80,140,0.2); padding-top:10px;">
-        <label style="font-size:10px; color:#60a5fa; cursor:pointer;">
-          📁 Import Preset JSON <input type="file" id="preset-file-input" accept=".json" style="display:none;">
-        </label>
+        <div>
+          <button type="button" id="btn-preset-import" style="font-size:10px; color:#60a5fa;">📁 Import Preset JSON</button>
+          <input type="file" id="preset-file-input" accept=".json" style="display:none;" tabindex="-1">
+        </div>
         <button id="btn-preset-done">Done</button>
       </div>
     </div>
