@@ -1582,6 +1582,12 @@ export class App {
 
     // If display hold was active during export, remove it after the first valid onscreen render
     if (this._pendingHoldRemoval) {
+      // A settled Reference skips live drawing; restore its cached composite
+      // before removing the export hold (exports use a separate framebuffer).
+      if (this.renderer.referenceSettled) {
+        this.renderer.presentCurrentFrame();
+        if (this.renderer.showRawTrajectories) this.renderer.renderRawTrajectories(this.math);
+      }
       this._pendingHoldRemoval = false;
       this.hideExportDisplayHold();
     }

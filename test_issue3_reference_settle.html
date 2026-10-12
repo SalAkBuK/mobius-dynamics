@@ -1,0 +1,174 @@
+<!doctype html><meta charset="utf-8"><title>Issue 3 Reference settling</title>
+<pre style="margin-left:700px" id="results">Running (includes five real minutes of idle)...</pre>
+<script type="module">
+import { instrumentation } from './issue2_test_instrumentation.js';
+import { REFERENCE_DEPOSITS_PER_PIXEL } from './renderer.js';
+const results=[], sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const check=(name,passed,details='')=>results.push({name,passed:!!passed,details});
+async function until(fn,label,timeout=90000) {
+  const end=performance.now()+timeout;
+  while(!fn()) { if(performance.now()>end)throw Error('Timeout: '+label); await sleep(20); }
+}
+try {
+  const html=await(await fetch('./index.html')).text();
+  const frame=document.createElement('iframe');
+  frame.style='position:fixed;left:0;top:0;width:640px;height:480px;border:0';
+  frame.srcdoc=html.replace('<head>','<head>'+instrumentation+
+    '<style>body > :not(canvas) { visibility:hidden!important; }</style>');
+  document.body.append(frame); await new Promise(r=>frame.onload=r);
+  const w=frame.contentWindow, app=w.__app, math=app.math, audit=w.__audit;
+  let r=app.renderer; const gl=r.gl;
+  app.customDpr=1; app.onResize(); r.adaptive.setMode('extreme');
+  const handlers=JSON.stringify(audit.handlers);
+  const count={sim:0,splat:0,decay:0,bloom:0,query:0,deposits:0};
+  let program;
+  const use=gl.useProgram.bind(gl), draw=gl.drawArrays.bind(gl), begin=gl.beginTransformFeedback.bind(gl);
+  const query=gl.beginQuery.bind(gl);
+  gl.useProgram=p=>{program=p;return use(p);};
+  gl.beginTransformFeedback=(...args)=>{count.sim++;return begin(...args);};
+  gl.beginQuery=(...args)=>{count.query++;return query(...args);};
+  gl.drawArrays=(...args)=>{
+    const renderer=app.renderer;
+    if(program===renderer.splatProg){count.splat++;count.deposits+=args[2];}
+    if(program===renderer.decayProg)count.decay++;
+    if(program===renderer.blurProg)count.bloom++;
+    return draw(...args);
+  };
+  const budget=()=>REFERENCE_DEPOSITS_PER_PIXEL*r.accumWidth*r.accumHeight;
+  function pixels() {
+    r.presentCurrentFrame();
+    const a=new Uint8Array(app.canvas.width*app.canvas.height*4);
+    gl.readPixels(0,0,app.canvas.width,app.canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,a);
+    return a;
+  }
+  function canonical() {
+    return math.mode==='reference' && math.n===16 && !math.evolving && math.time===0 &&
+      math.a.r===-.755 && math.a.i===.330 && math.b.r===-.376 && math.b.i===.026 &&
+      math.c.r===6.401 && math.c.i===.803 && math.d.r===1.520 && math.d.i===.840 &&
+      math.shockMag===0 && math.shockPhase===0 &&
+      ['userOffsetA','userOffsetB','userOffsetC','userOffsetD','pointerTarget','pointerCurrent']
+        .every(k=>math[k].r===0&&math[k].i===0);
+  }
+  async function screen(name,compare) {
+    return (await fetch('/screen',{method:'POST',body:JSON.stringify({name,compare,
+      clip:{x:0,y:0,width:640,height:480,scale:1}})})).json();
+  }
+  const started=performance.now();
+  await until(()=>r.referenceSettled,'natural settling');
+  check('Fresh Reference naturally settles at measured production budget',
+    r.referenceDeposits>=budget() && r.referenceDeposits<budget()+r.numParticles*r.stepsPerFrame,
+    JSON.stringify({seconds:(performance.now()-started)/1000,frames:r.accumulationFrames,
+      deposits:r.referenceDeposits,budget:budget(),particles:r.numParticles,steps:r.stepsPerFrame}));
+  check('Reference remains canonical',canonical());
+  const before=pixels();
+  const image=await screen('settled');
+  check('Composited canvas contains artwork at settle',image.extrema[2][1]-image.extrema[2][0]>30);
+  const idleStart=performance.now(), frames=r.accumulationFrames;
+  const commands=audit.glCommands, counts=JSON.stringify(count);
+  await sleep(30000);
+  const after30=await screen('idle30','settled');
+  check('Actual visible compositor frame is pixel identical after 30 seconds',after30.identical);
+  check('30 seconds: no GL commands, queries, bloom, decay, splats or simulation',
+    audit.glCommands===commands && JSON.stringify(count)===counts && r.accumulationFrames===frames);
+  await sleep(Math.max(0,300000-(performance.now()-idleStart)));
+  const after300=await screen('idle300','settled');
+  check('Five real minutes: actual visible compositor frame is pixel identical',after300.identical,
+    'idle seconds: '+(performance.now()-idleStart)/1000);
+  check('Five real minutes: accumulation and all expensive GPU work remain stopped',
+    audit.glCommands===commands && JSON.stringify(count)===counts && r.accumulationFrames===frames,
+    JSON.stringify({frames,commandsDuringIdle:audit.glCommands-commands,counts}));
+  check('Five real minutes: one RAF and unchanged handlers, no added timers',
+    audit.pending.size===1 && audit.timers.size===0 && JSON.stringify(audit.handlers)===handlers);
+  const after=pixels();
+  check('Cached artwork has zero pixel or brightness drift',before.every((v,i)=>v===after[i]));
+
+  // Test-only unlimited continuation on the SAME exposure for visual inspection.
+  // Keep the production rule unchanged; add three more full budgets to this exposure.
+  r.referenceSettled=false; r.referenceDeposits=-3*budget();
+  await until(()=>r.referenceSettled,'four-times unlimited exposure');
+  await screen('unlimited4x');
+  check('Later unlimited comparison executes three additional full budgets',r.accumulationFrames>frames*3.9);
+
+  // Remaining wake tests seed progress near the real threshold AFTER observing a
+  // fresh wake. Natural initial settling and the idle test above never seed progress.
+  async function settleSoon() {
+    await sleep(60);
+    r.referenceDeposits=budget()-r.numParticles*r.stepsPerFrame;
+    await until(()=>r.referenceSettled,'fixture settles');
+  }
+  async function wake(name,action) {
+    const previous=r.accumulationFrames; action(); await sleep(100);
+    check(name+': fresh development replaces settled exposure',!r.referenceSettled &&
+      r.accumulationFrames<previous && r.referenceDeposits<budget() && r.referenceDeposits>0);
+    await settleSoon();
+  }
+  await wake('Reset Reference',()=>app.resetView());
+  await wake('Canvas resize below allocation hysteresis',()=>{frame.style.width='660px';app.onResize();});
+  await wake('Canvas resize reallocates targets',()=>{frame.style.width='800px';app.onResize();});
+  await wake('DPR change',()=>{app.customDpr=1.25;app.onResize();});
+  await wake('Manual quality change',()=>r.adaptive.setMode('low'));
+  await wake('Return to Auto quality',()=>r.adaptive.setMode('auto'));
+  for(const [name,action] of [
+    ['Bloom toggle',()=>app.toggleBloom()],['Final/raw mode',()=>app.toggleRawTrajectories()],
+    ['Gain',()=>{r.gain=3.5;}],['Palette',()=>r.setPalette('solar')],
+    ['Raw overlay',()=>{r.showRawTrajectories=true;}],
+  ]) {
+    const sim=count.sim,splats=count.splat,age=r.accumulationFrames,cmd=audit.glCommands;
+    action(); await sleep(100);
+    check(name+': cached artwork recomposites without simulation or accumulation',
+      r.referenceSettled && count.sim===sim && count.splat===splats &&
+      r.accumulationFrames===age && audit.glCommands>cmd);
+    const stable=audit.glCommands;await sleep(100);
+    check(name+': returns to zero GPU work',audit.glCommands===stable);
+  }
+  app.setMode('explore'); const exploreSim=count.sim; await sleep(200);
+  check('Explore renders continuously after settled Reference',!r.referenceSettled && count.sim>exploreSim);
+  app.setMode('reference');await sleep(100);
+  check('Reference reentry develops a fresh canonical exposure',!r.referenceSettled && canonical());
+  await settleSoon();
+  for(let i=0;i<30;i++){app.setMode('explore');app.setMode('reference');}
+  app.setMode('explore');const rapid=count.sim;await sleep(150);
+  check('Rapid switching cannot suppress Explore or duplicate RAF/handlers',count.sim>rapid &&
+    audit.pending.size===1 && JSON.stringify(audit.handlers)===handlers);
+  app.setMode('reference');await settleSoon();
+
+  const ext=gl.getExtension('WEBGL_lose_context'),old=r;
+  ext.loseContext();await until(()=>app.contextLost,'context loss');
+  const lostCommands=audit.glCommands;await sleep(100);
+  check('Settled context loss issues no GL commands',audit.glCommands===lostCommands);
+  ext.restoreContext();await until(()=>!app.contextLost&&app.renderer!==old,'context restore');
+  r=app.renderer;
+  check('Recovery creates an awake renderer and preserves canonical Reference',
+    !r.referenceSettled && r.referenceDeposits<budget() && canonical());
+  await until(()=>r.referenceSettled,'natural settling after context restoration',180000);
+  check('Recovered Reference naturally settles again',canonical() && r.referenceSettled);
+
+  for(const [type,passes] of [['standard',7],['reference_master',120],['reference_master',240]]) {
+    app.exportType=type;app.exportWidth=128;app.exportHeight=96;app.exportPasses=passes;app.refMasterPasses=passes;
+    const splats=count.splat,sim=count.sim,age=r.accumulationFrames,exposure=r.referenceDeposits;
+    const live=pixels(),blob=await app.startExport();await sleep(120);
+    const bitmap=blob?await w.createImageBitmap(blob):null;
+    const expected=passes*(type==='standard'?12:16);
+    check(type+' '+passes+': all requested offscreen passes execute',
+      count.splat-splats===expected && count.sim-sim===expected+(type==='standard'?0:61),
+      JSON.stringify({splats:count.splat-splats,simulation:count.sim-sim,expected}));
+    check(type+' '+passes+': actual PNG retains requested resolution',
+      bitmap?.width===(type==='standard'?128:4096)&&bitmap?.height===(type==='standard'?96:4096));
+    bitmap?.close();
+    const restored=pixels();
+    check(type+' '+passes+': settled live artwork and exposure survive, hold cleaned up',
+      r.referenceSettled && r.accumulationFrames===age && r.referenceDeposits===exposure &&
+      live.every((v,i)=>v===restored[i]) && !app.isExporting && !r.isExporting &&
+      !app.displayHoldActive && !app._pendingHoldRemoval && canonical());
+  }
+  // Successful downloads retain their object URL for ten seconds. Those existing
+  // one-shot cleanup timers are expected; wait for them before checking leaks.
+  await until(()=>audit.timers.size===0,'download and toast timers drain',15000);
+  check('Final lifecycle: one RAF, no new handlers/timers, no invalid GL calls',
+    audit.pending.size===1 && audit.timers.size===0 && JSON.stringify(audit.handlers)===handlers && audit.lostGL.length===0,
+    JSON.stringify({raf:audit.pending.size,timers:audit.timers.size,handlers:audit.handlers,lostGL:audit.lostGL}));
+  check('No WebGL errors after settling, presentation wakes, recovery, and exports',gl.getError()===gl.NO_ERROR);
+}catch(error){check('Suite runtime',false,error.stack);}
+document.getElementById('results').textContent=JSON.stringify(results,null,2);
+await fetch('/test_report',{method:'POST',body:JSON.stringify(results)});
+</script>

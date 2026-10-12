@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><title>Reference development measurement</title>
+<pre id="results">Measuring...</pre>
+<script type="module">
+const sleep = ms => new Promise(r => setTimeout(r,ms));
+const report = [];
+const params = new URLSearchParams(location.search);
+const tiers = (params.get('tiers') || 'potato,low,standard,auto').split(',');
+const times = (params.get('times') || '2,5,10,20,30,60').split(',').map(Number);
+try {
+  for (const tier of tiers) {
+    const frame = document.createElement('iframe'); frame.width=1200; frame.height=800;
+    frame.src='./index.html?tier='+tier;
+    document.body.append(frame);
+    await new Promise(r => frame.onload=r);
+    const w=frame.contentWindow, app=w.__app, renderer=app.renderer, gl=renderer.gl;
+    const started=performance.now();
+    let renders=0, simulations=0, splats=0, deposits=0, program;
+    const render=renderer.render.bind(renderer), begin=gl.beginTransformFeedback.bind(gl);
+    const use=gl.useProgram.bind(gl), draw=gl.drawArrays.bind(gl);
+    renderer.render=(...args)=>{
+      const before=renderer.accumulationFrames, result=render(...args);
+      if(renderer.accumulationFrames>before)renders++;
+      return result;
+    };
+    gl.beginTransformFeedback=(...args)=>{simulations++;return begin(...args);};
+    gl.useProgram=p=>{program=p;return use(p);};
+    gl.drawArrays=(...args)=>{
+      if(program===renderer.splatProg){splats++;deposits+=args[2];}
+      return draw(...args);
+    };
+    const state=()=>JSON.stringify([app.mode,app.math.mode,app.math.n,app.math.a,app.math.b,
+      app.math.c,app.math.d,app.math.time,renderer.zoom,renderer.viewCenter]);
+    const original=state();
+    const samples=[];
+    let last={time:0,renders:0,simulations:0,splats:0,deposits:0};
+    for(const second of times) {
+      await sleep(Math.max(0,second*1000-(performance.now()-started)));
+      renderer.presentCurrentFrame();
+      const width=app.canvas.width,height=app.canvas.height;
+      const pixels=new Uint8Array(width*height*4);
+      gl.readPixels(0,0,width,height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+      const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+      const ctx=canvas.getContext('2d'), data=ctx.createImageData(width,height);
+      for(let y=0;y<height;y++)data.data.set(pixels.subarray(y*width*4,(y+1)*width*4),(height-1-y)*width*4);
+      ctx.putImageData(data,0,0);
+      const time=(performance.now()-started)/1000, elapsed=time-last.time;
+      const m=renderer.profiler.metrics;
+      const sample={tier,second,time,particles:renderer.numParticles,steps:renderer.stepsPerFrame,
+        depositsPerFrame:renderer.numParticles*renderer.stepsPerFrame,gpuMs:m.gpuMs,
+        frameMs:m.frameMs,fps:m.fps,accumulationFrames:renderer.accumulationFrames,
+        rendersPerSecond:(renders-last.renders)/elapsed,simulationsPerSecond:(simulations-last.simulations)/elapsed,
+        splatsPerSecond:(splats-last.splats)/elapsed,depositsPerSecond:(deposits-last.deposits)/elapsed,
+        cumulativeDeposits:deposits,width,height,stateUnchanged:state()===original,
+        settled:renderer.referenceSettled??false};
+      samples.push(sample);
+      await fetch('/capture',{method:'POST',body:JSON.stringify({...sample,png:canvas.toDataURL('image/png').split(',')[1]})});
+      last={time,renders,simulations,splats,deposits};
+    }
+    report.push({tier,samples});frame.remove();
+  }
+}catch(error){report.push({error:error.stack});}
+await fetch('/report',{method:'POST',body:JSON.stringify(report)});
+</script>

@@ -8,6 +8,10 @@
 import { Profiler } from './profiler.js';
 import { AdaptiveManager, QUALITY_TIERS } from './adaptive.js';
 
+// Live Reference exposure, independent of FPS, quality tier, and export passes.
+// See ISSUE3_VALIDATION.md for measured development and later unlimited comparisons.
+export const REFERENCE_DEPOSITS_PER_PIXEL = 16384;
+
 export const PALETTES = {
   cobalt: {
     key: 'cobalt',
@@ -111,6 +115,10 @@ export class MobiusRenderer {
 
       // Accumulation & Progressive Refinement settings
       this.accumulationFrames = 0;
+      this.referenceSettled = false;
+      this.referenceDeposits = 0;
+      this._referenceDevelopmentKey = null;
+      this._referencePresentationKey = null;
       this.persistence = 0.9985;
       this.currentPersistence = 0.9985;
       this.gain = 4.0;
@@ -934,16 +942,59 @@ export class MobiusRenderer {
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.accumulationFrames = 0;
+    this.wakeReference();
+  }
+
+  wakeReference() {
+    this.referenceSettled = false;
+    this.referenceDeposits = 0;
+  }
+
+  referenceDevelopmentKey() {
+    return [this.canvas.width, this.canvas.height, this.accumWidth, this.accumHeight,
+      this.aspect, this.zoom, this.targetZoom, ...this.viewCenter, ...this.targetViewCenter,
+      this.adaptive.mode, this.adaptive.currentTierKey, this.particlesOverride,
+      this.stepsOverride].join('|');
+  }
+
+  referencePresentationKey() {
+    return [this.activePalette, this.gain, this.bloomEnabled, this.viewMode,
+      this.showRawTrajectories].join('|');
   }
 
   startSymmetryTransition() {
     // Graceful continuous transition instead of harsh black flash
     this.currentPersistence = 0.90;
     this.accumulationFrames = 0;
+    this.wakeReference();
   }
 
   render(mathSys, dt, jsTime = 0) {
     if (this.isExporting || this.isContextUnavailable()) return;
+    const isReference = mathSys.mode === 'reference';
+    if (isReference) {
+      const developmentKey = this.referenceDevelopmentKey();
+      if (developmentKey !== this._referenceDevelopmentKey) {
+        if (this._referenceDevelopmentKey !== null) this.clearAccumulation();
+        this._referenceDevelopmentKey = developmentKey;
+      }
+      const presentationKey = this.referencePresentationKey();
+      if (this.referenceSettled) {
+        if (presentationKey !== this._referencePresentationKey) {
+          // Visible controls do not need another exposure or simulation.
+          this.renderBloom(this.accumTextures[this.accumReadIdx]);
+          this.presentCurrentFrame();
+          if (this.showRawTrajectories) this.renderRawTrajectories(mathSys);
+          this._referencePresentationKey = presentationKey;
+        }
+        return; // No timer queries, adaptive updates, draw calls, or flush at rest.
+      }
+      this._referencePresentationKey = presentationKey;
+    } else {
+      this.wakeReference();
+      this._referenceDevelopmentKey = null;
+      this._referencePresentationKey = null;
+    }
     const gl = this.gl;
     if (this.profiler) {
       this.profiler.beginFrame(jsTime);
@@ -1120,24 +1171,7 @@ export class MobiusRenderer {
     // PASS 4: Bloom Downsample & Separable Blur
     // -------------------------------------------------------------
     if (this.profiler) this.profiler.beginPass('bloom');
-    if (this.bloomEnabled) {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFbos[0]);
-      gl.viewport(0, 0, this.bloomWidth, this.bloomHeight);
-      gl.useProgram(this.blurProg);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, accumCurrentTex);
-      gl.uniform1i(this.blurUniforms.image, 0);
-      gl.uniform2f(this.blurUniforms.dir, 1.5 / this.bloomWidth, 0.0);
-      gl.bindVertexArray(this.quadVao);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      if (this.profiler) this.profiler.recordDrawCall();
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFbos[1]);
-      gl.bindTexture(gl.TEXTURE_2D, this.bloomTextures[0]);
-      gl.uniform2f(this.blurUniforms.dir, 0.0, 1.5 / this.bloomHeight);
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-      if (this.profiler) this.profiler.recordDrawCall();
-    }
+    this.renderBloom(accumCurrentTex, true);
     if (this.profiler) this.profiler.endPass('bloom');
 
     // -------------------------------------------------------------
@@ -1189,6 +1223,35 @@ export class MobiusRenderer {
       this.profiler.endFrame(dt);
     }
     gl.flush();
+    if (isReference) {
+      // Count actual live work only; exports have independent rendering loops.
+      this.referenceDeposits += this.numParticles * this.stepsPerFrame;
+      // Auto may have promoted during this frame. Keep that frame's new tier as
+      // the baseline, rather than clearing a valid exposure on the following RAF.
+      this._referenceDevelopmentKey = this.referenceDevelopmentKey();
+      this.referenceSettled = this.referenceDeposits >=
+        REFERENCE_DEPOSITS_PER_PIXEL * this.accumWidth * this.accumHeight;
+    }
+  }
+
+  renderBloom(accumCurrentTex, record = false) {
+    if (!this.bloomEnabled) return;
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFbos[0]);
+    gl.viewport(0, 0, this.bloomWidth, this.bloomHeight);
+    gl.useProgram(this.blurProg);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, accumCurrentTex);
+    gl.uniform1i(this.blurUniforms.image, 0);
+    gl.uniform2f(this.blurUniforms.dir, 1.5 / this.bloomWidth, 0.0);
+    gl.bindVertexArray(this.quadVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    if (record && this.profiler) this.profiler.recordDrawCall();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomFbos[1]);
+    gl.bindTexture(gl.TEXTURE_2D, this.bloomTextures[0]);
+    gl.uniform2f(this.blurUniforms.dir, 0.0, 1.5 / this.bloomHeight);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    if (record && this.profiler) this.profiler.recordDrawCall();
   }
 
   renderRawTrajectories(mathSys) {
