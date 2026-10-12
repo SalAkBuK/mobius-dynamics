@@ -836,6 +836,8 @@ export class App {
 
   // --- Export Features ---
   openExportModal(type = 'standard') {
+    clearTimeout(this._exportCompletionTimeout);
+    this._exportCompletionTimeout = null;
     this.setExportType(type);
     if (this.exportModal) this.exportModal.classList.add('visible');
   }
@@ -931,6 +933,8 @@ export class App {
 
   async startExport() {
     if (this.isExporting || this.contextLost || this.renderer.isContextUnavailable()) return;
+    clearTimeout(this._exportCompletionTimeout);
+    this._exportCompletionTimeout = null;
     this._exportAbortController = new AbortController();
     this._exportTask = this.runExport();
     return this._exportTask;
@@ -1042,7 +1046,8 @@ export class App {
           }
         });
         this.showToast('Reference Master 4096×4096 exported successfully!');
-        setTimeout(() => {
+        this._exportCompletionTimeout = setTimeout(() => {
+          this._exportCompletionTimeout = null;
           if (btnStart) btnStart.disabled = false;
           if (btnCancel) btnCancel.disabled = false;
           this.closeExportModal();
@@ -1128,7 +1133,8 @@ export class App {
         }
       });
       this.showToast(`Successfully exported ${width}×${height} PNG!`);
-      setTimeout(() => {
+      this._exportCompletionTimeout = setTimeout(() => {
+        this._exportCompletionTimeout = null;
         if (btnStart) btnStart.disabled = false;
         if (btnCancel) btnCancel.disabled = false;
         this.closeExportModal();
@@ -1400,6 +1406,7 @@ export class App {
   }
 
   togglePause() {
+    if (this.mode === 'reference') return;
     if (this.isExporting || this.renderer?.isExporting) return;
     this.math.evolving = !this.math.evolving;
     const btn = document.getElementById('btn-pause');
@@ -1477,6 +1484,8 @@ export class App {
 
   onContextLost(event) {
     event.preventDefault();
+    clearTimeout(this._exportCompletionTimeout);
+    this._exportCompletionTimeout = null;
     clearTimeout(this._contextRecoveryTimer);
     this._contextRecoveryTimer = null;
     this._contextRecoveryAttempts = 0;

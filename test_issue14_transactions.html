@@ -1,0 +1,35 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+import {boot,explore,state,buffers,equal,hash,sleep,until,reporter} from './hardening_test_helpers.js';
+const recoveryErrors=[];const {check,finish}=reporter(),baseline=location.search.includes('baseline');
+try{const {app,w,audit}=await boot(),d=w.document;w.console.error=(...args)=>recoveryErrors.push(args.map(x=>x?.message||String(x)).join(' '));
+ const setup=()=>{explore(app);app.exportType='standard';app.exportWidth=96;app.exportHeight=64;app.exportPasses=1;app.refMasterPasses=1;app.hideExportDisplayHold();app.updateReadout();app.updateModeUI();};
+ setup();await app.startExport();const native=w.HTMLCanvasElement.prototype.toBlob;let encoding=false;
+ w.HTMLCanvasElement.prototype.toBlob=function(cb){encoding=true;};app.openExportModal();const second=app.startExport();await until(()=>encoding,'second encoding');await sleep(900);
+ const stayedDisabled=d.getElementById('btn-export-start').disabled;app.cancelExport();await second;w.HTMLCanvasElement.prototype.toBlob=native;
+ check(baseline?'Old completion callback reenables newer export Start':'Earlier completion callback cannot alter active export controls',baseline?!stayedDisabled:stayedDisabled);
+ if(!baseline){
+  setup();await app.startExport();app.openExportModal();await sleep(900);check('Reopening export modal cancels previous completion close',app.exportModal.classList.contains('visible'));app.closeExportModal();
+  async function photons(r){const gl=r.gl,a=new Float32Array(r.accumWidth*r.accumHeight*4);gl.bindFramebuffer(gl.FRAMEBUFFER,r.accumFbos[r.accumReadIdx]);gl.readPixels(0,0,r.accumWidth,r.accumHeight,gl.RGBA,gl.FLOAT,a);gl.bindFramebuffer(gl.FRAMEBUFFER,null);return hash(new Uint8Array(a.buffer));}
+  function snapshot(){const r=app.renderer;return JSON.stringify({state:state(app),app:[app.mode,app.isExporting,app.contextLost,app.displayHoldActive],mathMode:app.math.mode,
+   visual:Object.fromEntries(['aspect','particlesOverride','stepsOverride','numParticles','stepsPerFrame','persistence','currentPersistence','showRawTrajectories','_referenceDevelopmentKey','_referencePresentationKey'].map(k=>[k,r[k]])),ui:[d.getElementById('mode-status-pill').textContent,d.getElementById('btn-mode-reference').className,d.getElementById('btn-mode-explore').className,d.getElementById('val-a').textContent]});}
+  for(const mode of ['reference','explore'])for(const type of ['standard','reference_master'])for(const outcome of ['success','failure','cancel','loss']){
+   setup();if(mode==='reference')app.setMode('reference');const r=app.renderer,m=app.math;app.exportType=type;r.particlesOverride=1024;r.stepsOverride=16;r.render(m,.016);app.updateReadout();
+   const before=snapshot(),math=JSON.stringify(m),vbos=buffers(r),accum=await photons(r),handlers=JSON.stringify(audit.handlers),downloads=audit.downloads;
+   const loss=r.gl.getExtension('WEBGL_lose_context');let late;
+   if(outcome!=='success')w.HTMLCanvasElement.prototype.toBlob=function(cb){if(outcome==='failure')cb(null);if(outcome==='cancel'){late=cb;app.cancelExport();}if(outcome==='loss'){late=cb;loss.loseContext();}};
+   const blob=await app.startExport();w.HTMLCanvasElement.prototype.toBlob=native;
+   if(outcome==='loss'){await until(()=>app.contextLost,'lost');await sleep(100);loss.restoreContext();try{await until(()=>!app.contextLost&&app.renderer!==r,'restore',10000);}catch(e){throw Error('restore '+JSON.stringify({lost:app.contextLost,browserLost:r.gl.isContextLost(),attempts:app._contextRecoveryAttempts,errors:recoveryErrors}));}app.renderer.profiler.enabled=false;
+    check(mode+' '+type+' loss: JS session preserved, GL state intentionally rebuilt',JSON.stringify(m)===math&&app.mode===mode&&app.renderer.simVbos[0]!==r.simVbos[0]&&app.renderer.referenceDeposits===0&&!app.isExporting&&!app.displayHoldActive);
+   }else{await until(()=>!app.displayHoldActive,'hold removed');check(mode+' '+type+' '+outcome+': exact full session, VBO and accumulation restoration',snapshot()===before&&buffers(r).every((a,i)=>equal(a,vbos[i]))&&await photons(r)===accum);}
+   if(late){late(new w.Blob(['late']));await sleep(10);}
+   check(mode+' '+type+' '+outcome+': intentional download, one RAF and unchanged handlers',audit.downloads===downloads+(outcome==='success'?1:0)&&audit.pending.size===1&&JSON.stringify(audit.handlers)===handlers&&!app.renderer._interruptExport);
+   if(mode==='reference')check(type+' '+outcome+': Reference remains canonical',m.n===16&&m.time===0&&!m.evolving&&m.userOffsetA.r===0&&app.renderer.zoom===1.65&&app.renderer.activePalette==='cobalt');
+  }
+  setup();const preset=app.getPresetObject('transaction');app.setMode('reference');app.loadPresetObject(preset);
+  check('Preset transaction intentionally applies Explore math, drift, camera and rendering',app.mode==='explore'&&app.math.n===11&&app.math.time===7.25&&app.renderer.zoom===2.1&&app.math.userOffsetA.r===.13);
+  app.resetView();check('Explore reset intentionally resets time/offsets/camera while retaining mode',app.mode==='explore'&&app.math.time===0&&app.math.userOffsetA.r===0&&app.renderer.targetZoom===1.65&&app.renderer.targetViewCenter.every(v=>v===0));
+  app.setMode('reference');app.togglePause();check('Direct Pause API protects Reference drift invariant',!app.math.evolving);app.randomize('organic');check('Randomize deliberately enters Explore',app.mode==='explore');app.setMode('reference');app.resetView();
+  check('Mode/reset transaction enforces canonical Reference',app.math.n===16&&!app.math.evolving&&app.math.time===0&&app.renderer.zoom===1.65&&app.renderer.activePalette==='cobalt');
+ }
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

@@ -86,3 +86,17 @@ Reproduced six unsafe startup paths. Missing WebGL2, shader compile, program lin
 Fix: bootstrap catches initialization failure once, keeps HTML present, shows a readable role=alert error and marks graphics unavailable instead of a false Reference status. Renderer validates actual initial particle allocation errors and buffer size before VAO use; constructor cleanup releases failed partial initialization. No alternate renderer/reload/retry loop. Files: app.js, renderer.js, test_issue13_startup.html, this report. Six fatal faults and four fallback cases pass (16 assertions), with no uncaught exceptions, no partial RAF, and zero residual tracked handles on fatal paths. Context loss/rebuild retry, canonical Reference, Master and allocation regressions pass (265 total).
 
 Issue 12 pushed and confirmed: `7717876c3cf4bfeff1ae51228d15f8db36db45ea`.
+
+## Issue 14 ? application transactions
+
+Reproduced two defects: an earlier successful export's delayed 700 ms callback re-enabled Start during a subsequent export; direct App.togglePause enabled the evolving flag in Reference despite UI guards. Fix: own/cancel the completion timer when starting/reopening export or losing context, and enforce Reference pause protection in the API itself. Files: app.js, test_issue14_transactions.html, this report. Baselines 1/1 each; focused final 47/47; relevant cancellation, isolation, PNG, display hold, preset, Reference and loss/retry regressions pass (444 total).
+
+Intentional transaction boundaries:
+
+- Healthy export success/failure/cancel restores start math (all own fields), camera/aspect, presentation, quality/adaptive state, overrides, both full VBOs/index, accumulation handles/pixels/counters and Reference exposure. App export flags/token/waiter clear. Successful download/progress is intentional; display hold leaves after frame/fallback, cancellation removes it immediately. Attempted live input during export is discarded.
+- Context loss retains the JavaScript mathematical/session choices and quality mode, interrupts export without auto-restart, and replaces every GL resource. Accumulation/particle bytes, exposure progress and adaptive timing measurements intentionally restart. Reference is re-canonicalized; Explore math is preserved. One RAF and the existing handlers survive.
+- Preset loading intentionally applies validated fields; missing fields keep existing legacy behavior. Mode switch to Reference establishes all canonical math/framing/palette; Explore enables disturbances. Reset in Explore clears time/offset/pointer/shock and smoothly targets canonical framing, retaining the selected base organism and mode. Reset in Reference performs the canonical reset.
+
+The snapshot suite checks both modes and both export types through success, failure, cancel and actual context loss, including full particle bytes and accumulation hash when healthy, plus UI mode/readout, aspect, persistence, overrides and exposure keys.
+
+Issue 13 pushed and confirmed: `6ab434e90be964e4284c0637e9868c91e109400c`.
