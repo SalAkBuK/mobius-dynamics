@@ -1,0 +1,46 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// M-1: the preset name input must not accept more characters than the preset schema accepts (512), so the app can
+// never write a preset file it later refuses to import. The limit is read from the REAL validator, not hard-coded.
+import {boot,explore,sleep,until,reporter} from './hardening_test_helpers.js';
+import {validatePreset} from './preset_validation.js';
+const {check,finish}=reporter();
+try{
+  const {app,w}=await boot(),d=w.document,$=id=>d.getElementById(id);
+  explore(app);app.setMode('explore');
+  const input=$('preset-name-input');
+  // ---- the schema limit, discovered from the validator itself
+  const accepts=n=>{try{validatePreset({name:'x'.repeat(n)});return true;}catch(e){return false;}};
+  let limit=0;while(accepts(limit+1)&&limit<4096)limit++;
+  check('the validator accepts exactly up to 512 characters of name (limit discovered, not assumed)',limit===512&&!accepts(513),String(limit));
+  check('the preset name input declares maxlength equal to the schema limit',input.maxLength===limit&&input.getAttribute('maxlength')==='512',String(input.maxLength));
+  check('the input is still a plain text field with the same id and placeholder (nothing else changed)',input.type==='text'&&input.placeholder==='Preset name');
+  // ---- maxlength counts UTF-16 code units, exactly like String.length used by the validator
+  check('maxlength and the validator both count UTF-16 code units, so any value the input allows passes validation',(()=>{const emoji='🌀'.repeat(256);return emoji.length===512&&accepts(0)&&(()=>{try{validatePreset({name:emoji});return true;}catch(e){return false;}})();})());
+  // ---- capture what Save hands to the browser and what Copy puts on the clipboard
+  let clip=null;Object.defineProperty(w.navigator,'clipboard',{configurable:true,value:{writeText:async t=>{clip=t;}}});
+  const files=[];const realCreate=w.URL.createObjectURL.bind(w.URL);w.URL.createObjectURL=b=>{files.push({blob:b});return realCreate(b);};
+  w.HTMLAnchorElement.prototype.click=function(){const f=files.at(-1);if(f)f.download=this.download;};
+  const toasts=[];const show=app.showToast.bind(app);app.showToast=t=>{toasts.push(t);show(t);};
+  w.localStorage.removeItem('mobius_custom_presets');
+  const save=async name=>{input.value=name;const n=files.length;app.saveUserPreset();await until(()=>files.length>n,'download');await sleep(20);const f=files.at(-1);return {file:f.download,json:JSON.parse(await f.blob.text())};};
+  const copy=async name=>{input.value=name;clip=null;app.copyPresetJSON();await until(()=>clip!==null,'clipboard');return JSON.parse(clip);};
+  const importText=async text=>{toasts.length=0;app.setMode('reference');app.importPresetFile(new w.File([text],'p.mobius.json',{type:'application/json'}));await until(()=>toasts.some(t=>/Loaded preset|Unable to load/.test(t)),'import');return toasts.find(t=>/Loaded preset|Unable to load/.test(t));};
+  // ---- a name at the limit works end to end
+  const at=('N'+'a'.repeat(510)+'Z');check('test name is exactly 512 characters',at.length===512);
+  const s=await save(at);
+  check('512-character name: Save & Download delivers a file carrying the full name',s.json.name===at&&/\.mobius\.json$/.test(s.file),s.file?.slice(0,30));
+  let valid=true;try{validatePreset(s.json);}catch(e){valid=false;}
+  check('512-character name: the saved preset validates',valid);
+  const c=await copy(at);check('512-character name: Copy JSON carries the full name and validates',c.name===at&&(()=>{try{validatePreset(c);return true;}catch(e){return false;}})());
+  const t=await importText(JSON.stringify(s.json));
+  check('512-character name: importing the file the app just wrote succeeds',/^Loaded preset: N/.test(t)&&app.mode==='explore',t?.slice(0,40));
+  const t2=await importText(clip);check('512-character name: importing the copied JSON succeeds too',/^Loaded preset: N/.test(t2),t2?.slice(0,40));
+  // ---- unchanged behaviour
+  const FIXED='9:09:09 TEST';const nativeTime=w.Date.prototype.toLocaleTimeString;w.Date.prototype.toLocaleTimeString=function(){return FIXED;};
+  check('blank-name fallback is unchanged ("Preset <time>") for Save and Copy',(await save('')).json.name===`Preset ${FIXED}`&&(await copy('   ')).name===`Preset ${FIXED}`);
+  w.Date.prototype.toLocaleTimeString=nativeTime;
+  const uni='Möbius ∑ 日本語 🌀';check('Unicode names still save and round-trip',(await save(uni)).json.name===uni&&(await copy(uni)).name===uni&&/^Loaded preset: Möbius/.test(await importText(JSON.stringify((await save(uni)).json))));
+  check('the typed name is still trimmed',(await save('   Padded  ')).json.name==='Padded');
+  w.localStorage.removeItem('mobius_custom_presets');
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>
