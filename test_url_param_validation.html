@@ -1,0 +1,68 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// M-4: malformed URL hooks must never reach the engine. Every case loads the REAL index.html with that query string in a
+// fresh frame (the protected engine modules read location.search themselves, so only a real load proves the boundary).
+import {sleep,reporter} from './hardening_test_helpers.js';
+import {CONRADI_REFERENCE} from './math.js';
+const {check,finish}=reporter();
+const finite=v=>typeof v==='number'&&Number.isFinite(v);
+const load=async query=>{
+  const frame=document.createElement('iframe');frame.width=400;frame.height=300;frame.src='./index.html'+query;document.body.append(frame);
+  await new Promise(r=>frame.onload=r);
+  const w=frame.contentWindow;for(let i=0;i<150&&!(w.__app&&w.__app.renderer?.accumulationFrames>=2);i++)await sleep(40);
+  return {frame,w,app:w.__app,close:()=>frame.remove()};
+};
+const sane=(app,w)=>{const m=app.math,r=app.renderer;
+  const cs=[m.baseA,m.baseB,m.baseC,m.baseD,m.a,m.b,m.c,m.d].every(z=>finite(z.r)&&finite(z.i));
+  return {ok:cs&&Number.isInteger(m.n)&&m.n>=1&&m.n<=64&&['reference','explore'].includes(app.mode)&&['reference','explore'].includes(m.mode)
+    &&finite(r.numParticles)&&r.numParticles>0&&finite(r.maxParticleCapacity)&&r.maxParticleCapacity>0&&finite(r.stepsPerFrame)&&r.stepsPerFrame>0
+    &&finite(r.zoom)&&r.zoom>0&&finite(r.targetZoom)&&r.viewCenter.every(finite)&&r.targetViewCenter.every(finite)
+    &&(app.customDpr===undefined||app.customDpr===null||(finite(app.customDpr)&&app.customDpr>0))&&!w.document.getElementById('graphics-error')&&r.accumulationFrames>0,
+    detail:JSON.stringify({mode:app.mode,mmode:m.mode,n:m.n,np:r.numParticles,cap:r.maxParticleCapacity,steps:r.stepsPerFrame,zoom:r.zoom,vc:r.viewCenter,dpr:app.customDpr,frames:r.accumulationFrames})};};
+const refCanonical=app=>{const m=app.math,eq=(x,y)=>x.r===y.r&&x.i===y.i;return app.mode==='reference'&&m.mode==='reference'&&m.n===16&&['a','b','c','d'].every(k=>eq(m['base'+k.toUpperCase()],CONRADI_REFERENCE[k])&&eq(m[k],CONRADI_REFERENCE[k]))
+  &&!m.evolving&&m.time===0&&app.renderer.zoom===1.65&&app.renderer.activePalette==='cobalt';};
+const queryOf=w=>w.location.search;
+const HOOKS=['n','dpr','mode','zoom','cx','cy','particles','steps'];
+// independent oracle for 'is this value structurally valid' (does not reuse the implementation)
+const INT=/^[+-]?\d+$/,DEC=/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+const validValue=(k,v)=>{const i=INT.test(v)?Number(v):NaN,d=DEC.test(v)?Number(v):NaN;
+  return k==='mode'?(v==='reference'||v==='explore'):k==='n'?(Number.isInteger(i)&&i>=1&&i<=64):(k==='particles'||k==='steps')?(Number.isFinite(i)&&i>=1):(k==='dpr'||k==='zoom')?(Number.isFinite(d)&&d>0):Number.isFinite(d);};
+try{
+  // ---------- every malformed hook, one frame each
+  const bad=[
+    'n=abc','n=NaN','n=Infinity','n=-Infinity','n=-1','n=0','n=','n=7.5','n=12abc','n=0x10','n=65','n=1000000',
+    'dpr=abc','dpr=NaN','dpr=Infinity','dpr=-1','dpr=0','dpr=','dpr=1e999',
+    'mode=zzz','mode=','mode=EXPLORE',
+    'zoom=abc','zoom=NaN','zoom=Infinity','zoom=0','zoom=-3','zoom=1e999',
+    'cx=abc&zoom=2','cy=Infinity&zoom=2','cx=NaN&cy=NaN&zoom=2',
+    'particles=abc','particles=NaN','particles=Infinity','particles=-1','particles=0','particles=1.5',
+    'steps=abc','steps=NaN','steps=Infinity','steps=-1','steps=0','steps=',
+    'n=abc&dpr=-1&mode=zzz&particles=abc&steps=0&zoom=-1'
+  ];
+  for(const q of bad){
+    const f=await load('?'+q);const r=f.app?sane(f.app,f.w):{ok:false,detail:'no app'};
+    check(`?${q}: app starts, state is finite and valid, canvas is developing`,r.ok,r.detail);
+    if(f.app){
+      const left=new URLSearchParams(queryOf(f.w));
+      const stillBad=HOOKS.filter(k=>left.has(k)&&!validValue(k,left.get(k)));
+      check(`?${q}: the invalid hook is no longer in the address the engine modules read`,stillBad.length===0,queryOf(f.w));
+      check(`?${q}: modes still switch and Reference restores canonical`,(()=>{const a=f.app;a.setMode('explore');const e=a.mode==='explore';a.setMode('reference');return e&&refCanonical(a);})(),f.app.mode);
+    }
+    f.close();
+  }
+  // ---------- valid hooks used by benchmarks / tests must behave exactly as before
+  let f=await load('?n=16');check('?n=16 -> Explore, n=16, URL untouched',f.app.mode==='explore'&&f.app.math.n===16&&queryOf(f.w)==='?n=16',queryOf(f.w));f.close();
+  f=await load('?n=8');check('?n=8 -> Explore, n=8 (valid hook untouched)',f.app.mode==='explore'&&f.app.math.n===8&&queryOf(f.w)==='?n=8');f.close();
+  f=await load('?n=24');check('?n=24 -> Explore, n=24',f.app.mode==='explore'&&f.app.math.n===24);f.close();
+  f=await load('?mode=explore');check('?mode=explore -> Explore',f.app.mode==='explore'&&f.app.math.mode==='explore'&&queryOf(f.w)==='?mode=explore');f.close();
+  f=await load('?mode=reference');check('?mode=reference -> Reference, canonical',refCanonical(f.app)&&queryOf(f.w)==='?mode=reference');f.close();
+  f=await load('?tier=potato&dpr=0.5');check('?tier=potato&dpr=0.5 (used by the context-loss repro): dpr 0.5, manual tier kept',f.app.customDpr===0.5&&f.app.renderer.adaptive.mode==='potato'&&queryOf(f.w)==='?tier=potato&dpr=0.5',queryOf(f.w)+' '+f.app.customDpr);f.close();
+  f=await load('?mode=explore&zoom=130&cx=0.1422&cy=0.0894');const z=f.app.renderer;check('large valid zoom with cx/cy (benchmark values) applied exactly',z.zoom===1.65*130&&z.viewCenter[0]===0.1422&&z.viewCenter[1]===0.0894&&queryOf(f.w)==='?mode=explore&zoom=130&cx=0.1422&cy=0.0894',JSON.stringify([z.zoom,z.viewCenter]));f.close();
+  f=await load('?particles=150000&steps=8');check('?particles=150000&steps=8: both overrides reach the engine',f.app.renderer.numParticles===150000&&f.app.renderer.stepsPerFrame===8&&f.app.renderer.particlesOverride===150000&&f.app.renderer.stepsOverride===8);f.close();
+  f=await load('?particles=589824&steps=16&dpr=1');check('?particles=589824&steps=16&dpr=1 (full-tier benchmark values) accepted unchanged',f.app.renderer.particlesOverride===589824&&f.app.renderer.stepsOverride===16&&f.app.customDpr===1&&queryOf(f.w)==='?particles=589824&steps=16&dpr=1');f.close();
+  f=await load('?particles=5000000');check('large finite ?particles=5000000 is NOT capped (documented, unchanged)',f.app.renderer.particlesOverride===5000000&&queryOf(f.w)==='?particles=5000000');f.close();
+  f=await load('?brute&debug&nobloom');check('flag hooks (brute, debug, nobloom) unaffected',f.app.renderer.adaptive.mode==='bruteforce'&&f.app.debugMode===true&&queryOf(f.w)==='?brute&debug&nobloom',queryOf(f.w));f.close();
+  f=await load('?dpr=-1&dpr=2');check('duplicate key: first value wins like URLSearchParams.get, so an invalid first value drops the key (no half-applied state)',!new URLSearchParams(queryOf(f.w)).has('dpr')&&!(f.app.customDpr>0),queryOf(f.w));f.close();
+  f=await load('');check('no query string: nothing touched, Reference canonical',refCanonical(f.app)&&queryOf(f.w)==='');f.close();
+  f=await load('?n=abc&palette=solar&view=raw&keep=1');check('other hooks in the same URL survive when only one is invalid',/palette=solar/.test(queryOf(f.w))&&/view=raw/.test(queryOf(f.w))&&/keep=1/.test(queryOf(f.w))&&!/(^|[?&])n=/.test(queryOf(f.w)),queryOf(f.w));f.close();
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

@@ -28,7 +28,7 @@
  *    - Full JSON preset library (save, load, copy, import)
  */
 
-import { validatePreset, MAX_PRESET_BYTES } from './preset_validation.js';
+import { validatePreset, validateMathPreset, MAX_PRESET_BYTES } from './preset_validation.js';
 import { MathSystem, CONRADI_REFERENCE } from './math.js';
 import { MobiusRenderer, PALETTES } from './renderer.js';
 
@@ -137,8 +137,48 @@ export const CURATED_PRESETS = [
   }
 ];
 
+/**
+ * URL hooks (deep links, benchmarks, tests) are read from location.search by this file AND, independently, by
+ * renderer.js, adaptive.js and profiler.js while they construct. A malformed value such as ?n=abc, ?dpr=-1 or
+ * ?mode=zzz would otherwise reach the engine as NaN / a negative / an undefined mode (blank canvas).
+ * This runs before any engine module is built: an invalid mode or numeric hook is dropped, so the app starts in
+ * the normal state, and the address bar is cleaned with history.replaceState so the engine modules never see
+ * the bad value either. Only structurally impossible values are rejected: finite but extreme values (a huge
+ * ?particles=, ?zoom=) are deliberately left alone because benchmarks rely on unusual valid settings.
+ * Returns the sanitized URLSearchParams that the rest of the constructor reads.
+ */
+const URL_INTEGER = /^[+-]?\d+$/;
+const URL_DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+const urlInteger = text => (URL_INTEGER.test(text) ? Number(text) : NaN);
+const urlDecimal = text => (URL_DECIMAL.test(text) ? Number(text) : NaN);
+const URL_RULES = {
+  mode: text => text === 'reference' || text === 'explore',
+  // Order n: the canonical domain is the preset schema's own (integer 1..64), not a new cap.
+  n: text => { try { validateMathPreset({ mode: 'explore', n: urlInteger(text) }); return true; } catch (e) { return false; } },
+  particles: text => Number.isFinite(urlInteger(text)) && urlInteger(text) >= 1,
+  steps: text => Number.isFinite(urlInteger(text)) && urlInteger(text) >= 1,
+  dpr: text => urlDecimal(text) > 0 && Number.isFinite(urlDecimal(text)),
+  zoom: text => urlDecimal(text) > 0 && Number.isFinite(urlDecimal(text)),
+  cx: text => Number.isFinite(urlDecimal(text)),
+  cy: text => Number.isFinite(urlDecimal(text))
+};
+
+export function sanitizeRuntimeUrl(win = window) {
+  const params = new URLSearchParams(win.location.search);
+  const rejected = Object.keys(URL_RULES).filter(key => params.has(key) && !URL_RULES[key](params.get(key)));
+  if (rejected.length === 0) return params;
+  rejected.forEach(key => params.delete(key));
+  console.info(`Ignoring invalid URL parameter(s): ${rejected.join(', ')}`);
+  try {
+    const query = params.toString();
+    win.history.replaceState(win.history.state, '', win.location.pathname + (query ? `?${query}` : '') + win.location.hash);
+  } catch (e) { /* sandboxed frame: the app below still uses the sanitized params */ }
+  return params;
+}
+
 export class App {
   constructor() {
+    const urlParams = sanitizeRuntimeUrl();
     this.canvas = document.getElementById('gl-canvas');
     this.math = new MathSystem('explore');
     this.renderer = new MobiusRenderer(this.canvas);
@@ -234,7 +274,7 @@ export class App {
     this.refMasterPasses = 120;
 
     // Parse URL parameters for automated testing & direct linking
-    const params = new URLSearchParams(window.location.search);
+    const params = urlParams;
     let startMode = 'reference';
     if (params.has('mode')) {
       startMode = params.get('mode');
