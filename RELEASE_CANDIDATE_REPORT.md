@@ -2,7 +2,9 @@
 
 Audit date: 2026-10-12. Scope: find any user-facing defect that should block a public release. This was not a redesign, refactor, feature or optimization pass, and **no production file was changed** by this audit.
 
-Summary: 0 blockers, 0 major issues, 12 minor issues (§21). Verdict in §24.
+Summary at the original audit (build `3d334ab`): 0 blockers, 0 major issues, 12 minor issues (§21). Verdict in §24.
+
+**Update after owner review:** the owner chose three of the twelve minors (M-1, M-4, M-5) to fix before publication. They are fixed in three separate commits on top of the audited build (§20), re-verified with the full regression (7,618 / 7,618) and live in real Chrome. **Remaining: 0 blockers, 0 major, 9 minor.** The original audit text below is preserved; the fix pass is recorded in §2, §18, §20, §21, §23 and §24.
 
 ---
 
@@ -14,7 +16,9 @@ https://mobius-dynamics.vercel.app/
 
 Audited build: `3d334abc947f5ffa718cda02a5a5391b3103219a` (`fix(presets): preserve entered name when copying json`), `main` == `origin/main`, working tree clean at start.
 
-The only change this audit adds is a report/test-only commit on top of it (this file and `release_checks/`). Its SHA, and the deployed SHA after pushing it, are reported in the hand-off message because a file cannot contain its own commit hash. Zero diff in `app.js`, `index.html`, `renderer.js`, `math.js`, `adaptive.js`, `profiler.js`, `preset_validation.js` versus `3d334ab`.
+The original audit added only a report/test-only commit on top of it (this file and `release_checks/`, `b5f1b09`).
+
+**Fix pass (after owner review):** three fix commits were then added: `4873f6b` (M-1), `fa48f71` (M-4), `fe65a89` (M-5). `fe65a89513ad3b2af3b18752eedf6135a3610a6b` was `origin/main` and the deployed build when the fix pass was verified. This report update is a docs-only commit on top; its SHA is in the hand-off message. Production files changed by the fix pass: `app.js` and `index.html` only. Zero diff in `math.js`, `adaptive.js`, `profiler.js`, `preset_validation.js`, `renderer.js` versus `b5f1b09`. Its SHA, and the deployed SHA after pushing it, are reported in the hand-off message because a file cannot contain its own commit hash. Zero diff in `app.js`, `index.html`, `renderer.js`, `math.js`, `adaptive.js`, `profiler.js`, `preset_validation.js` versus `3d334ab`.
 
 ## 3. Exact deployed revision verified
 
@@ -149,7 +153,9 @@ Performance (RTX 4070): Auto, Low, Standard, High, Ultra, Extreme and Brute Forc
 
 ## 18. Automated regression total
 
-**7,441 / 7,441** — unchanged from baseline because this audit added no assertions to the HTML suites; the new real-browser checks are a separate gate.
+**Original audit: 7,441 / 7,441** — unchanged from baseline because the audit itself added no assertions to the HTML suites; the new real-browser checks are a separate gate.
+
+**After the fix pass: 7,618 / 7,618** (7,441 + 13 + 146 + 18): `test_preset_name_limit.html` 13, `test_url_param_validation.html` 146, `test_space_after_randomize.html` 18. Browser suites 7,520 + Issue 7 background-tab 16 + integrated adversarial 39 + Issue 3 five-minute Reference idle 43; every runner exit 0, zero FAIL lines. Each new test was run against the previous code and fails there (M-1 1 failure, M-4 many, M-5 3 failures).
 
 | Runner | Assertions | Exit |
 |---|---|---|
@@ -169,17 +175,29 @@ No blocker and no major issue. Twelve minor issues (§21). Items examined and **
 
 ## 20. Fix commit for each issue
 
-None. No blocker/major was found, and no minor was fixed (see §21: each needs an owner decision, and two touch protected files or accepted behaviour). The only commit is the report/test-only commit described in §2.
+Original audit: none. No blocker/major was found, and no minor was fixed during the audit; the only commit was the report/test-only commit described in §2.
+
+Fix pass (owner-selected minors, one defect per commit, each with a regression test, no protected file touched):
+
+| Finding | Commit | Change | Regression test |
+|---|---|---|---|
+| M-1 | `4873f6b` `fix(presets): align preset name input with schema limit` | `maxlength="512"` on `#preset-name-input` (UTF-16 code units, the unit the validator counts). Schema untouched | `test_preset_name_limit.html` (13) |
+| M-4 | `fa48f71` `fix(url): reject malformed runtime parameters` | `sanitizeRuntimeUrl()` in `app.js` runs before any engine module is built. Invalid `mode`, `n`, `particles`, `steps`, `dpr`, `zoom`, `cx`, `cy` are dropped (strict decimal parsing; `n` reuses the preset schema's own integer 1..64 domain; no new caps) and the address bar is cleaned with `history.replaceState`, because `renderer.js`, `adaptive.js` and `profiler.js` also read `location.search` themselves. Valid benchmark URLs are unchanged | `test_url_param_validation.html` (146) |
+| M-5 | `fe65a89` `fix(input): prevent pointer randomize focus from stealing space shortcut` | a pointer click (`event.detail > 0`) on the Randomize button releases focus after the action; keyboard activation (`detail 0`) keeps normal focus; no global blur. A real-Chrome probe showed only this button was affected (style-menu items leave focus on the body; the ▾ toggle only toggles its menu) | `test_space_after_randomize.html` (18) |
+
+M-4 URL hook inventory (every parameter read): `mode` (reference|explore), `n` (integer 1..64), `particles` and `steps` (integer ≥ 1), `dpr` and `zoom` (finite > 0), `cx` and `cy` (finite), plus enum/flag hooks that were already safe (`tier` and `palette` ignore unknown values, `morph`, `randomize`, `view`, `bruteforce`/`brute`, `raw`, `nobloom`, `debug`, `profile`, `notimer`/`noquery`, `capture`). Benchmark/test values found in the repo (n=8/16/24, zoom up to 130, dpr=0.5, decimal cx/cy, `tier=potato&dpr=0.5`) are all accepted unchanged and asserted.
 
 ## 21. Remaining MINOR issues (for owner review)
 
+Status after the fix pass: **M-1, M-4 and M-5 are RESOLVED** (commits in §20) and are kept in the table below as audit history; **9 minors remain** (M-2, M-3, M-6, M-7, M-8, M-9, M-10, M-11, M-12), all accepted or deferred by the owner.
+
 | # | Issue | Repro / evidence | Suggested remedy (not applied) |
 |---|---|---|---|
-| M-1 | A preset name longer than 512 characters can be saved, but its own file is then rejected on import | type 600 chars → Save; import that file → "Invalid preset field: name." (validator caps at 512; the field has no `maxlength`) | `maxlength="512"` on `#preset-name-input` |
+| M-1 ✅ resolved `4873f6b` | A preset name longer than 512 characters can be saved, but its own file is then rejected on import | type 600 chars → Save; import that file → "Invalid preset field: name." (validator caps at 512; the field has no `maxlength`) | `maxlength="512"` on `#preset-name-input` |
 | M-2 | A non-object entry in the stored list (`mobius_custom_presets`) stops the Presets dialog opening at all (uncaught TypeError, app.js:1772) until site data is cleared | set the key to `[null,{…}]`, reload, click Presets. Only reachable by tampering/corruption; the app itself never writes such data | filter to plain objects in `getUserPresets()` |
 | M-3 | Any JSON object that passes the legacy-permissive schema loads as a "preset" — e.g. `{"name":"x"}` or an unrelated `package.json` — switching to Explore and discarding the saved Explore session | import `{"name":"x"}` → "Loaded preset: x" | requires a stricter schema (`preset_validation.js` is protected; owner decision) |
-| M-4 | Undocumented URL hooks accept unvalidated values: `?n=abc` blank canvas "n=NaN"; `n=0/-5/1000000`; `dpr=-1` (300×150 canvas) / `dpr=64` (87,424×49,152 request); `particles=-1/0`; `steps=0/-1`; `?mode=zzz`; `steps=500` ≈ 23 fps | 33 cases tried in Chrome: no crash, hang, XSS or page error; Reference button or removing the parameter recovers | clamp/ignore in app.js, or restrict to a debug flag |
-| M-5 | After mouse-clicking a toolbar button, Space re-activates that button instead of pausing drift (click the canvas first). Deliberate accessibility behaviour, but a change from the pre-redesign baseline where Space always paused | click Randomize, press Space → randomizes again | blur toolbar buttons after pointer activation |
+| M-4 ✅ resolved `fa48f71` | Undocumented URL hooks accept unvalidated values: `?n=abc` blank canvas "n=NaN"; `n=0/-5/1000000`; `dpr=-1` (300×150 canvas) / `dpr=64` (87,424×49,152 request); `particles=-1/0`; `steps=0/-1`; `?mode=zzz`; `steps=500` ≈ 23 fps | 33 cases tried in Chrome: no crash, hang, XSS or page error; Reference button or removing the parameter recovers | clamp/ignore in app.js, or restrict to a debug flag |
+| M-5 ✅ resolved `fe65a89` | After mouse-clicking a toolbar button, Space re-activates that button instead of pausing drift (click the canvas first). Deliberate accessibility behaviour, but a change from the pre-redesign baseline where Space always paused | click Randomize, press Space → randomizes again | blur toolbar buttons after pointer activation |
 | M-6 | Export success reads "✓ Export complete — Your browser saves the PNG to its downloads location." A browser cannot confirm the OS saved the file (Save-As prompt cancelled, rename) and the dialog shows the requested name, not a browser-renamed `(1)` name | browser limitation; the wording is already hedged | none needed; optional copy tweak |
 | M-7 | Preset names that sanitize to nothing/dots produce odd file names (`..` → `mobius.json`) | cosmetic | none |
 | M-8 | Duplicate preset names are allowed; Delete has no confirmation or undo | previously recorded in the UX audit | owner decision |
@@ -201,6 +219,9 @@ Observation, not reproduced: `importPresetFile` has no `FileReader.onerror`; a h
 
 ## 23. Known browser/platform limitations
 
+* **Extreme but valid URL values are not capped** (deliberately, because benchmarks rely on unusual valid settings): a very large finite `?particles=`, `?steps=` or `?zoom=` can still make a tab slow or run out of GPU memory for whoever opens such a link. Only structurally impossible values are rejected (§20). This was documented rather than silently changed; a hostile-link resource cap would be a separate owner decision. Not tested at extreme upper values (`particles=5000000` and `steps=500` were tried in the audit: slower, no crash).
+* A preset name at the 512-character limit produces a file name of about 525 characters; the browser shortens it (Chrome saved it as a 76-character `….json`, dropping `.mobius`). The file content is complete and imports correctly. This is the same browser-owned file-naming effect as M-7.
+
 * No browser API tells a page whether a download finished or where it landed; the app does not claim to.
 * Chrome renames duplicate downloads (`name (1).png`) and may prompt on multiple automatic downloads depending on the user's content settings; behaviour with "ask where to save" enabled was not exercised.
 * WebGL2 is required; without it the app shows "Unable to initialize graphics…" and no controls work (verified, no uncaught errors).
@@ -209,11 +230,11 @@ Observation, not reproduced: `importPresetFile` has no `FileReader.onerror`; a h
 
 ## 24. Explicit final verdict
 
-All core flows — Reference fidelity, Explore, Randomize, presets, real downloads, real clipboard, real import, export lifecycle, keyboard/focus/modal rules, responsive layouts, fresh and used profiles, repeated-use stability — work on the live production build in Chrome 154 and Edge 155 on real hardware, and the 7,441-assertion regression suite passes unchanged. Firefox, Safari and iOS Safari were not available and are not claimed.
+All core flows — Reference fidelity, Explore, Randomize, presets, real downloads, real clipboard, real import, export lifecycle, keyboard/focus/modal rules, responsive layouts, fresh and used profiles, repeated-use stability — work on the live production build in Chrome 154 and Edge 155 on real hardware, and the regression suite passes (7,441 / 7,441 at the original audit; 7,618 / 7,618 after the three owner-selected fixes, which were also re-verified live in real Chrome: 512-character name stops at 512, saves, and re-imports from the real downloaded file; `?n=abc`, `?n=-1`, `?dpr=-1`, `?mode=zzz` render the artwork with no console error; mouse-click Randomize then Space pauses instead of re-randomizing; one normal export still lands as a valid PNG). Firefox, Safari and iOS Safari were not available and are not claimed.
 
 RELEASE READY
 
 - Known blockers: 0
 - Known major issues: 0
-- Remaining minor issues: 12
+- Remaining minor issues: 9 (of the original 12, M-1, M-4 and M-5 were fixed before publication, §20)
 - Unverified platforms: Firefox, Safari/macOS, iOS Safari (plus real Android/iOS devices, non-NVIDIA GPUs, and Chrome/Edge on macOS/Linux)
