@@ -1,0 +1,32 @@
+// REAL localStorage exhaustion (no stubbing): fill the origin's storage to the last bytes, then Save & Download / delete / reload.
+import { launch, reporter, sleep, files } from './rc_lib.mjs';
+const [url, root, which = 'chrome'] = process.argv.slice(2);
+const { check, done } = reporter(`rc_quota ${which}`);
+const S = await launch({ url, root, which }); const { p, dl, log } = S;
+const fill = () => p.evaluate(() => { let key = 0; const put = n => { try { localStorage.setItem('filler' + key, 'x'.repeat(n)); key++; return true; } catch (e) { return false; } }; for (const size of [262144, 65536, 16384, 4096, 1024, 256, 64, 16, 4, 1]) while (put(size)) { if (key > 4000) break; } let probe = 'ok'; try { localStorage.setItem('probe', 'xxxxxxxxxxxxxxxx'); localStorage.removeItem('probe'); } catch (e) { probe = e.name; } return { keys: key, probe }; });
+const free = () => p.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith('filler')) localStorage.removeItem(k); });
+const f = await fill();
+check('storage is genuinely exhausted (a 16-byte write throws QuotaExceededError)', f.probe === 'QuotaExceededError', JSON.stringify(f));
+const before = new Set(files(dl)); await p.click('#btn-preset-trigger'); await sleep(300); await p.type('#preset-name-input', 'Quota Real'); await p.click('#btn-preset-save'); await sleep(900);
+const toast = (await p.evaluate(() => document.getElementById('toast-banner').innerText)).replace(/\s+/g, ' '); const added = files(dl).filter(x => !before.has(x));
+check('REAL quota exhaustion: the preset file is still delivered', added.length === 1 && /\.mobius\.json$/.test(added[0]), JSON.stringify(added));
+check('REAL quota exhaustion: the app says it was NOT kept in the browser (no false "Saved")', /Could not keep "Quota Real"/.test(toast) && /still downloaded/.test(toast), toast);
+check('page still works and has no uncaught errors under a full storage', log.pageErrors.length === 0 && (await p.evaluate(() => window.__app.isModalOpen())), JSON.stringify(log.pageErrors));
+await p.keyboard.press('Escape'); await sleep(200);
+// Delete under full storage cannot fail silently
+await free(); await p.evaluate(() => localStorage.setItem('mobius_custom_presets', JSON.stringify([{ name: 'Keep Me', symmetry: 8, version: '1.0' }]))); await p.reload({ waitUntil: 'load' }); await sleep(2000);
+await fill(); await p.click('#btn-preset-trigger'); await sleep(300);
+const delBtn = await p.$('#user-presets-list .del-user-preset'); if (delBtn) { await delBtn.click(); await delBtn.dispose(); } await sleep(400);
+const dt = (await p.evaluate(() => document.getElementById('toast-banner').innerText)).replace(/\s+/g, ' ');
+const listAfter = await p.evaluate(() => JSON.parse(localStorage.getItem('mobius_custom_presets') || '[]').map(x => x.name));
+console.log('INFO delete under full storage -> toast:', dt, '| stored list:', JSON.stringify(listAfter));
+check('delete under a full storage: either it succeeds (shrinking data always fits) or the user is told it failed', listAfter.length === 0 || /Could not update/.test(dt), dt + JSON.stringify(listAfter));
+await p.keyboard.press('Escape'); await sleep(200); await free();
+const b2 = new Set(files(dl)); await p.click('#btn-preset-trigger'); await sleep(300); await p.$eval('#preset-name-input', e => e.value = ''); await p.type('#preset-name-input', 'After Quota'); await p.click('#btn-preset-save'); await sleep(900);
+const stored = await p.evaluate(() => JSON.parse(localStorage.getItem('mobius_custom_presets') || '[]').map(x => x.name));
+check('after storage is freed, Save works normally again (kept in the browser and downloaded)', stored.includes('After Quota') && files(dl).filter(x => !b2.has(x)).length === 1 && /Saved preset: "After Quota"/.test(await p.evaluate(() => document.getElementById('toast-banner').innerText)), JSON.stringify(stored));
+await p.keyboard.press('Escape'); await sleep(200);
+await p.reload({ waitUntil: 'load' }); await sleep(2000); await fill(); const e0 = log.pageErrors.length; await p.evaluate(() => document.getElementById('btn-mode-explore').click()); await p.keyboard.press('3'); await sleep(300);
+check('with storage full, ordinary use (Explore, Randomize) is unaffected', log.pageErrors.length === e0 && (await p.evaluate(() => window.__app.mode)) === 'explore');
+await free();
+done(); await S.browser.close();
