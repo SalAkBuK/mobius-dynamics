@@ -105,7 +105,7 @@ Items marked *(code-verified)* were confirmed in source but not reproduced visua
 
 ## 3. Screenshot index
 
-**In the repo (`ui_audit_screenshots/`, 8 representative JPEGs from the baseline audit):**
+**In the repo (`docs/ui/screenshots/`, 8 representative JPEGs from the baseline audit):**
 
 | File | State |
 |---|---|

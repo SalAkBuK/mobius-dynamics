@@ -1,0 +1,9 @@
+{
+  "name": "mobius-release-checks",
+  "private": true,
+  "type": "module",
+  "description": "Real-browser release checks for the Möbius Complex Dynamics Laboratory (run against a deployed URL).",
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}

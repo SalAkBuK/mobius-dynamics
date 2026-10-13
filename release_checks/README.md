@@ -34,7 +34,7 @@ node rc_urlparams.mjs https://mobius-dynamics.vercel.app/ ./out/url   chrome   #
 
 Use `edge` instead of `chrome` for Edge. The first argument is the URL under test; the second is a scratch
 directory (deleted and recreated; it holds the profile and the Downloads folder). Exit code is non-zero if any
-check FAILs. `KNOWN-MINOR` lines are recorded minor findings (see `RELEASE_CANDIDATE_REPORT.md`); they print
+check FAILs. `KNOWN-MINOR` lines are recorded minor findings (see `docs/RELEASE_CANDIDATE_REPORT.md`); they print
 `PASS` if the finding stops reproducing.
 
 > These scripts really download PNG/JSON files. They write them to the scratch directory you pass as the second

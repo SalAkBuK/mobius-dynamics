@@ -1,5 +1,7 @@
 # Release-Candidate Report — Möbius Complex Dynamics Laboratory
 
+> **Layout note:** this report was written against the flat repository root. After publication the repository was organized into folders without changing any production file: runners and suites are now under `tests/`, and the path map is in [`REPO_LAYOUT.md`](REPO_LAYOUT.md). `release_checks/` did not move.
+
 Audit date: 2026-10-12. Scope: find any user-facing defect that should block a public release. This was not a redesign, refactor, feature or optimization pass, and **no production file was changed** by this audit.
 
 Summary at the original audit (build `3d334ab`): 0 blockers, 0 major issues, 12 minor issues (§21). Verdict in §24.

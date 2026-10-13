@@ -9,13 +9,14 @@ import re
 import subprocess
 import tempfile
 import threading
+from testserver import REPO_ROOT, SearchPathHandler   # serves repo root first, then tests/* (see testserver.py)
 
 
 def run(page, timeout):
     result = []
     done = threading.Event()
 
-    class Handler(http.server.SimpleHTTPRequestHandler):
+    class Handler(SearchPathHandler):
         def do_GET(self):
             path = Path(self.translate_path(self.path))
             if path.is_file() and path.suffix == '.html':
@@ -40,7 +41,7 @@ def run(page, timeout):
         def log_message(self, *args):
             pass
 
-    handler = functools.partial(Handler, directory=str(Path(__file__).resolve().parent))
+    handler = functools.partial(Handler, directory=str(REPO_ROOT))
     with http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler) as server:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         chrome = os.environ.get('CHROME', r'C:\Program Files\Google\Chrome\Application\chrome.exe')

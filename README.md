@@ -61,3 +61,15 @@ npx serve .
 ```
 
 Open `http://localhost:8000` in any modern browser supporting WebGL2.
+
+## Repository layout
+
+The root holds the application: `index.html` and the ES modules it loads (`app.js`, `renderer.js`, `math.js`, `adaptive.js`, `profiler.js`, `preset_validation.js`). Everything else is engineering material in folders:
+
+| Folder | Contents |
+| :--- | :--- |
+| [`docs/`](docs/README.md) | [Release-candidate report](docs/RELEASE_CANDIDATE_REPORT.md), [hardening report](docs/HARDENING_REPORT.md), [UI/UX audit](docs/ui/UI_UX_AUDIT.md), archived issue reports and experiments |
+| [`tests/`](tests/README.md) | the regression and hardening suite (`python tests/run_all.py`) |
+| [`benchmarks/`](benchmarks/README.md) | performance and quality measurement tooling |
+| [`scripts/`](scripts/README.md) | verification, capture and probing utilities |
+| [`release_checks/`](release_checks/README.md) | real-browser checks run against the deployed site |

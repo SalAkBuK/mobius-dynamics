@@ -1,5 +1,7 @@
 # Functionality hardening, Issues 5–15
 
+> **Layout note:** file names in this report (`run_browser_regressions.py`, `test_issue*.html`, `hardening_test_helpers.js` …) are the original flat-root names. The repository was later organized into folders; see [`REPO_LAYOUT.md`](REPO_LAYOUT.md) for where each file lives now. Run the whole gate with `python tests/run_all.py`.
+
 Starting origin/main: `7078f94d59f5c988070e677ff08d80957d290619`.
 Each issue is reproduced/audited before its production changes, tested and pushed separately.
 The ordered pass is complete. No UI redesign, canonical math, Master quality, export resolution or tier-exposure policy changes.

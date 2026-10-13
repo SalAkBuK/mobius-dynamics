@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+from testserver import REPO_ROOT, SearchPathHandler   # serves repo root first, then tests/* (see testserver.py)
 import time
 from urllib.request import Request, urlopen
 import websocket
@@ -15,11 +16,11 @@ import websocket
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--baseline',action='store_true')
 args=parser.parse_args()
-root=Path(__file__).resolve().parent
+root=REPO_ROOT
 results=[]
 def check(name,passed,details=''):
     results.append(dict(name=name,passed=bool(passed),details=details))
-class Handler(http.server.SimpleHTTPRequestHandler):
+class Handler(SearchPathHandler):
     def log_message(self,*args):pass
 with http.server.ThreadingHTTPServer(('127.0.0.1',0),functools.partial(Handler,directory=str(root))) as server, tempfile.TemporaryDirectory(prefix='mobius-background-') as profile:
     threading.Thread(target=server.serve_forever,daemon=True).start()

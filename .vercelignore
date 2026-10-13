@@ -25,3 +25,15 @@ test_out.txt
 !vercel.json
 
 .vercel
+
+# Deploy only the application. Everything below is engineering/documentation material that stays in the repository.
+tests/
+benchmarks/
+scripts/
+docs/
+release_checks/
+.workbench/
+issue3_results/
+*.py
+*.md
+*.crdownload

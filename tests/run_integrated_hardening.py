@@ -7,12 +7,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+from testserver import REPO_ROOT, SearchPathHandler   # serves repo root first, then tests/* (see testserver.py)
 import time
 from urllib.request import Request, urlopen
 import websocket
 
-root = Path(__file__).resolve().parent
-class Handler(http.server.SimpleHTTPRequestHandler):
+root = REPO_ROOT
+class Handler(SearchPathHandler):
     def log_message(self, *args):
         pass
 with http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Handler, directory=str(root))) as server, tempfile.TemporaryDirectory(prefix='mobius-integrated-') as profile:

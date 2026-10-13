@@ -9,13 +9,14 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+from testserver import REPO_ROOT, SearchPathHandler   # serves repo root first, then tests/* (see testserver.py)
 import time
 from urllib.request import urlopen
 
 import websocket
 from PIL import Image, ImageChops
 
-root = Path(__file__).resolve().parent
+root = REPO_ROOT
 artifacts = root / 'issue3_results'
 artifacts.mkdir(exist_ok=True)
 done = threading.Event()
@@ -25,7 +26,7 @@ cdp = None
 sequence = 0
 
 
-class Handler(http.server.SimpleHTTPRequestHandler):
+class Handler(SearchPathHandler):
     def do_POST(self):
         global sequence
         payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
