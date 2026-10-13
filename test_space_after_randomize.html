@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><script type="module">
+// M-5: after a MOUSE click on Randomize the button must not stay focused (native Space would re-activate it and replace the
+// artwork); keyboard activation must keep normal button focus; no broad blur; nothing fires behind an open dialog.
+// Native Space-on-a-focused-button activation cannot be synthesized, so this asserts the two things that decide it:
+// which element is focused afterwards, and what the app's Space handler does for that target. The trusted-key end to end
+// is verified in a real browser (see RELEASE_CANDIDATE_REPORT.md).
+import {boot,explore,sleep,until,reporter} from './hardening_test_helpers.js';
+const {check,finish}=reporter();
+try{
+  const {app,w}=await boot(),d=w.document,$=id=>d.getElementById(id);
+  explore(app);app.setMode('explore');app.math.evolving=true;
+  let randomized=0;const orig=app.randomize.bind(app);app.randomize=(...a)=>{randomized++;return orig(...a);};
+  const key=(k,target=d.activeElement||d.body)=>{const ev=new w.KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true});target.dispatchEvent(ev);return ev;};
+  const mouseClick=el=>{el.focus();el.dispatchEvent(new w.MouseEvent('click',{bubbles:true,cancelable:true,detail:1}));};   // what a real pointer click delivers (detail = click count)
+  const btn=$('btn-randomize-action');
+
+  // ---------- A. pointer path
+  check('precondition: Explore with drift running',app.mode==='explore'&&app.math.evolving===true);
+  mouseClick(btn);
+  check('A1. a mouse click on Randomize randomizes exactly once',randomized===1,String(randomized));
+  check('A2. ...and the button no longer holds focus afterwards',d.activeElement!==btn&&!d.activeElement?.closest?.('button'),d.activeElement?.id||d.activeElement?.tagName);
+  const before=randomized,ev=key(' ');
+  check('A3. Space now reaches the shortcut: drift is paused and Randomize did NOT run again',app.math.evolving===false&&randomized===before&&ev.defaultPrevented===true,JSON.stringify([app.math.evolving,randomized-before]));
+  key(' ');check('A4. Space again resumes drift (documented pause/resume), still no second Randomize',app.math.evolving===true&&randomized===before);
+
+  // ---------- B. keyboard path keeps normal button semantics
+  btn.focus();const r0=randomized;btn.click();   // keyboard activation of a button produces a click with detail 0
+  check('B1. keyboard/programmatic activation (detail 0) randomizes once',randomized===r0+1);
+  check('B2. ...and the button KEEPS focus (no blur for keyboard users)',d.activeElement===btn);
+  const drift0=app.math.evolving,evB=key(' ',btn);
+  check('B3. Space on the keyboard-focused button is left to the browser: not handled as the shortcut, not cancelled',app.math.evolving===drift0&&evB.defaultPrevented===false&&randomized===r0+1);
+  btn.blur();
+
+  // ---------- C. no broad blur; other controls keep native behaviour
+  for(const id of ['btn-mode-explore','btn-mode-reference','btn-randomize-toggle']){
+    mouseClick($(id));
+    check(`C. mouse click on #${id} does not release focus (no global blur rule)`,d.activeElement===$(id),d.activeElement?.id||d.activeElement?.tagName);
+    const dr=app.math.evolving,e=key(' ',$(id));
+    check(`C. Space on a focused #${id} is not hijacked by the shortcut`,e.defaultPrevented===false&&app.math.evolving===dr);
+    $(id).blur();
+  }
+  app.closeDropdowns();app.setMode('explore');app.math.evolving=true;
+  const rnd=app.renderer;
+  // style items inside the menu still randomize and focus handling there is unchanged
+  $('btn-randomize-toggle').click();const item=d.querySelector('.rnd-style-btn[data-style="organic"]');item.focus();const r1=randomized;item.dispatchEvent(new w.MouseEvent('click',{bubbles:true,cancelable:true,detail:1}));
+  check('C. a style item from the menu still randomizes once',randomized===r1+1);
+  app.closeDropdowns();
+
+  // ---------- D. nothing fires behind an open dialog
+  app.setMode('explore');app.math.evolving=true;btn.blur();
+  app.openHelpModal();await sleep(50);
+  const r2=randomized,drift2=app.math.evolving;
+  for(const k of [' ','3','1','2','h']){key(k,d.activeElement||d.body);}
+  check('D. with a dialog open, Space / 3 / 1 / 2 / h change nothing behind it (no randomize, no pause, mode kept)',randomized===r2&&app.math.evolving===drift2&&app.mode==='explore'&&app.isModalOpen()&&!app.uiHidden);
+  app.closeHelpModal();
+
+  // ---------- E. the 3 key and the keyboard shortcut path are unchanged
+  const r3=randomized;key('3',d.body);check('E. the 3 shortcut still randomizes',randomized===r3+1);
+  // ---------- F. Reference mode: Space does nothing, Randomize still enters Explore
+  app.setMode('reference');mouseClick(btn);
+  check('F. mouse-clicking Randomize from Reference enters Explore and releases focus',app.mode==='explore'&&d.activeElement!==btn);
+}catch(e){check('runtime',false,e.stack);}await finish();
+</script>

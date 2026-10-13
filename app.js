@@ -991,7 +991,13 @@ export class App {
     this.btnModeExp?.addEventListener('click', () => this.requestMode('explore'));
 
     // Randomize direct button & dropdown toggle & styles
-    document.getElementById('btn-randomize-action')?.addEventListener('click', () => this.randomize());
+    document.getElementById('btn-randomize-action')?.addEventListener('click', (e) => {
+      this.randomize();
+      // A mouse/touch/pen click (detail > 0) must not leave this button as the focused element: Space would then
+      // activate it again (re-randomizing) instead of reaching the documented pause/resume shortcut. Keyboard
+      // activation (detail === 0) keeps normal button focus, so keyboard users are unaffected.
+      if (e.detail > 0) e.currentTarget.blur();
+    });
 
     const btnRandToggle = document.getElementById('btn-randomize-toggle');
     btnRandToggle?.addEventListener('click', (e) => {
